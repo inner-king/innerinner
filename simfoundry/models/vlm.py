@@ -34,6 +34,9 @@ def _has_patched_genai_client():
 
 def _get_genai_module():
     global genai, _GOOGLE_GENAI_IMPORTED
+    from simfoundry.models import local_backends
+    if local_backends.is_enabled():
+        return local_backends.genai_module
     if _has_patched_genai_client():
         return genai
     if not _GOOGLE_GENAI_IMPORTED:
@@ -146,6 +149,10 @@ def resolve_gemini_auth(project=None, location="global", api_key=None, backend=N
     key if one is configured and otherwise falls back to ADC. Override without
     touching code via SIMFOUNDRY_GEMINI_BACKEND.
     """
+    from simfoundry.models import local_backends
+    if local_backends.is_enabled():
+        # Served by local_backends.LocalGenAIClient; no Google credentials involved.
+        return {}, "local"
     backend = (backend or os.environ.get("SIMFOUNDRY_GEMINI_BACKEND") or "auto").lower()
     if backend not in ("auto", "api_key", "vertex"):
         raise ValueError(
