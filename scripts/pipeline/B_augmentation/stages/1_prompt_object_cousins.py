@@ -170,15 +170,17 @@ def parse_reasonableness_response(response_text):
     """
     text = response_text.strip()
 
+    # Quotes are optional so a JSON-shaped answer ("RealWorldReasonable": "yes") parses too; a
+    # local VLM sometimes answers that way and every attempt was otherwise rejected as invalid.
     def _match_bool(label):
-        m = re.search(rf"(?i){label}\s*[:\-]\s*(yes|no)\b", text)
+        m = re.search(rf"(?i){label}\"?\s*[:\-]\s*\"?(yes|no)\b", text)
         if not m:
             return None
         return m.group(1).strip().lower() == "yes"
 
     def _match_reason(label):
-        m = re.search(rf"(?i){label}\s*[:\-]\s*(.+)", text)
-        return m.group(1).strip() if m else None
+        m = re.search(rf"(?i){label}\"?\s*[:\-]\s*(.+)", text)
+        return m.group(1).strip().strip('",') if m else None
 
     real_world_reasonable = _match_bool("RealWorldReasonable")
     scene_reasonable = _match_bool("SceneReasonable")
