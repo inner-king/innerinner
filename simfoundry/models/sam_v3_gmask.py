@@ -11,6 +11,7 @@ import numpy as np
 import sam3
 from PIL import Image
 from sam3 import build_sam3_image_model
+from simfoundry.models.local_backends import sam3_checkpoint_kwargs
 from sam3.model_builder import build_sam3_video_predictor
 from sam3.model.box_ops import box_xywh_to_cxcywh
 from sam3.model.sam3_image_processor import Sam3Processor
@@ -56,6 +57,7 @@ class SAM3(torch.nn.Module):
                 bpe_path=bpe_path,
                 device=self.device,
                 enable_inst_interactivity=True,
+                **sam3_checkpoint_kwargs(),
             )
             model = Sam3Processor(
                 raw_model,

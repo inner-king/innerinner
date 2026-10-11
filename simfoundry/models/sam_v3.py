@@ -10,6 +10,7 @@ import numpy as np
 import sam3
 from PIL import Image
 from sam3 import build_sam3_image_model
+from simfoundry.models.local_backends import sam3_checkpoint_kwargs
 from sam3.model_builder import build_sam3_video_predictor
 from sam3.model.box_ops import box_xywh_to_cxcywh
 from sam3.model.sam3_image_processor import Sam3Processor
@@ -52,7 +53,9 @@ class SAM3(torch.nn.Module):
             gpus_to_use = range(torch.cuda.device_count()) if n_video_devices == -1 else n_video_devices
             model = build_sam3_video_predictor(gpus_to_use=gpus_to_use)
         else:
-            raw_model = build_sam3_image_model(bpe_path=bpe_path, enable_inst_interactivity=enable_inst_interactivity)
+            raw_model = build_sam3_image_model(
+                bpe_path=bpe_path, enable_inst_interactivity=enable_inst_interactivity, **sam3_checkpoint_kwargs()
+            )
             model = Sam3Processor(raw_model, confidence_threshold=confidence_threshold)
         self.model = model
         self.video = video
