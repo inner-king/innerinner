@@ -322,6 +322,28 @@ class Hunyuan(MeshGenerator):
             cfg.multiview_cfg_path = f"{self.REPO_PATH}/{cfg.multiview_cfg_path}"
             cfg.custom_pipeline = f"{self.REPO_PATH}/{cfg.custom_pipeline}"
             self.texture_pipeline = Hunyuan3DPaintPipeline(config=cfg)
+            if self.low_vram:
+                # The paint models (multiview UNet + DINOv2, ~6.6 GiB fp16) load straight onto the
+                # GPU; left there they OOM shape generation on a 12 GiB card. Keep them parked on
+                # the CPU and bring them up only inside generate_texture.
+                self._move_texture_models("cpu")
+                # The VAE decodes all views x materials in one batch (~1.5 GiB spike); decode
+                # them one at a time instead.
+                self.texture_pipeline.models["multiview_model"].pipeline.vae.enable_slicing()
+
+    def _texture_models(self):
+        multiview = self.texture_pipeline.models["multiview_model"]
+        models = [multiview.pipeline]
+        if getattr(multiview, "dino_v2", None) is not None:
+            models.append(multiview.dino_v2)
+        return models
+
+    def _move_texture_models(self, device):
+        import torch
+        for model in self._texture_models():
+            model.to(device)
+        if device == "cpu":
+            torch.cuda.empty_cache()
 
     def generate_shape(
         self,
@@ -384,7 +406,28 @@ class Hunyuan(MeshGenerator):
         assert self.texture_pipeline is not None, f"texture pipeline was not created for {self.__class__.__name__}!"
         assert prompt is None, f"Cannot use prompt when generating texture for {self.__class__.__name__}!"
         assert out_fpath.endswith(".glb"), f"out_fpath must end with .glb, got: {out_fpath}"
-        textured_mesh_path = self.texture_pipeline(shape_fpath, image_path=image_path, use_remesh=use_remesh)
+        if self.low_vram:
+            if self.shape_pipeline is not None:
+                # accelerate's offload chain leaves the last-run shape sub-model (VAE) on the GPU.
+                self.shape_pipeline.maybe_free_model_hooks()
+            self._move_texture_models("cuda")
+            # Baking renders at 2048 px into a 4096 px atlas and needs the room the diffusion models
+            # occupy (it OOMed on a thin object with them resident); they are done by then, so park
+            # them on the CPU as baking starts.
+            view_processor = self.texture_pipeline.view_processor
+            bake = view_processor.bake_from_multiview
+
+            def bake_with_models_parked(*args, **kwargs):
+                self._move_texture_models("cpu")
+                return bake(*args, **kwargs)
+
+            view_processor.bake_from_multiview = bake_with_models_parked
+        try:
+            textured_mesh_path = self.texture_pipeline(shape_fpath, image_path=image_path, use_remesh=use_remesh)
+        finally:
+            if self.low_vram:
+                view_processor.bake_from_multiview = bake
+                self._move_texture_models("cpu")
         textured_mesh_path_glb = textured_mesh_path.replace(".obj", ".glb")
         # Published atomically: the streaming watcher keys on this filename, and a
         # multi-tens-of-MB copy is long enough for a consumer to open it half-written.
