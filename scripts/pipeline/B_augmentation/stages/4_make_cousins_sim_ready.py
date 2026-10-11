@@ -143,7 +143,7 @@ def main(cfg):
 
         # Query VLM to annotate mass / friction
         scale = obj_info["z_up"]["scale"]
-        tm = trimesh.load(mesh_path, process=True)
+        tm = trimesh.load(mesh_path, process=True, force="mesh")  # a .glb loads as a Scene otherwise (as stage 8 does)
         tm.apply_scale(scale)
         # Yaw-canonicalize the cousin front so it matches the original's convention.
         if cfg.sim.get("canonicalize_front", True):
