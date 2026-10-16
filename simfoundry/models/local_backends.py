@@ -35,6 +35,11 @@ OLLAMA_MAX_TOKENS = int(os.environ.get("SIMFOUNDRY_OLLAMA_MAX_TOKENS", "4096"))
 # Layers to place on the GPU; unset lets Ollama fit what is free, 0 keeps the VLM entirely on CPU
 # so it never competes with SAM3 / ComfyUI for the 12 GB card.
 OLLAMA_NUM_GPU = os.environ.get("SIMFOUNDRY_OLLAMA_NUM_GPU")
+# Whether a thinking model reasons before answering: 0 sends think=false, 1 think=true; unset sends
+# nothing and the model keeps its default. Qwen3.5 thinks by default and needs 0: its reasoning counts
+# against OLLAMA_MAX_TOKENS, and while thinking it writes boxes in the [y, x] order a prompt asks for
+# rather than the order SYSTEM_PROMPT pins, so to_gemini_coordinates would swap them the wrong way.
+OLLAMA_THINK = os.environ.get("SIMFOUNDRY_OLLAMA_THINK")
 # Long side of images sent to the VLM. Coordinates are normalized, so downscaling only costs detail;
 # it bounds the visual-token count (and CPU time when the GPU is busy).
 VLM_MAX_SIDE = int(os.environ.get("SIMFOUNDRY_LOCAL_VLM_MAX_SIDE", "1280"))
@@ -214,6 +219,8 @@ def ollama_chat(prompt, images, temperature=0.0, seed=0, max_tokens=None, verbos
     }
     if OLLAMA_NUM_GPU not in (None, ""):
         body["options"]["num_gpu"] = int(OLLAMA_NUM_GPU)
+    if OLLAMA_THINK not in (None, ""):
+        body["think"] = OLLAMA_THINK.strip().lower() in {"1", "true", "yes", "on"}
     try:
         for attempt in range(2):
             t0 = time.time()
