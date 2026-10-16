@@ -11,6 +11,8 @@
 #   - av==12.3.0 (av 17.x dropped av.logging, which cascades into a bogus
 #     "cannot import name 'T5EncoderModel'" via torchvision)
 #   - numpy==1.26.4, rp (required by make_warped_noise.py)
+#   - pyarrow==20.0.0 (datasets otherwise pulls the newest pyarrow, 26.0.0 at the time,
+#     which needs numpy 2; under the numpy pin, importing transformers then fails in sklearn)
 # It also clones deps/void-model (code) and re-applies patches/void-model.patch
 # (the rp.save_video_mp4 libx264-overflow fix) and patches/void-model-low-vram.patch
 # (VOID_LOW_VRAM=1: tiled VAE decode and layer-wise CPU offload, for 12 GB GPUs).
@@ -97,8 +99,9 @@ mamba run -n "${env_name}" pip install -r "${VOID_DIR}/requirements.txt"
 # torch cu128 for sm_120 (RTX 5090 / Blackwell)
 mamba run -n "${env_name}" pip install --force-reinstall torch==2.7.1 torchvision==0.22.1 \
   --index-url https://download.pytorch.org/whl/cu128
-# av==12.3.0 (exports av.logging, which torchvision 0.22.1 needs); numpy pin; rp
-mamba run -n "${env_name}" pip install "av==12.3.0" "numpy==1.26.4" rp
+# av==12.3.0 (exports av.logging, which torchvision 0.22.1 needs); numpy pin and a
+# pyarrow that still supports numpy 1; rp
+mamba run -n "${env_name}" pip install "av==12.3.0" "numpy==1.26.4" "pyarrow==20.0.0" rp
 
 echo "Verifying void env..."
 mamba run -n "${env_name}" python -c "import av; av.logging.set_level(av.logging.ERROR); import torch, rp; print('void OK: torch', torch.__version__, '| av', av.__version__, '| cuda', torch.cuda.is_available())"
