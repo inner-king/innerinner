@@ -243,6 +243,13 @@ def main(cfg):
         # Single-chunk degenerate case: chunk_outputs[0] may be padded by temporal_padding;
         # truncate to n_total before publishing.
         stitched = chunk_outputs[0][:n_total]
+        if len(stitched) < n_total:
+            # ...or come back SHORTER: CogVideoX keeps (L-1)//4*4+1 frames, so a single chunk whose
+            # length is not 4k+1 (e.g. 160 -> 157) loses its tail, and Pass 2's later windows would
+            # read past the end. Hold the last frame; Pass 2 regenerates those frames from the input.
+            logger.warning("Pass 1 returned %d of %d frames; holding the last frame for the rest.",
+                           len(stitched), n_total)
+            stitched = np.concatenate([stitched, np.repeat(stitched[-1:], n_total - len(stitched), 0)])
     else:
         logger.info("Stitching %d Pass 1 chunks via linear cross-fade...", len(chunk_outputs))
         stitched = _stitch_with_crossfade(chunk_outputs, starts, counts, total_frames=n_total)
