@@ -1,0 +1,836 @@
+{
+ "task": "throw_away_trash",
+ "scene": "scenes/DROID/droid_desk_throw_away_trash/droid_desk_throw_away_trash_scene_state_latest.json",
+ "config": {
+  "grid_resolution": [
+   5,
+   5
+  ],
+  "seed": 42,
+  "randomize_pairings": true,
+  "pairing_anchor_object": null,
+  "objects": [
+   {
+    "name": "blue_cup_0",
+    "grid_size": [
+     0.2,
+     0.2
+    ],
+    "z_rot_range": [
+     0.0,
+     0.0
+    ]
+   }
+  ]
+ },
+ "physics_check": {
+  "n_physics_steps": 30,
+  "max_velocity_threshold": 0.05,
+  "max_displacement_threshold": 0.02,
+  "max_retries": 10,
+  "retry_perturbation": 0.02,
+  "max_swaps": 400
+ },
+ "init_states": [
+  {
+   "state_idx": 0,
+   "grid_row": 3,
+   "grid_col": 0,
+   "cells": {
+    "blue_cup_0": 15
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.623977,
+      0.1984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 1,
+   "grid_row": 3,
+   "grid_col": 1,
+   "cells": {
+    "blue_cup_0": 16
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.623977,
+      0.2484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.014
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 2,
+   "grid_row": 3,
+   "grid_col": 4,
+   "cells": {
+    "blue_cup_0": 19
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.623977,
+      0.3984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 3,
+   "grid_row": 4,
+   "grid_col": 0,
+   "cells": {
+    "blue_cup_0": 20
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.673977,
+      0.1984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 4,
+   "grid_row": 1,
+   "grid_col": 4,
+   "cells": {
+    "blue_cup_0": 9
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.523977,
+      0.3984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.014
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 5,
+   "grid_row": 1,
+   "grid_col": 2,
+   "cells": {
+    "blue_cup_0": 7
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.523977,
+      0.2984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0123
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 6,
+   "grid_row": 3,
+   "grid_col": 2,
+   "cells": {
+    "blue_cup_0": 17
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.623977,
+      0.2984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0117
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 7,
+   "grid_row": 4,
+   "grid_col": 4,
+   "cells": {
+    "blue_cup_0": 24
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.673977,
+      0.3984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 8,
+   "grid_row": 1,
+   "grid_col": 1,
+   "cells": {
+    "blue_cup_0": 6
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.523977,
+      0.2484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 9,
+   "grid_row": 2,
+   "grid_col": 0,
+   "cells": {
+    "blue_cup_0": 10
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.573977,
+      0.1984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0138
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 10,
+   "grid_row": 0,
+   "grid_col": 3,
+   "cells": {
+    "blue_cup_0": 3
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.473977,
+      0.3484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0112
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 11,
+   "grid_row": 0,
+   "grid_col": 0,
+   "cells": {
+    "blue_cup_0": 0
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.473977,
+      0.1984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0138
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 12,
+   "grid_row": 4,
+   "grid_col": 1,
+   "cells": {
+    "blue_cup_0": 21
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.673977,
+      0.2484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0117
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 13,
+   "grid_row": 3,
+   "grid_col": 3,
+   "cells": {
+    "blue_cup_0": 18
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.623977,
+      0.3484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.014
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 14,
+   "grid_row": 2,
+   "grid_col": 2,
+   "cells": {
+    "blue_cup_0": 12
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.573977,
+      0.2984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.014
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 15,
+   "grid_row": 1,
+   "grid_col": 0,
+   "cells": {
+    "blue_cup_0": 5
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.523977,
+      0.1984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0124
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 16,
+   "grid_row": 2,
+   "grid_col": 1,
+   "cells": {
+    "blue_cup_0": 11
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.573977,
+      0.2484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 17,
+   "grid_row": 2,
+   "grid_col": 4,
+   "cells": {
+    "blue_cup_0": 14
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.573977,
+      0.3984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0138
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 18,
+   "grid_row": 4,
+   "grid_col": 3,
+   "cells": {
+    "blue_cup_0": 23
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.673977,
+      0.3484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 19,
+   "grid_row": 0,
+   "grid_col": 2,
+   "cells": {
+    "blue_cup_0": 2
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.473977,
+      0.2984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0117
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 20,
+   "grid_row": 0,
+   "grid_col": 4,
+   "cells": {
+    "blue_cup_0": 4
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.473977,
+      0.3984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0139
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 21,
+   "grid_row": 4,
+   "grid_col": 2,
+   "cells": {
+    "blue_cup_0": 22
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.673977,
+      0.2984,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0126
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 22,
+   "grid_row": 0,
+   "grid_col": 1,
+   "cells": {
+    "blue_cup_0": 1
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.473977,
+      0.2484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0117
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 23,
+   "grid_row": 2,
+   "grid_col": 3,
+   "cells": {
+    "blue_cup_0": 13
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.573977,
+      0.3484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0124
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 24,
+   "grid_row": 1,
+   "grid_col": 3,
+   "cells": {
+    "blue_cup_0": 8
+   },
+   "objects": {
+    "blue_cup_0": {
+     "pos": [
+      0.523977,
+      0.3484,
+      0.041265
+     ],
+     "ori": [
+      -0.000449,
+      -0.000513,
+      -0.522652,
+      0.852546
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "blue_cup_0": {
+      "displacement": 0.0002,
+      "velocity": 0.0125
+     }
+    },
+    "retries": 0
+   }
+  }
+ ]
+}

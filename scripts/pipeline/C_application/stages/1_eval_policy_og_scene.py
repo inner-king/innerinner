@@ -40,6 +40,7 @@ from simfoundry import import_og_dependencies, CFG_DIR as SIMFOUNDRY_CFG_DIR, AS
 from simfoundry.utils.processing_utils import dump_json, resize_with_pad
 from simfoundry.utils.python_utils import resolve_task_config_path
 from simfoundry.utils.og_utils import (
+    apply_scene_masses,
     apply_teleop_omnigibson_macros,
     set_obj_materials,
     setup_task_status_ui,
@@ -395,6 +396,10 @@ def main(cfg):
             for link in obj.links.values():
                 for mesh in link.collision_meshes.values():
                     mesh.apply_physics_material(default_mat)
+
+        # Masses the scene records, if any (none of the published scenes carries one).
+        for obj_name, (old_mass, new_mass) in apply_scene_masses(env, og_scene_json).items():
+            print(f"[mass] {obj_name}: {old_mass:.3f} -> {new_mass:.3f} kg (from the scene)")
 
     # Update camera params
     for sensor_name, sensor in robot.sensors.items():

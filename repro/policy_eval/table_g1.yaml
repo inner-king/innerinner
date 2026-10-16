@@ -1,0 +1,123 @@
+# Table G.1 simulation evaluation: per-task settings (repro/README.md, chapter 18). Read by
+# sample_init_states.py (init_states) and run_table_g1.sh (everything else).
+#
+#   scene            the authors' scene, under assets/scenes/ (hf nadunRanawaka1/simfoundry-assets)
+#   task             repro/policy_eval/tasks/<task>.yaml
+#   prompt           the instruction of paper App. I.2, lower-cased without the final period, as the
+#                    repository's own eval configs write the two they share (stack_dishware.yaml,
+#                    ServeFruitsOnGreenPlate.yaml)
+#   timeout_s        the repository's eval config for the task where there is one (PutMarkerInCup.yaml,
+#                    ServeFruitsOnGreenPlate.yaml, stack_dishware.yaml); 120 s, Serve Fruits', for the two
+#                    four-step tasks that have none
+#   execute_horizon  likewise (8, 24, 8); 8, the repository default, for the two without one. The eval stage
+#                    executes min(horizon, chunk): pi0 returns 10 actions, pi0.5 15
+#   paper            Table G.1's simulation success rate (%), paper_real its real-world one. For Stack
+#                    Dishware, Store Marker and Throw Away Trash those rows are policies finetuned on 50 real
+#                    demos (paper Sec. 5.1, App. H), not the public checkpoints evaluated here; paper_base is
+#                    what the paper's FAQ 6 reports for the public checkpoints on those tasks (the setting is
+#                    not stated; it reads as real-world).
+#   init_states      25 fixed starts, one 5x5 grid per object (paper App. J.1), in the schema of
+#                    scripts/cfg/sample_init_states/example.yaml. grid_size is the grid's full extent around
+#                    the object's position in the scene. Stack Dishware's grids are that file's, which is
+#                    written for this scene. Marker in Cup and Serve Fruits use the ranges of the
+#                    repository's task configs for the scene (scripts/cfg/task/droid/*.yaml,
+#                    group_xyz_randomization +-r -> 2r, group_z_rot_randomization). Store Marker and Throw
+#                    Away Trash have no such config: 20 x 20 cm for the object the robot picks, +-30 deg
+#                    (the example's mug range) for the marker, none for the round cup; the organizer and
+#                    the can are fixed-base and stay put.
+tasks:
+  marker_in_cup:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json
+    task: table_g1_marker_in_cup
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88}
+    paper_real: {pi0: 40, pi05: 92}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_undupl_2, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: cream_mug_bpupsc_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+  serve_fruits:
+    scene: scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+    task: table_g1_serve_fruits
+    prompt: "put both the banana and the apple on the green plate"
+    timeout_s: 120
+    execute_horizon: 24
+    paper: {pi0: 4, pi05: 80}
+    paper_real: {pi0: 0, pi05: 72}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: teal_tray_tdxtsb_5
+      objects:
+        - {name: yellow_banana_yvjcfy_3, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: red_apple_zlgmzo_2, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: teal_tray_tdxtsb_5, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+        - {name: yellow_pear_uckunr_0, grid_size: [0.25, 0.25], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_fruit_rofqtq_4, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_square_plate_rfnrye_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+  stack_dishware:
+    scene: scenes/DROID/droid_desk_stack_dishware/droid_desk_stack_dishware_scene_state_latest.json
+    task: table_g1_stack_dishware
+    prompt: "put the bowl on the plate, then put the cup in the bowl"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 34, pi05: 64}
+    paper_real: {pi0: 100, pi05: 100}
+    paper_base: {pi0: 52, pi05: 48}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: green_plate_zritke_0
+      objects:
+        - {name: cream_mug_bpupsc_1, grid_size: [0.30, 0.20], z_rot_range: [-0.524, 0.524]}
+        - {name: blue_bowl_jpkksu_2, grid_size: [0.30, 0.20], z_rot_range: [-0.124, 0.0]}
+        - {name: green_plate_zritke_0, grid_size: [0.20, 0.30], z_rot_range: [-0.124, 0.0]}
+  store_marker:
+    scene: scenes/DROID/droid_desk_store_marker/droid_desk_store_marker_scene_state_latest.json
+    task: table_g1_store_marker
+    prompt: "open drawer, pick up marker, place marker in drawer, then close drawer"
+    timeout_s: 120
+    execute_horizon: 8
+    paper: {pi0: 4, pi05: 20}
+    paper_real: {pi0: 48, pi05: 60}
+    paper_base: {pi0: 0, pi05: 0}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_undupl_1, grid_size: [0.20, 0.20], z_rot_range: [-0.524, 0.524]}
+  throw_away_trash:
+    scene: scenes/DROID/droid_desk_throw_away_trash/droid_desk_throw_away_trash_scene_state_latest.json
+    task: table_g1_throw_away_trash
+    prompt: "open the trash can, pick up the cup, put the cup into the trash can, and then close the trash can"
+    timeout_s: 120
+    execute_horizon: 8
+    paper: {pi0: 0, pi05: 4}
+    paper_real: {pi0: 20, pi05: 48}
+    paper_base: {pi0: 0, pi05: 0}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: blue_cup_0, grid_size: [0.20, 0.20], z_rot_range: [0.0, 0.0]}
+policies:
+  pi0:
+    checkpoint: pi0_droid_jointpos
+    config: pi0_droid_jointpos_polaris
+    port: 8000
+  pi05:
+    checkpoint: pi05_droid_jointpos
+    config: pi05_droid_jointpos_polaris
+    port: 8001

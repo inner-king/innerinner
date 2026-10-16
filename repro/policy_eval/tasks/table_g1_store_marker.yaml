@@ -1,0 +1,89 @@
+# Table G.1 "Store Marker" on the authors' scene droid_desk_store_marker (repro/README.md, chapter 18).
+# The repository ships no task config for this scene. Rubric (paper App. I.2): 1. open cabinet drawer
+# 2. pick up marker 3. place marker in drawer 4. close drawer. The drawer is the organizer's wide middle one,
+# drawer_1_link (the one opened in the paper's photo, figs/imgs/DROID_tasks/cropped/PutAwayMarker.jpg).
+# Success: the marker inside that drawer, every drawer closed, the robot not touching the marker.
+# JointClosed takes the closed end from here (repro/README.md, chapter 18); all three drawers close at their
+# lower limit, which is also what OmniGibson's Open assumes.
+# No randomization here: every episode starts from a fixed init state (5x5 grid, paper App. J.1), applied
+# by the eval stage after reset (s15_eval.init_states_path).
+task_name: table_g1_store_marker
+og_task_config:
+  type: PickPlaceTask
+  activity_name: ${task_name}
+  semantic_group_mapping:
+    robot: [agent]
+    marker: [red_marker]
+    organizer: [wooden_desktop_organizer]
+  init_predicates_all: null
+  init_predicates_any: null
+  init_predicates_specific: null
+  goal_predicates_all:
+    - state: InsideAABB
+      value: true
+      group: marker
+      other_group: organizer
+      state_kwargs:
+        link_name: drawer_1_link
+        volume_threshold: 0.50
+    - state: JointClosed
+      value: true
+      group: organizer
+      state_kwargs:
+        closed_end: lower
+  goal_predicates_any:
+    - state: Touching
+      state_kwargs: null
+      value: false
+      group: robot
+      other_group: marker
+  goal_predicates_specific: null
+  milestone_predicates:
+    - name: opened_drawer
+      state: JointClosed
+      state_kwargs:
+        joint_names: [wooden_desktop_organizer_base_link_to_drawer_1_link]
+        closed_end: lower
+      value: false
+      group: organizer
+      requires: []
+    - name: picked_marker
+      state: IsGrasping
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: marker
+      requires: []
+    - name: marker_in_drawer
+      state: InsideAABB
+      state_kwargs:
+        link_name: drawer_1_link
+        volume_threshold: 0.50
+      value: true
+      group: marker
+      other_group: organizer
+      requires: []
+    - name: closed_drawer
+      state: JointClosed
+      state_kwargs:
+        closed_end: lower
+      value: true
+      group: organizer
+      requires: [marker_in_drawer]
+  robot_pose: null
+  robot_xyz_randomization: null
+  robot_z_rot_randomization: null
+  robot_joint_randomization: null
+  camera_look_at_point: null
+  group_init_relative_poses: null
+  group_xyz_randomization: null
+  group_z_rot_randomization: null
+  group_predicate_placement: null
+  workspace_bounds: null
+  additional_objects: null
+  termination_config:
+    max_steps: 1000
+  reward_config:
+    r_potential: 1.0
+  include_obs: false
+  hdr_background_name: null

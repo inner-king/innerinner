@@ -14,7 +14,7 @@
 | Digital cousin·태스크 생성 (Pipeline B) | 재현 (로컬 모델로 대체) | 코드 공개 |
 | OmniGibson 로딩·물리 스모크 테스트 (Pipeline C) | 재현 | 코드 공개 |
 | 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정. 3060(7장)과 96 GB G4(17장) |
-| 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽(공개 π0/π0.5-DROID를 저자 공개 장면 5개에서 평가)은 원칙적으로 재현 가능하나 미수행 (12장 참고) |
+| 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽은 재현: 저자 공개 장면 5개에서 공개 π0·π0.5-DROID(18장), 우리 복원 장면과 GR00T N1.6(19장) |
 | 기하 정확도 Chamfer/F1 (Table L.2) | 불가 | YCB 장면의 준정답(quasi-GT) 스캔 미공개 |
 | 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
 
@@ -138,6 +138,7 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | Digital cousin (형상·위상·외관 변형) | Gemini 텍스트 + 이미지 | 변형 제안과 이미지·메시 생성 성공(더 긴 컵, 손잡이가 바뀐 가위). 장면 변형 2/2 유효 | 재현됨 (로컬 모델) |
 | 태스크 제안 | | 2개 PickPlaceTask 생성 | 재현됨 |
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
+| Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문을 바꿔도 같음) |
 | 정책 학습·sim-real 상관 (0.911)·성공률 개선 (+17/21/40%) | | 코드 미공개, 실제 로봇 필요 | 재현 불가 |
 
 **결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과(sim-to-real 정책 성능)는 데이터 생성·학습 코드가 공개되지 않았고 실제 로봇이 필요해서 재현할 수 없습니다.
@@ -266,7 +267,7 @@ python repro/scripted_pick_place.py --scene put_cup_in_bowl_v2 \
 **한계**
 - 사람이 설계한 웨이포인트 동작이라 정책 성능과는 무관합니다.
 - 장면당 1회 시연이므로 성공률이 아닙니다.
-- 논문 Table G.1(공개 π0/π0.5 정책의 시뮬 성공률) 재현은 별도 작업입니다. 저장소에 평가 코드(`C_application/stages/1_eval_policy_og_scene.py`, `simfoundry/policies/openpi.py`)가 있어 시도는 가능합니다.
+- 논문 Table G.1(공개 π0/π0.5 정책의 시뮬 성공률)은 18장에서 저장소 평가 코드(`C_application/stages/1_eval_policy_og_scene.py`, `simfoundry/policies/openpi.py`)로 재현했습니다.
 
 **디버깅 메모** (진단 스크립트: `repro/diag/diag_*.py`)
 - 리셋 자세의 그리퍼는 수직에서 25° 기울어 있습니다. 접근 축은 반드시 hand→eef 방향(eef 로컬 +z)으로 잡아야 합니다.
@@ -423,6 +424,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
+| `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
 | `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기, 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV | 19 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
@@ -826,6 +828,193 @@ repro/g4/check_bg_variant.sh put_cup_in_bowl_bg_g4 sreg_sh0_depth2_30k_carve ite
 ```
 
 조작 시연에 쓰려면 `repro/scripted_pick_place.py --scene-file assets/scenes/<scene>_<variant>/<scene>_<variant>_scene_state_auto_bg.json`으로 엽니다.
+
+## 18. Table G.1의 시뮬레이션 쪽: 저자 장면 5개에서 공개 π0·π0.5-DROID 평가 (2026-10-16~17)
+
+Table G.1은 같은 정책을 실제 로봇과 SimFoundry 장면에서 평가한 성공률을 나란히 놓은 표입니다. 이 장에서는 그중 시뮬레이션 쪽을 다시 돌렸습니다. 정책은 공개된 π0-DROID와 π0.5-DROID(openpi 관절 위치 체크포인트)이고, 장면은 저자가 공개한 DROID 장면 5개, 평가 코드는 저장소의 평가 단계입니다. 과제·정책마다 25에피소드씩 돌렸고, 스크립트는 `repro/policy_eval/`에 있습니다. 19장은 여기에 우리 복원 장면과 GR00T N1.6을 더합니다.
+
+**무엇과 비교할 수 있나.** 논문 5.1절과 부록 H에 따르면 Table G.1의 행은 두 종류입니다.
+- **Marker in Cup, Serve Fruits**: 사전학습 정책을 미세조정 없이 평가한 행입니다. 공개 체크포인트와 같은 정책이므로 **직접 비교**할 수 있습니다. 같은 종류의 Cup in Bowl·Clear Table은 저자 장면이 공개되지 않았습니다(19장).
+- **Stack Dishware, Store Marker, Throw Away Trash**: 실제 시연 50개로 **미세조정한** 정책의 행입니다. 그 체크포인트는 공개되지 않았으므로, 여기서 돌린 공개 체크포인트의 수치는 Table G.1과 다른 정책의 결과입니다. 대신 논문 FAQ 6이 공개 체크포인트의 성공률을 적어 두었습니다(Store Marker·Throw Away Trash 0%, Stack Dishware π0 52%, π0.5 48%). 시뮬레이션인지 실제인지는 명시돼 있지 않습니다. 문맥(sim-to-real 실험, "sim-only 미세조정으로 100%")으로 보아 실제 로봇 수치로 보입니다.
+
+### 18.1 결과
+
+| 과제 | 정책 | 이 재현 (25회) | 95% 구간 | 논문 시뮬 | 논문 실제 | 논문 FAQ 6 (공개 체크포인트) |
+|---|---|---|---|---|---|---|
+| Marker in Cup | π0 | **4/25 = 16%** | 6–35% | 40 | 40 | |
+| | π0.5 | **13/25 = 52%** | 33–70% | 88 | 92 | |
+| Serve Fruits | π0 | **0/25 = 0%** | 0–13% | 4 | 0 | |
+| | π0.5 | **22/25 = 88%** | 70–96% | 80 | 72 | |
+| Stack Dishware | π0 | **0/25 = 0%** | 0–13% | 34* | 100* | 52 |
+| | π0.5 | **16/25 = 64%** | 45–80% | 64* | 100* | 48 |
+| Store Marker | π0 | **0/25 = 0%** | 0–13% | 4* | 48* | 0 |
+| | π0.5 | **1/25 = 4%** | 1–20% | 20* | 60* | 0 |
+| Throw Away Trash | π0 | **0/25 = 0%** | 0–13% | 0* | 20* | 0 |
+| | π0.5 | **0/25 = 0%** | 0–13% | 4* | 48* | 0 |
+
+\* 미세조정한 정책의 값입니다. 여기서 평가한 공개 체크포인트와는 다른 정책입니다.
+
+95% 구간은 Wilson 구간입니다. 논문도 칸마다 25회를 돌렸습니다(부록 J.1).
+
+- **직접 비교할 수 있는 두 과제**:
+  - **Serve Fruits는 맞습니다.** π0.5 88%(논문 시뮬 80%), π0 0%(논문 4%)입니다. π0.5는 바나나와 사과를 25회 모두 집어 접시에 올렸습니다(사과 놓기 92%).
+  - **Marker in Cup은 두 정책 모두 낮습니다.** π0.5 52%(논문 88%)와 π0 16%(논문 40%)입니다. 25회짜리 두 비율의 차이를 Fisher 정확 검정으로 보면 π0.5는 p = 0.01, π0는 p = 0.11입니다.
+  - 두 정책의 순서(π0.5 > π0)는 두 과제 모두 논문과 같습니다.
+  - 19장의 GR00T N1.6은 같은 Marker in Cup 장면, 같은 시작 상태에서 5/25(20%)로 논문 28%와 맞습니다. 그러니 이 장면에서 어긋나는 것은 openpi 두 정책입니다.
+- **미세조정 행의 세 과제**:
+  - 공개 π0.5는 Stack Dishware에서 64%(16/25)입니다. 논문의 미세조정 π0.5 시뮬 값(64%)과 같고, FAQ의 공개 체크포인트 값(48%)보다 높습니다.
+  - Store Marker와 Throw Away Trash는 FAQ대로 거의 0입니다. 다만 π0.5가 Store Marker를 한 번 끝까지 해냈습니다. 영상으로 확인하니 서랍 열기, 마커 넣기, 서랍 닫기를 모두 했습니다.
+  - Store Marker에서 π0.5는 가운데 서랍을 25회 중 11회 실제로 열지만, 마커를 집은 것은 2회입니다. π0는 서랍을 한 번도 열지 않고 마커부터 집습니다(68%).
+  - Throw Away Trash에서는 두 정책 모두 컵은 집지만(π0 64%, π0.5 80%) 뚜껑을 제대로 연 것은 각각 1회입니다.
+
+마일스톤별 비율(25회 중):
+
+| 과제 | 정책 | 마일스톤 |
+|---|---|---|
+| Marker in Cup | π0 / π0.5 | 마커 집기 88% / 100%, 컵 안 16% / 52% |
+| Serve Fruits | π0 / π0.5 | 바나나 집기 12% / 100%, 바나나 놓기 4% / 100%, 사과 집기 12% / 100%, 사과 놓기 12% / 92% |
+| Stack Dishware | π0 / π0.5 | 그릇 집기 68% / 88%, 그릇을 접시에 52% / 80%, 컵 집기 16% / 100%, 컵을 그릇에 0% / 76% |
+| Store Marker | π0 / π0.5 | 가운데 서랍을 실제로 엶† 0% / 44%, 마커 집기 68% / 8%, 서랍 안 0% / 8%, 서랍 모두 닫힘 0% / 4% |
+| Throw Away Trash | π0 / π0.5 | 뚜껑을 실제로 엶† 4% / 4%, 컵 집기 64% / 80%, 통 안 0% / 0%, 닫힘 0% / 0% |
+
+† 관절이 이동 범위의 30% 넘게 움직인 에피소드입니다(`analyze_rollouts.py`가 롤아웃에서 관절 궤적을 읽어 셈). 태스크 설정의 "열림" 마일스톤(범위의 5%)은 두 과제 모두 쓸 수 없었습니다. Store Marker는 서랍이 저절로 나오고(18.4), Throw Away Trash는 뚜껑이 5° 남짓 들썩이는 것까지 셉니다(마일스톤 값 π0 76%, π0.5 24%).
+
+### 18.2 무엇을 어떻게 돌렸나
+
+| 항목 | 이 재현 | 근거 |
+|---|---|---|
+| 장면 | HF `nadunRanawaka1/simfoundry-assets`의 `scenes/DROID/` 5개. Stack Dishware만 바닥면 높이를 바꿈(18.3) | 저자 공개 |
+| 정책 | `gs://openpi-assets/checkpoints/pi0_droid_jointpos`(12.0 GB), `pi05_droid_jointpos`(12.4 GB) | 부록 H: "DROID-pretrained joint-position versions" |
+| 정책 서버 | openpi `15a9616`의 `serve_policy.py`, 설정 `pi0_droid_jointpos_polaris` / `pi05_droid_jointpos_polaris` | `install_simfoundry.sh`가 주석 처리한 2.16단계가 고정한 커밋. sim-evals README와 같은 서버 설정. 모델은 현재 관절 기준 변화량을 내고 서버가 절대 관절 위치로 바꿈. 정규화 통계는 체크포인트의 것 |
+| 평가 코드 | `scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py`와 `simfoundry/policies/openpi.py` | 저장소. 평가 단계에는 장면에 기록된 질량을 적용하는 호출 하나만 더함(공개 장면에는 질량 기록이 없어 본 평가에는 영향 없음, 18.4) |
+| 관측·제어 | 저장소 기본값: 외부 카메라 2대(`nv_franka_droid`, 1280×720)와 손목 카메라 → 224×224, 관절 위치 제어 15 Hz, 물리 120 Hz, 그리퍼 반전·이진화, 장면의 보조 파지(assisted grasping) | 저장소 |
+| 로봇 시작 자세 | 매 에피소드 제어기의 리셋 자세 [0, −1.3, 0, −2.87, 0, 2.0, 0] | 저장소(평가 단계가 그대로 둠) |
+| 에피소드 | 과제·정책마다 25개. 시작 상태는 물체마다 5×5 격자이고, 두 정책이 같은 25개를 씀(`repro/policy_eval/init_states/`) | 부록 J.1 |
+| 지시문 | 부록 I.2의 문장(소문자, 마침표 없음) | 저장소 평가 설정 두 개가 같은 형태 |
+| 시간 제한·실행 지평 | 저장소 평가 설정이 있는 과제는 그 값(Marker in Cup 90 s·8, Serve Fruits 120 s·24, Stack Dishware 90 s·8). 없는 두 과제는 120 s·8. 평가 단계는 min(지평, 청크)만큼 실행(π0 청크 10, π0.5 15) | `PutMarkerInCup.yaml`, `ServeFruitsOnGreenPlate.yaml`, `stack_dishware.yaml` |
+| 성공 판정 | 과제별 태스크 설정의 목표 조건(`repro/policy_eval/tasks/`). 네 단계 과제는 논문 채점 기준의 마지막 상태(서랍·뚜껑까지 닫힘) | 저장소 설정, 부록 I.2 |
+
+시작 상태 격자(전체 폭, 회전 범위)는 다음과 같습니다.
+- Stack Dishware: `scripts/cfg/sample_init_states/example.yaml`이 바로 이 장면용이라 그 값을 그대로 썼습니다.
+- Marker in Cup, Serve Fruits: 그 장면의 저장소 태스크 설정에 있는 무작위화 범위를 썼습니다(±r → 2r).
+- Store Marker, Throw Away Trash: 설정이 없어서 집는 물체만 20×20 cm로 두었습니다. 마커는 ±30°로 돌리고(예시 설정의 머그 범위), 둥근 컵은 돌리지 않았습니다. 정리함과 쓰레기통은 고정 물체라 움직이지 않았습니다.
+
+### 18.3 저장소에 없어서 채운 것
+
+평가 코드는 그대로 썼지만, 공개 저장소만으로는 이 평가가 돌지 않았습니다.
+
+- **openpi 클라이언트**: `install_simfoundry.sh`의 openpi 단계(2.16)가 "학습 코드와 함께 나중에 공개" 주석과 함께 꺼져 있습니다. 그런데 평가 단계는 `openpi_client`를 무조건 import하므로 시작하자마자 실패합니다. 같은 커밋의 클라이언트를 simfoundry 환경에 설치했습니다.
+- **태스크 설정**:
+  - Store Marker와 Throw Away Trash는 태스크 설정이 아예 없습니다.
+  - Marker in Cup 설정(`task/droid/droid_desk_put_marker_in_cup.yaml`)은 컵을 `white_paper_cup_eomccs_1`로 지정합니다. 그런데 공개 장면에 있는 것은 `cream_mug_bpupsc_1`이라 그대로 쓰면 첫 리셋에서 멈춥니다.
+  - 다섯 개를 `repro/policy_eval/tasks/`에 새로 썼습니다. 목표 조건과 마일스톤은 저장소 설정을 따랐고, 설정이 없는 두 과제는 부록 I.2의 채점 기준대로 만들었습니다. Store Marker의 서랍은 논문 사진(그림 4)에서 여는 가운데 넓은 서랍(`drawer_1_link`)입니다.
+- **닫힘 판정**: OmniGibson의 `Open` 상태는 자산 메타데이터(`openable_joint_ids`)에서 여는 방향을 읽고, 메타데이터가 없으면 양의 방향을 여는 쪽으로 봅니다. 쓰레기통 뚜껑은 [−101°, 0]에서 0이 닫힌 상태라 `Open`이 거꾸로 읽힙니다(닫혀 있으면 열림). 그래서 닫힌 끝을 태스크 설정에서 받는 선택 상태 `JointClosed`를 `simfoundry/tasks/predicates.py`에 추가했습니다. 기본 임계값은 `Open`과 같은 범위의 5%입니다. 서랍 세 개는 모두 0이 닫힘이라 `Open`과 같은 결과를 냅니다.
+- **시작 상태 생성기**: 부록 J.1의 5×5 격자를 만드는 도구는 설정 형식(`scripts/cfg/sample_init_states/`)만 있고 스크립트가 없습니다. 같은 형식을 읽는 `repro/policy_eval/sample_init_states.py`를 썼습니다.
+  - 물체마다 25칸을 따로 섞어 짝짓습니다. 앵커 물체는 섞지 않습니다.
+  - 물리 30스텝 동안 2 cm 넘게 움직이거나 속도가 5 cm/s를 넘으면, 최대 2 cm 흔들어 다시 시도합니다.
+  - 격자끼리 겹쳐 그래도 안 되면 두 에피소드 사이에서 그 물체의 칸을 맞바꿉니다. 그래서 각 물체는 25칸을 정확히 한 번씩 씁니다.
+  - 결과: Marker in Cup, Store Marker, Throw Away Trash는 25개 모두 첫 시도에 통과했습니다. Serve Fruits는 물체 6개의 격자가 서로 겹쳐서 14개를 흔들어 다시 시도했고, 칸을 4번 맞바꿨습니다. Stack Dishware는 1개를 흔들고 칸을 2번 맞바꿨습니다.
+- **Stack Dishware 바닥 높이**:
+  - 이 장면만 droid_v2 배경을 그 배경의 등록 자세 그대로 둡니다. 그래서 그려진 책상 면이 z = 0이고(`droid_v2.background.json`의 `support_surface.canonical_height_m`), 저장된 물체도 z ≈ 0에 놓여 있습니다.
+  - 배경 메시에는 책상 면 충돌이 없어서, 보이지 않는 바닥면만이 물체를 받칩니다.
+  - 그런데 장면 JSON의 `ground_plane_info`는 −0.02입니다. 배경을 2.5 cm 낮춰 둔 다른 네 장면(droid_v1)의 값입니다.
+  - 저자 평가 설정(`task/droid_desk_stack_dishware_eval.yaml`)의 `ground_plane_z_offset: 0.02`는 이름과 달리 바닥 높이를 덮어씁니다(`apply_ground_plane_info`, 첫 공개 버전부터).
+  - 그래서 장면 값을 쓰면 물체가 책상 속으로 2 cm 가라앉고, 저자 설정을 쓰면 2 cm 뜹니다. 두 경우를 Isaac Sim에서 확인했습니다. 바닥을 그려진 책상 면인 0.0에 두었습니다.
+
+### 18.4 실패 분석과 시뮬레이션 품질
+
+Marker in Cup이 논문보다 낮은 원인으로 시뮬레이션 쪽 문제를 의심하고 확인했습니다. `repro/policy_eval/analyze_rollouts.py`는 평가가 남긴 롤아웃(스텝마다 직렬화된 시뮬레이터 상태)을 다시 불러와, 에피소드마다 물체의 기울기·들린 높이·최종 위치를 냅니다.
+
+**머그컵이 가볍습니다.**
+- 장면의 `cream_mug`는 USD에 질량 80 g이 들어 있습니다. 같은 크기(9.4×7.3×8.8 cm)의 도자기 머그는 300 g 안팎입니다.
+- π0.5 기준 실행에서는 실패 12회 중 5회에 컵이 45° 넘게 넘어졌습니다.
+- 그래서 질량만 300 g으로 바꾼 장면 사본으로 같은 25개 시작 상태를 다시 돌렸습니다(`repro/policy_eval/ablations/`).
+  - 질량은 장면 JSON의 `args.mass`로 기록했고, 평가 단계가 불러온 뒤 적용합니다(`og_utils.apply_scene_masses`, AGENTS.md가 소비자에게 권하는 방식). 이 USD는 80 g 기준의 관성도 지정하고 있어서 같은 비율로 키웠습니다.
+  - 물리 뷰에서 0.300 kg과 3.75배의 관성으로 읽히는 것을 확인했습니다(`ablations/check_scene_masses.py`).
+- 결과: 컵이 넘어진 에피소드는 0회가 됐지만, 성공은 **14/25(56%)**로 80 g일 때(13/25)와 같습니다(p = 1.0). 실패의 모양만 바뀌어, 컵을 넘어뜨리던 에피소드는 이제 마커를 컵 옆에 떨어뜨리거나 끝까지 들고 있습니다.
+- 두 실행을 합치면 같은 25개 시작 상태 중 9개는 둘 다 성공, 7개는 둘 다 실패, 9개는 결과가 갈렸습니다. 정책 샘플링의 무작위성이 커서, 두 실행을 합친 27/50(54%)이 이 설정의 더 나은 추정입니다. 이것도 논문 88%와는 다릅니다(p = 0.004).
+
+**충돌 형상은 입구를 조금만 좁힙니다.** 머그의 충돌 형상은 볼록 조각 32개이고 안이 비어 있습니다. 축을 따라 재 보면, 충돌 형상 안쪽 빈 반경(2.5–3.1 cm)은 그려진 안쪽 벽(2.8–3.3 cm)보다 2–3 mm 작습니다. 단면 약 2.5 cm인 마커에는 여유가 충분합니다.
+
+**실패의 대부분은 정책 쪽입니다.** 영상을 보면 π0.5는 마커를 매번 집어(100%) 컵 바로 위까지 세워 가져갑니다. 실패한 에피소드에서는 컵 옆에 떨어뜨린 뒤 다시 집으러 가지 않고, 남은 시간 동안 빈 책상 위를 맴돕니다.
+
+**카메라 위치와 지시문.** 남은 두 후보도 같은 25개 시작 상태로 시험했습니다.
+- 카메라: `nv_franka_droid_no_depth`는 왼쪽 카메라를, 기본 설정이 주석으로만 남긴 "calibrated" 위치(10 cm 바깥)에 둡니다. 깊이 출력도 끄지만 정책은 깊이를 쓰지 않습니다. 결과 **12/25(48%)**.
+- 지시문: 저장소 설정(`PutMarkerInCup.yaml`)의 "pick up the white marker, put the marker into the cup". 결과 **14/25(56%)**.
+
+**정리하면, 세 후보 모두 성공률을 바꾸지 못했습니다.** 컵 질량, 카메라 위치, 지시문 문구를 바꾼 실행은 48–56%로, 기준(52%)과 각각 p = 1.0입니다.
+- 같은 장면·시작 상태에서 π0.5를 네 번 돌린 셈이라 합치면 53/100(53%, 95% 구간 43–62%)입니다. 논문 88%와 분명히 다릅니다(p = 0.001).
+- 원인은 이번에 시험한 범위 밖에 있습니다. 남은 후보는 다음과 같습니다.
+  - 렌더 색감: 저자가 튜닝했다는 후처리 설정이 공개되지 않았습니다.
+  - 시작 상태 분포: 논문의 격자 크기가 공개되지 않아, 저장소 학습용 무작위화 범위(마커 ±12.5 cm)를 썼습니다.
+  - 그 밖에 저자 환경과 다른 점들.
+- 같은 장면·같은 시작 상태에서 GR00T N1.6은 논문과 맞습니다(19장, 5/25 대 28%). 장면 자체가 크게 틀리지는 않았다는 쪽의 근거입니다. 다만 openpi 두 정책에서만 생기는 차이가 무엇인지는 아직 모릅니다.
+
+**Store Marker의 서랍이 저절로 나옵니다.**
+- 롤아웃의 관절 궤적을 보면, 로봇이 건드리지 않아도 에피소드마다 서랍 세 개가 이동 범위의 8–10%(약 1 cm)까지 미끄러져 나옵니다. π0의 25회는 세 서랍 모두 같은 값(8%, 10%, 9%)에서 끝났고, π0.5에서도 로봇이 건드리지 않은 서랍은 같은 값까지 나왔습니다.
+- 원인은 확인하지 않았습니다. 정리함은 약 2.7° 기운 자세로 놓여 있습니다(장면의 자세 쿼터니언). 서랍 관절에는 마찰(0.5)과 감쇠가 지정돼 있지만, 이 정도 이동은 막지 못합니다.
+- 그래서 태스크의 "서랍 열기" 마일스톤(범위의 5%)은 아무것도 하지 않아도 달성됩니다. 성공 조건 "서랍 모두 닫힘"은 로봇이 저절로 나온 서랍까지 밀어 넣어야 채워집니다.
+- 성공률에는 거의 영향이 없습니다. π0는 마커를 서랍에 넣은 적이 없고, π0.5는 넣은 2회 중 1회가 성공으로 판정됐습니다. 마일스톤 표에는 관절 궤적으로 센 값을 썼습니다.
+
+**그 밖에 본 것.**
+- **Serve Fruits의 "green plate"**: 시뮬 자산에서는 청록색 쟁반(`teal_tray`)입니다. 그래도 π0.5는 88% 성공했습니다. π0.5는 성공 조건에 없는 배도 25회 중 20회 들어 옮겼습니다(과일을 모두 차리는 쪽으로 해석). 성공 판정에는 영향이 없습니다.
+- **보조 파지와 성공 판정**: Marker in Cup의 성공은 대부분 마커를 쥔 채 컵에 꽂아 넣는 순간에 판정됩니다(영상으로 확인). "로봇이 물체와 접촉하지 않음" 조건이 쥔 채로도 참이 되는 것인데, 장면이 쓰는 보조 파지에서는 쥔 물체와의 손가락 접촉이 잡히지 않는 것으로 보입니다. 저자 설정과 같은 판정이라 그대로 두었습니다.
+- **논문 그림의 사진**은 로봇 전체가 보이는 별도 촬영 카메라로 보입니다(사진 안에 기둥에 달린 ZED 카메라가 따로 찍힘). 그래서 정책 입력 카메라의 위치를 맞춰 보는 데는 쓸 수 없었습니다.
+- **렌더 설정**: 평가 단계 머리말에는 저자들이 "렌더 후처리 색 보정 파라미터를 튜닝"했다는 메모가 있습니다. 하지만 평가 단계는 렌더 설정을 바꾸지 않고, 공개 장면에도 조명 설정(`lighting_state`)이 없습니다.
+- 매 리셋마다 "Failed to reset scene: velocities not minimized"가 나옵니다. 리셋 직후 한 스텝 만에 물체 속도가 1 cm/s를 넘는지 보는 검사라, 물체가 내려앉는 첫 스텝에서 늘 걸립니다. 재시도가 늘어 느려질 뿐 결과에는 영향이 없습니다.
+
+### 18.5 실행 환경과 비용
+
+- **3060에서 하지 않은 이유**: π0.5 가중치만 6.2 GB(bf16)이고 추론에 작업 메모리가 더 듭니다. 평가 프로세스(Isaac Sim, 1280×720 카메라 3대)는 4.7 GB를 씁니다. 합치면 12 GB에 거의 꽉 차는데, 이 컴퓨터의 3060은 다른 세션들이 함께 써서 그만큼을 비워 둘 수 없었습니다.
+- **G4**: 처음에는 17.2절 방식으로 Colab G4를 빌려 설치했습니다. JAX 0.5.3이 Blackwell(sm_120)에서 돌았고, π0.5 추론 1회에 58 ms(첫 호출 컴파일 30 s)가 걸렸습니다. 그런데 설치 도중 이 컴퓨터가 재부팅되면서 SSH가 끊겼고, 유휴로 판단된 런타임이 회수됐습니다. 다시 빌리려 하니 계정의 G4 동시 한도(3대)가 다른 세션의 런타임으로 차 있었습니다.
+- **L4로 변경**: 사용자 결정으로 L4(24 GB, 12 vCPU, RAM 52 GB, 시간당 1.54 CU)로 바꿨습니다. A100·H100에는 RT 코어가 없어 Isaac Sim이 카메라를 렌더하지 못합니다.
+  - L4에서는 GPU 메모리 때문에 정책 서버를 하나씩 띄웁니다(XLA 메모리 비율 0.4). 추론 1회는 π0.5 213 ms, π0 175 ms입니다.
+  - 평가 속도는 렌더가 병목입니다(평가 하나로 GPU 사용률 63–93%, CPU는 대부분 놂). 평가 하나만 돌면 초당 5–10스텝이고, 둘을 함께 돌리면 각각 3–5스텝입니다. 시간 제한까지 가는 실패 에피소드 하나가 5–9분 걸립니다.
+  - 한 대로는 약 14시간이 걸릴 것으로 보여, 사용자 승인으로 L4 두 대를 더 빌렸습니다. 첫 에피소드부터 마지막 본 평가까지 6.5시간이 걸렸고, 그중 마지막 5시간은 세 대가 나눠 맡았습니다.
+- **런타임 준비**: `repro/policy_eval/setup_colab.sh`가 17장의 `setup_g4.sh vulkan`(Vulkan ICD·libGLU)과 같은 버전 고정으로 simfoundry 환경을 만듭니다(L4에서 31분). 이어서 openpi 서버·클라이언트와 두 체크포인트를 받습니다.
+  - Colab VM에서는 gcsfs가 VM의 메타데이터 자격 증명을 집어 `gs://openpi-assets`가 401을 냅니다. 그래서 openpi 토크나이저처럼 익명(`token: anon`)으로 받습니다.
+  - 런타임이 유휴로 회수되지 않도록 `colab exec`로 커널을 계속 바쁘게 둡니다.
+- **비용**: G4 약 0.9시간(7.6 CU)과 L4 세 대 합계 약 18시간(28 CU)으로, 모두 약 36 CU입니다. 그중 약 5 CU는 같은 L4에서 돌린 19장 과제(우리 장면 두 개의 π0·π0.5) 몫입니다. 끝난 뒤 모든 런타임을 `colab stop`으로 종료했습니다.
+
+### 18.6 다시 실행하는 법
+
+```bash
+colab new -s sf-g1l4 --gpu L4
+# 체크아웃을 /content/SimFoundry에(repro/g4/ 포함), 장면 assets/scenes/DROID와
+# assets/backgrounds/mesh_backgrounds/droid_v*를 그 assets/ 아래에 복사한 뒤:
+bash repro/policy_eval/setup_colab.sh all
+mkdir -p /content/eval/init_states && cp repro/policy_eval/init_states/*.json /content/eval/init_states/
+R=repro/policy_eval/run_table_g1.sh       # 시작 상태를 새로 만들려면 $R init
+$R servers pi05 && $R all pi05 && $R stop pi05
+$R servers pi0 && $R all pi0 && $R stop pi0
+$R summary
+# 비교 실험(π0.5, Marker in Cup)
+python3 repro/policy_eval/ablations/make_mug_mass_scene.py assets/scenes/DROID/droid_desk_put_marker_in_cup 0.30
+SCENE_JSON=scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_mug300g.json $R eval pi05 marker_in_cup 25 mug300g
+SENSORS_CFG=nv_franka_droid_no_depth $R eval pi05 marker_in_cup 25 calcam
+PROMPT="pick up the white marker, put the marker into the cup" $R eval pi05 marker_in_cup 25 prompt_repo
+# 실패 분석 (런타임에서, 평가 하나의 results_* 폴더마다)
+python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <results_*> --out marker_in_cup_pi05.json
+```
+
+결과 위치: 요약·분석 JSON과 영상은 이 컴퓨터의 `~/simfoundry_logs/policy_eval/`에 받아 두었습니다(Drive에는 아직 올리지 않음). 과제·정책마다 `eval_results.json`, `rollouts.hdf5`, 에피소드 영상(외부 카메라 2대 + 손목, 180×320)이 있습니다.
+
+### 18.7 수정·추가한 파일
+
+| 파일 | 내용 |
+|---|---|
+| `simfoundry/tasks/predicates.py`, `pick_place_task.py` | 선택 상태 `JointClosed`(관절이 닫힌 끝에서 범위의 5% 안, 닫힌 끝은 설정에서 받음) |
+| `scripts/interactive/light_editor/task_semantics.py` | 위 상태를 단항·불리언 상태 목록에 추가 |
+| `tests/test_task_aabb_predicates.py` | `JointClosed` 테스트 3개 |
+| `simfoundry/utils/og_utils.py`, `scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py` | 장면에 기록된 질량(`args.mass`)을 불러온 뒤 적용(`apply_scene_masses`). 관성도 같은 비율로 조정. 기록이 없으면 아무것도 하지 않음 |
+| `repro/policy_eval/setup_colab.sh` | Colab GPU 런타임 준비 |
+| `repro/policy_eval/run_table_g1.sh` | 정책 서버, 시작 상태 생성, 평가, 요약 |
+| `repro/policy_eval/table_g1.yaml`, `tasks/*.yaml` | 과제별 설정과 논문 수치, 평가용 태스크 설정 5개 |
+| `repro/policy_eval/init_states/*.json` | 이 장에서 쓴 시작 상태(과제당 25개) |
+| `repro/policy_eval/sample_init_states.py` | 5×5 격자 시작 상태와 물리 검사 |
+| `repro/policy_eval/analyze_rollouts.py` | 롤아웃에서 에피소드별 물체 기울기·들림·최종 위치 |
+| `repro/policy_eval/summarize.py`, `ping_policy.py`, `contact_sheet.py` | 요약표(Wilson 구간, Fisher 검정), 서버 예열, 영상 프레임 모음 |
+| `repro/policy_eval/ablations/` | 머그 질량 장면 사본 생성과 질량 적용 확인 |
 
 ## 19. Table G.1 제로샷 행: 우리가 복원한 장면과 세 번째 정책 (2026-10-17, 진행 중)
 
