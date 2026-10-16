@@ -490,11 +490,56 @@ Qwen3.5-9B(Ollama `qwen3.5:9b`, Q4_K_M, 본체 5.6 GB와 비전 0.9 GB)는 공�
 
 **한계**
 
-- **ComfyUI가 지금 이 머신에 없습니다.** 설치 폴더와 Qwen-Image 가중치가 없어서, 새 기본값으로 A/B 전체를 끝까지 돌리지는 못했습니다. 위 비교는 이미지 모델이 필요 없는 VLM 호출을 모두 재생한 것입니다.
+- **비교할 때는 ComfyUI가 이 머신에 없었습니다.** 설치 폴더와 Qwen-Image 가중치가 없어서, 새 기본값으로 A/B 전체를 끝까지 돌리지는 못했습니다. 위 비교는 이미지 모델이 필요 없는 VLM 호출을 모두 재생한 것입니다. ComfyUI를 다시 설치하고 끝까지 돌린 결과는 아래에 있습니다.
 - 같은 입력에 온도 0이어도, 다른 작업이 GPU를 같이 쓰면 Ollama가 모델을 작은 버퍼로 올립니다(5,591 → 5,519 MiB). 그러면 경계에 있는 답이 바뀝니다(B1·B7에서 관찰). 그래서 스크립트는 호출마다 GPU가 빌 때까지 기다리고, 겹친 호출은 표시합니다. 위 표는 모두 GPU가 비었을 때의 값입니다.
 - qwen3.5의 Modelfile에는 `presence_penalty 1.5`가 들어 있습니다(shim은 온도와 seed만 바꿈). 0으로 바꾼 시험은 다른 작업과 겹쳐 결론을 내지 못했습니다. B1의 중국어 답과 그릇 질량은 0에서도 그대로였습니다.
 
 ```bash
 repro/vlm_compare/run.sh results/diagnostics/vlm_compare qwen3-vl:8b-instruct qwen3.5:9b:0   # 모델당 약 10분
 python repro/vlm_compare/coord_test.py results/diagnostics/vlm_compare/coord                   # 좌표 순서
+```
+
+**새 기본값으로 끝까지 실행 (2026-10-16)**
+
+ComfyUI를 다시 설치하고(v0.41.0과 Qwen-Image-2.1-Turbo 가중치. 설치 위치는 `hanbin5/local`의 `local/README.md`) PutMarkerInCup을 A → C → B 순서로 처음부터 돌렸습니다.
+
+- 구성은 VLM만 빼고 11장 v2와 같습니다. 이미지 모델은 `SIMFOUNDRY_IMAGE_BACKEND=qwen21`, A는 `--env-da3 simfoundry --no-stream`과 `s7_mesh.low_vram=true s5_scene.pda_geometric_backend=depth_pro`, B는 `rerun_v2.sh`와 같은 오버라이드입니다.
+- `SIMFOUNDRY_OLLAMA_MODEL`은 주지 않았습니다. 그래서 래퍼가 A에는 `qwen3.5:9b`(thinking 끔)를, B에는 `qwen3-vl:8b-instruct`를 줬습니다.
+- 응답 캐시는 새 폴더(`model_calls_q35`)를 썼습니다. 출력은 `Data/put_marker_in_cup_q35`, 로그는 `${SIMFOUNDRY_LOG_DIR:-~/simfoundry_logs}/q35_*.log`입니다.
+
+| | v2 (11장, 모두 qwen3-vl) | **q35 (A는 qwen3.5:9b)** |
+|---|---|---|
+| A 단계 시간 합 | 28분 27초 | 29분 6초 |
+| 3단계 프레임 선택 | 47 s. VLM이 프레임 4(후보 2번)를 고름. 화면에서 마커가 컵 테두리에 거의 붙어 있음 | 49 s. VLM이 **프레임 5**(후보 1번)를 고름. 휴리스틱 점수도 1위(0.819, 프레임 4는 0.683)이고 세 물체가 떨어져 보임. 671 토큰, 21 s |
+| 5단계 분해 | 8분 51초. 3/3 검출. 가위는 mask 3회 거부 뒤 outline, 컵·마커는 mask | 8분 38초. 3/3 검출(컵 이름은 `white cup`). 제거 방식은 같고 순서만 컵 → 가위 → 마커 |
+| 6 / 7단계 | 3분 13초 / 10분 18초 | 3분 41초 / 10분 21초 |
+| 8단계 | 1분 49초. 정면 선택 3회 53 s | **1분 14초**. 3회 19 s(이미지 9장이 약 2,200 토큰으로 qwen3-vl의 1/4.5). 컵은 `NONE` |
+| 11단계 | 56 s. 질량 호출 3회 13 s | 1분 48초. 3회 62 s(chain of thought 409–1,590 토큰) |
+| 질량 컵 · 가위 · 마커 | 150 · 50 · 37.6 g | **25 · 45 · 20 g** (실물 컵 약 10 g, 마커 약 15–20 g) |
+| 마찰 컵 · 가위 · 마커 | 0.5 · 0.4 · 0.5 | 0.4 · 0.45 · 0.4 |
+| A의 VLM 호출 | 9회 102 s | 9회 119 s |
+| MAX_TOKENS · 파싱 실패 | 0 · 0 | 0 · 0 |
+| A의 이미지 호출 | 10회, 평균 50.4 s | 10회, 평균 48.6 s |
+| C 스모크 테스트 | 통과 (48 s) | **통과** (49 s) |
+| B (둘 다 qwen3-vl) | 1단계 4분(첫 시도는 판정 파싱 오류로 실패, 11장), 3단계 7분 8초, 4–7단계 3분 24초 | 1단계 3분 58초(판정 2개 모두 첫 시도에 통과), 3단계 7분 20초, 4–7단계 3분 37초. 부품 이름은 영어, MAX_TOKENS·파싱 실패 0 |
+| 제안된 태스크 | `pick_marker_and_place_in_cup`(영상의 실제 과제), `pick_scissors_and_place_above_cup` | `pick_up_marker`, `place_scissors_in_cup`. YAML 2개 모두 파싱됨 |
+
+- **재생 비교와 같은 결과가 실제 실행에서도 나왔습니다.** 3단계는 토큰 한도에도 반복 루프에도 걸리지 않았습니다. 8단계 정면 선택은 호출당 17–19 s에서 5–8 s로 줄었고, 질량은 실물에 가까워졌습니다. 대신 11단계가 chain of thought 때문에 약 50 s 늘어서, A 전체 시간은 v2와 비슷합니다(+39 s). 이 장면에는 그릇이 없어서, 재생에서 본 그릇 5.51 kg 문제는 확인하지 못했습니다.
+- **B7 태스크는 두 실행 모두 qwen3-vl의 답입니다**(온도 0.7). 이번에는 영상의 과제(마커를 컵에)가 나오지 않았습니다. A 결과(물체 이름과 포즈)가 달라서인지 샘플링 차이인지는 한 번의 실행으로 구분할 수 없습니다.
+- **GPU 충돌로 두 번 멈췄습니다.** 다른 세션의 Isaac Sim 렌더(`repro/g4/render_bg_views.py`, 2.4 GB)가 Hunyuan(8–9 GB, 최대 11.4 GB)과 겹쳐 CUDA OOM이 났습니다. A 7단계(23:32)와 B 3단계(23:59)였습니다.
+  - 그 세션의 유휴 판정(`memory.used < 1500 MiB`가 60초)이 단계 사이 모델 로딩 구간을 유휴로 봤습니다.
+  - GPU가 빈 뒤 A는 `--skip-successful`로 7단계부터, B는 `--include 3,4,5,6,7`로 다시 돌렸고, 앞 단계 결과는 그대로 썼습니다. 표의 A 7단계와 B 3단계 시간은 다시 돌린 것입니다.
+  - 기다린 시간과 날린 단계를 포함한 벽시계 시간은 A 42분, B 22분입니다.
+- VRAM: Ollama `qwen3.5:9b` 6.7 GB, `qwen3-vl` 7.8 GB, ComfyUI 편집 최대 10.3 GB입니다.
+- 이번 실행은 이 기록이 있는 브랜치의 워크트리에서 돌렸습니다. `Data`·`deps`·`checkpoints`·`assets`를 실행용 체크아웃에 링크하고, `--root-dir`로 실행용 체크아웃의 `Data`를 줘서 장면 JSON에 기록되는 경로가 v2와 같습니다. 실행용 체크아웃에서는 다음과 같습니다.
+
+```bash
+export SIMFOUNDRY_IMAGE_BACKEND=qwen21   # SIMFOUNDRY_OLLAMA_MODEL은 주지 않음
+C=(--cache-mode --model-cache-dir .cache/simfoundry/model_calls_q35)
+repro/run_local_pipeline.sh A_reconstruction --scene-name put_marker_in_cup_q35 \
+  --video-fpath "$PWD/docs/assets/example_videos/PutMarkerInCup.mp4" --env-da3 simfoundry --no-stream "${C[@]}" -- \
+  s7_mesh.low_vram=true s5_scene.pda_geometric_backend=depth_pro
+repro/run_local_pipeline.sh C_application --scene-name put_marker_in_cup_q35 --mode smoke-random
+repro/run_local_pipeline.sh B_augmentation --scene-name put_marker_in_cup_q35 "${C[@]}" -- \
+  prompt_cousin_structured.max_objects=2 prompt_cousin_structured.max_generated_images_per_object=1 cousin_generation.low_vram=true
 ```
