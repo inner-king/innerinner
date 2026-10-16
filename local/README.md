@@ -61,9 +61,12 @@ local/link_data.sh /home/inner/real2sim/SimFoundry
   - Edit-2511(기본): `qwen-image-edit-2511-Q3_K_M.gguf`, `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors`, `qwen_2.5_vl_7b_fp8_scaled.safetensors`, `qwen_image_vae.safetensors`
   - 2.1-Turbo(`SIMFOUNDRY_IMAGE_BACKEND=qwen21`): `qwen-image-2.1-turbo-Q8_0.gguf`, `qwen3vl_8b_int8_convrot.safetensors`, `qwen_image_2.1_vae_bf16.safetensors`
 - **Isaac Sim 5.1**: simfoundry 환경에 wheel로 설치했습니다. 이 회선은 큰 파일을 받다가 끊길 때가 있어서 [`fetch_isaac_wheels.sh`](fetch_isaac_wheels.sh)로 이어받기하며 받았습니다.
+- **GitHub**: `gh` 2.102.0(`~/.local/bin/gh`)에 hanbin5로 로그인돼 있고(2026-10-16, scope `repo`·`read:org`·`gist`), git은 HTTPS로 이 인증을 씁니다(`gh auth setup-git`). 토큰은 `~/.config/gh/hosts.yml`에 평문으로 있습니다.
 - **git**: `git clone`이 TLS 도중에 끊길 때가 있습니다. [`bin/git`](bin/git)이 clone만 다시 시도하고, `env.sh`가 이것을 PATH 앞에 넣습니다. 실행 중에 `rp.git_import`가 clone을 합니다.
 - **hunyuan 환경 수정**: basicsr가 torchvision 0.22에 없는 모듈을 import합니다. [`fix_hunyuan_basicsr.sh`](fix_hunyuan_basicsr.sh)가 그 한 줄을 고칩니다. 환경을 다시 만들면 다시 실행해야 합니다.
 - **Google Drive**: rclone 1.75.2(`~/.local/bin/rclone`)를 씁니다. 원격 이름은 `innerking`이고(`~/.config/rclone/rclone.conf`, scope `drive`), 루트는 Inner-King 폴더입니다. `repro/drive_sync.sh`는 `INNERINNER_DRIVE=innerking:innerinner`를 씁니다.
+  - 이 원격은 rclone의 공용 client_id를 씁니다. rclone이 "2026년 중에 막힌다"고 경고하므로, 막히면 Google Cloud에서 자체 OAuth client_id를 만들어 `rclone config update innerking client_id=… client_secret=…` 뒤 다시 로그인합니다(https://rclone.org/drive/#making-your-own-client-id).
+  - 로그인은 2026-10-16에 했습니다. 토큰은 `rclone.conf`에 있습니다(권한 600).
 
 ## 디스크와 정리 메모 (재현 당시, 2026-10-12)
 
