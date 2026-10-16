@@ -525,7 +525,7 @@ ComfyUI를 다시 설치하고(v0.41.0과 Qwen-Image-2.1-Turbo 가중치. 설치
 | 제안된 태스크 | `pick_marker_and_place_in_cup`(영상의 실제 과제), `pick_scissors_and_place_above_cup` | `pick_up_marker`, `place_scissors_in_cup`. YAML 2개 모두 파싱됨 |
 
 - **재생 비교와 같은 결과가 실제 실행에서도 나왔습니다.** 3단계는 토큰 한도에도 반복 루프에도 걸리지 않았습니다. 8단계 정면 선택은 호출당 17–19 s에서 5–8 s로 줄었고, 질량은 실물에 가까워졌습니다. 대신 11단계가 chain of thought 때문에 약 50 s 늘어서, A 전체 시간은 v2와 비슷합니다(+39 s). 이 장면에는 그릇이 없어서, 재생에서 본 그릇 5.51 kg 문제는 확인하지 못했습니다.
-- **B7 태스크는 두 실행 모두 qwen3-vl의 답입니다**(온도 0.7). 이번에는 영상의 과제(마커를 컵에)가 나오지 않았습니다. A 결과(물체 이름과 포즈)가 달라서인지 샘플링 차이인지는 한 번의 실행으로 구분할 수 없습니다.
+- **B7 태스크는 두 실행 모두 qwen3-vl의 답입니다**(온도 0.7). 이번에는 영상의 과제(마커를 컵에)가 나오지 않았습니다. A 결과(물체 이름과 포즈)가 달라서인지 샘플링 차이인지는 한 번의 실행으로 구분할 수 없어서, 아래에서 seed를 바꿔 재생했습니다.
 - **GPU 충돌로 두 번 멈췄습니다.** 다른 세션의 Isaac Sim 렌더(`repro/g4/render_bg_views.py`, 2.4 GB)가 Hunyuan(8–9 GB, 최대 11.4 GB)과 겹쳐 CUDA OOM이 났습니다. A 7단계(23:32)와 B 3단계(23:59)였습니다.
   - 그 세션의 유휴 판정(`memory.used < 1500 MiB`가 60초)이 단계 사이 모델 로딩 구간을 유휴로 봤습니다.
   - GPU가 빈 뒤 A는 `--skip-successful`로 7단계부터, B는 `--include 3,4,5,6,7`로 다시 돌렸고, 앞 단계 결과는 그대로 썼습니다. 표의 A 7단계와 B 3단계 시간은 다시 돌린 것입니다.
@@ -542,4 +542,30 @@ repro/run_local_pipeline.sh A_reconstruction --scene-name put_marker_in_cup_q35 
 repro/run_local_pipeline.sh C_application --scene-name put_marker_in_cup_q35 --mode smoke-random
 repro/run_local_pipeline.sh B_augmentation --scene-name put_marker_in_cup_q35 "${C[@]}" -- \
   prompt_cousin_structured.max_objects=2 prompt_cousin_structured.max_generated_images_per_object=1 cousin_generation.low_vram=true
+```
+
+**B7 태스크 제안: A의 출력 탓인가, 샘플링 탓인가 (2026-10-17)**
+
+B7은 온도 0.7로 샘플링하지만, 스테이지가 seed를 넘기지 않아 매번 seed 0으로 부릅니다. 장면이 같으면 다시 돌려도 답이 같으므로, 한 번의 실행으로는 장면 탓인지 뽑기 탓인지 가를 수 없습니다. 그래서 두 장면의 B7 호출을 seed만 0–29로 바꿔 30번씩 다시 보냈습니다(`repro/vlm_compare/replay_b7_seeds.py`, 64호출에 8분). 결과는 `results/diagnostics/vlm_compare/b7_q35/`에 있습니다.
+
+- `replay_other_calls.run_b7`을 그대로 씁니다. 스테이지의 프롬프트 빌더와 파서, `Gemini(...)` → shim → Ollama 경로, `qwen3-vl:8b-instruct`, 온도 0.7, keep_alive 0이고, 응답 캐시는 끕니다.
+- 태스크는 Pipeline B처럼 2개를 요청합니다(`run.sh`의 `propose_scene_task.num_tasks=2`). 위 비교 표의 B7 재생은 설정 파일 기본값인 5개를 요청했습니다.
+- seed 0이 곧 파이프라인의 호출입니다. 두 장면 모두 실행이 쓴 태스크 YAML과 같은 답이 나왔고, 토큰 수도 로그와 같습니다(프롬프트/생성 2133/180, 2130/158). 같은 seed를 다시 보내도 답이 같습니다(4/4).
+- 호출마다 GPU가 빌 때까지 기다리고, 다른 작업과 겹친 호출은 버린 뒤 다시 보냅니다(이번에는 0회).
+  - B가 띄워 둔 유휴 ComfyUI(모델 내림, 큐 비어 있음)는 작업으로 치지 않습니다. 파이프라인의 B7도 그 옆에서 돌았습니다.
+  - `bench_common`의 판정은 Ollama가 모델을 올리고 내릴 때 잠깐 생기는 자식 프로세스도 다른 작업으로 셉니다. 장치를 확인하는 `llama-server --list-devices`와 `ollama gpu-discover`(좀비 상태), 내려가는 러너가 그렇습니다. NVML에는 보이는데 명령줄이 비어 있기 때문입니다. seed가 같으면 답도 걸린 시간도 같아서, 같은 호출이 거듭 버려졌습니다. 이 스크립트는 부모가 Ollama인 프로세스를 빼고 셉니다.
+
+| seed 0–29, 장면마다 30회 | v2 (A도 qwen3-vl) | q35 (A는 qwen3.5:9b) |
+|---|---|---|
+| 프롬프트의 물체 목록 | iter_0 가위, iter_1 `white_cup_with_green_pattern`, iter_2 마커 | iter_0 `white_cup`, iter_1 가위, iter_2 마커 |
+| **마커를 컵에 (InsideAABB)** | **21/30** (seed 0 포함) | **6/30** (seed 0은 빠짐) |
+| 파싱된 태스크 | 30회 모두 2개 | 30회 모두 2개 |
+| 로드되지 않는 태스크 (술어의 그룹이 매핑 키가 아님) | 0/60 | 4/60 (마커를 컵에 1개 포함) |
+| 가장 흔한 두 답 (30회 중) | 마커를 컵에 + 가위를 컵 위에 띄우기 14, 가위를 컵에 + 마커 들기 7 | 가위를 컵에 + 마커 들기 13(실행의 답과 같은 꼴), 마커를 컵에 + 가위 들기 5 |
+
+**주된 원인은 샘플링이 아니라 A의 출력입니다.** 모델·온도·seed가 같아도 v2 장면은 30회 중 21회(70%, 95% 구간 52–83%) 마커를 컵에 넣는 태스크를 냈고, q35 장면은 6회(20%, 10–37%)뿐입니다(Fisher 정확 검정 p = 0.0002). 파이프라인의 seed 0은 두 장면 모두에서 흔한 쪽이었습니다. v2에서는 열에 일곱 번 그 태스크가 나오고, q35에서는 다섯에 네 번 나오지 않습니다. 두 호출은 B7이 받는 입력만 다르고, 그 입력은 Pipeline A가 만듭니다. 물체 목록에서는 5단계가 컵을 `white cup`으로 짧게 부르고 컵 → 가위 → 마커 순서로 제거해서, 컵과 가위의 ID가 서로 바뀌었습니다. 장면 이미지에서는 포즈가 다릅니다. 두 장면 모두 한 물체는 컵에 넣고 다른 하나는 들거나 컵 위에 두는 답이 대부분인데, q35에서는 컵에 넣는 쪽이 마커보다 가위인 경우가 많습니다. 두 이미지는 배치가 비슷해 보여(화면에서 마커가 컵 바로 위, 가위가 오른쪽 아래) 물체 목록 쪽이 의심되지만, 이 재생으로는 둘을 가를 수 없습니다.
+
+```bash
+SIMFOUNDRY_LOCAL_BACKEND=1 SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct SIMFOUNDRY_OLLAMA_THINK=0 SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0 \
+  GCLOUD_PROJECT=local python repro/vlm_compare/replay_b7_seeds.py results/diagnostics/vlm_compare/b7_q35 --seeds 30
 ```
