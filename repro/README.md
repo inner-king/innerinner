@@ -387,6 +387,7 @@ git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장�
 | `checkpoints/` | 우리가 학습한 가중치. 지금은 13장의 배경 splat (splatfacto 30k·80k 반복) | `Data/put_marker_in_cup_bg/auto_bg/splat*/outputs/…/nerfstudio_models/` |
 
 - 장면 tar에는 `*.ckpt`를 넣지 않습니다. 시뮬레이션에 쓰는 splat 결과(`auto_bg/splat/export/*.ply`, 7단계 USDZ)는 tar에 있습니다. 학습을 이어 가려면 `checkpoints/`의 파일을 원래 자리에 둡니다.
+- 배경 관련 장면(`put_marker_in_cup_bg`, `put_cup_in_bowl_v2_bg`, `put_marker_in_cup_v2_bg`)에는 단계가 입력을 절대 경로로 걸어 둔 심볼릭 링크가 그대로 들어 있습니다(예: `auto_bg/splat_30k/ns_data/images/*.png -> /home/inner/real2sim/SimFoundry/Data/<scene>/…`). 링크 대상은 같은 tar에 들어 있으므로, `pull scene`이 압축을 푼 뒤 이 링크를 풀어 놓은 사본을 가리키는 상대 링크로 바꿉니다. 장면 밖을 가리키는 링크는 바꾸지 않고 목록만 보여 줍니다.
 - 밖에서 받는 사전 학습 가중치(Hunyuan3D-2.1, DA3, SAM 2.1/3, VOID, Ollama·ComfyUI 모델)는 올리지 않습니다. 원래 배포처에서 받습니다(일부는 게이트가 있음).
 - 올리고 받기는 `repro/drive_sync.sh`(rclone)로 합니다. 올릴 때는 복사만 하고 Drive에서 지우지 않습니다.
 
