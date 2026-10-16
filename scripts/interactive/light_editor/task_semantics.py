@@ -48,13 +48,13 @@ OG_UNARY_STATES = frozenset({
 })
 
 #: States SimFoundry handles itself (``SPECIAL_STATE_NAMES`` in
-#: ``simfoundry/tasks/predicates.py``). All but ``Lifted`` read
-#: ``other_group``; ``IsGrasping`` is OmniGibson's own and is already binary
-#: above.
+#: ``simfoundry/tasks/predicates.py``). All but ``Lifted`` and ``JointClosed``
+#: read ``other_group``; ``IsGrasping`` is OmniGibson's own and is already
+#: binary above.
 SPECIAL_BINARY_STATES = frozenset({
     "PlaceOnTop", "InsideAABB", "OnTopAABB", "AboveAABB",
 })
-SPECIAL_UNARY_STATES = frozenset({"Lifted"})
+SPECIAL_UNARY_STATES = frozenset({"Lifted", "JointClosed"})
 
 BINARY_STATES = OG_BINARY_STATES | SPECIAL_BINARY_STATES
 UNARY_STATES = OG_UNARY_STATES | SPECIAL_UNARY_STATES
@@ -72,6 +72,7 @@ BOOLEAN_STATES = frozenset({
     # The SimFoundry states, which all compare a bool. PlaceOnTop ignores the
     # value but still reads the key.
     "PlaceOnTop", "InsideAABB", "OnTopAABB", "AboveAABB", "Lifted",
+    "JointClosed",
 })
 
 #: The goal sections. A config with nothing in any of them is not a task:

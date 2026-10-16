@@ -1,0 +1,87 @@
+# Table G.1 "Throw Away Trash" on the authors' scene droid_desk_throw_away_trash (repro/README.md, chapter 18).
+# The repository ships no task config for this scene. Rubric (paper App. I.2): 1. open trash can 2. pick up
+# cup 3. place cup inside trash can 4. close trash can.
+# Success: the cup inside the can's body link, the lid closed, the robot not touching the cup.
+# The lid's joint runs [-101 deg, 0] with 0 shut and the asset carries no openable_joint_ids metadata, so
+# OmniGibson's Open reads it backwards (open when shut). JointClosed takes the closed end from here instead.
+# No randomization here: every episode starts from a fixed init state (5x5 grid, paper App. J.1), applied
+# by the eval stage after reset (s15_eval.init_states_path).
+task_name: table_g1_throw_away_trash
+og_task_config:
+  type: PickPlaceTask
+  activity_name: ${task_name}
+  semantic_group_mapping:
+    robot: [agent]
+    cup: [blue_cup]
+    trash_can: [black_trash_can]
+  init_predicates_all: null
+  init_predicates_any: null
+  init_predicates_specific: null
+  goal_predicates_all:
+    - state: InsideAABB
+      value: true
+      group: cup
+      other_group: trash_can
+      state_kwargs:
+        link_name: black_trash_can_base_link
+        volume_threshold: 0.50
+    - state: JointClosed
+      value: true
+      group: trash_can
+      state_kwargs:
+        closed_end: upper
+  goal_predicates_any:
+    - state: Touching
+      state_kwargs: null
+      value: false
+      group: robot
+      other_group: cup
+  goal_predicates_specific: null
+  milestone_predicates:
+    - name: opened_trash_can
+      state: JointClosed
+      state_kwargs:
+        closed_end: upper
+      value: false
+      group: trash_can
+      requires: []
+    - name: picked_cup
+      state: IsGrasping
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: cup
+      requires: []
+    - name: cup_in_trash_can
+      state: InsideAABB
+      state_kwargs:
+        link_name: black_trash_can_base_link
+        volume_threshold: 0.50
+      value: true
+      group: cup
+      other_group: trash_can
+      requires: []
+    - name: closed_trash_can
+      state: JointClosed
+      state_kwargs:
+        closed_end: upper
+      value: true
+      group: trash_can
+      requires: [cup_in_trash_can]
+  robot_pose: null
+  robot_xyz_randomization: null
+  robot_z_rot_randomization: null
+  robot_joint_randomization: null
+  camera_look_at_point: null
+  group_init_relative_poses: null
+  group_xyz_randomization: null
+  group_z_rot_randomization: null
+  group_predicate_placement: null
+  workspace_bounds: null
+  additional_objects: null
+  termination_config:
+    max_steps: 1000
+  reward_config:
+    r_potential: 1.0
+  include_obs: false
+  hdr_background_name: null

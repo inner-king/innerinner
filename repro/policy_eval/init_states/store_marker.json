@@ -1,0 +1,836 @@
+{
+ "task": "store_marker",
+ "scene": "scenes/DROID/droid_desk_store_marker/droid_desk_store_marker_scene_state_latest.json",
+ "config": {
+  "grid_resolution": [
+   5,
+   5
+  ],
+  "seed": 42,
+  "randomize_pairings": true,
+  "pairing_anchor_object": null,
+  "objects": [
+   {
+    "name": "red_marker_undupl_1",
+    "grid_size": [
+     0.2,
+     0.2
+    ],
+    "z_rot_range": [
+     -0.524,
+     0.524
+    ]
+   }
+  ]
+ },
+ "physics_check": {
+  "n_physics_steps": 30,
+  "max_velocity_threshold": 0.05,
+  "max_displacement_threshold": 0.02,
+  "max_retries": 10,
+  "retry_perturbation": 0.02,
+  "max_swaps": 400
+ },
+ "init_states": [
+  {
+   "state_idx": 0,
+   "grid_row": 3,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_1": 15
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.634077,
+      0.20313,
+      -0.007287
+     ],
+     "ori": [
+      0.045631,
+      -0.137365,
+      0.316333,
+      0.93754
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0085
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 1,
+   "grid_row": 3,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_1": 16
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.634077,
+      0.25313,
+      -0.007287
+     ],
+     "ori": [
+      0.048619,
+      -0.136336,
+      0.336726,
+      0.930411
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0064
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 2,
+   "grid_row": 3,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_1": 19
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.634077,
+      0.40313,
+      -0.007287
+     ],
+     "ori": [
+      0.057438,
+      -0.132862,
+      0.396902,
+      0.906376
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0069
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 3,
+   "grid_row": 4,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_1": 20
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.684077,
+      0.20313,
+      -0.007287
+     ],
+     "ori": [
+      0.060325,
+      -0.131576,
+      0.416595,
+      0.897495
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0086
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 4,
+   "grid_row": 1,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_1": 9
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.534077,
+      0.40313,
+      -0.007287
+     ],
+     "ori": [
+      0.027296,
+      -0.142149,
+      0.191156,
+      0.970829
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0066
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 5,
+   "grid_row": 1,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_1": 7
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.534077,
+      0.30313,
+      -0.007287
+     ],
+     "ori": [
+      0.021065,
+      -0.143205,
+      0.148594,
+      0.978248
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0065
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 6,
+   "grid_row": 3,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_1": 17
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.634077,
+      0.30313,
+      -0.007287
+     ],
+     "ori": [
+      0.051584,
+      -0.135243,
+      0.356958,
+      0.922838
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0089
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 7,
+   "grid_row": 4,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_1": 24
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.684077,
+      0.40313,
+      -0.007287
+     ],
+     "ori": [
+      0.071572,
+      -0.125813,
+      0.493289,
+      0.857738
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0067
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 8,
+   "grid_row": 1,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_1": 6
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.534077,
+      0.25313,
+      -0.007287
+     ],
+     "ori": [
+      0.017934,
+      -0.143631,
+      0.127202,
+      0.981258
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0091
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 9,
+   "grid_row": 2,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_1": 10
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.584077,
+      0.20313,
+      -0.007287
+     ],
+     "ori": [
+      0.030393,
+      -0.141519,
+      0.212305,
+      0.966424
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0048
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 10,
+   "grid_row": 0,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_1": 3
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.484077,
+      0.35313,
+      -0.007287
+     ],
+     "ori": [
+      0.008494,
+      -0.144497,
+      0.062703,
+      0.98748
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.006
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 11,
+   "grid_row": 0,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_1": 0
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.484077,
+      0.20313,
+      -0.007287
+     ],
+     "ori": [
+      -0.000982,
+      -0.144743,
+      -0.002065,
+      0.989467
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0063
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 12,
+   "grid_row": 4,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_1": 21
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.684077,
+      0.25313,
+      -0.007287
+     ],
+     "ori": [
+      0.063183,
+      -0.130228,
+      0.43609,
+      0.888186
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0081
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 13,
+   "grid_row": 3,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_1": 18
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.634077,
+      0.35313,
+      -0.007287
+     ],
+     "ori": [
+      0.054524,
+      -0.134084,
+      0.37702,
+      0.914825
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0062
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 14,
+   "grid_row": 2,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_1": 12
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.584077,
+      0.30313,
+      -0.007287
+     ],
+     "ori": [
+      0.036542,
+      -0.140057,
+      0.25429,
+      0.956235
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0047
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 15,
+   "grid_row": 1,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_1": 5
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.534077,
+      0.20313,
+      -0.007287
+     ],
+     "ori": [
+      0.014794,
+      -0.143988,
+      0.105749,
+      0.983802
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.009
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 16,
+   "grid_row": 2,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_1": 11
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.584077,
+      0.25313,
+      -0.007287
+     ],
+     "ori": [
+      0.033476,
+      -0.140822,
+      0.233353,
+      0.961559
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0081
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 17,
+   "grid_row": 2,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_1": 14
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.584077,
+      0.40313,
+      -0.007287
+     ],
+     "ori": [
+      0.042621,
+      -0.138329,
+      0.29579,
+      0.944223
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0047
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 18,
+   "grid_row": 4,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_1": 23
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.684077,
+      0.35313,
+      -0.007287
+     ],
+     "ori": [
+      0.068808,
+      -0.127346,
+      0.474446,
+      0.868303
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0074
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 19,
+   "grid_row": 0,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_1": 2
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.484077,
+      0.30313,
+      -0.007287
+     ],
+     "ori": [
+      0.005338,
+      -0.144648,
+      0.04113,
+      0.988614
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0085
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 20,
+   "grid_row": 0,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_1": 4
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.484077,
+      0.40313,
+      -0.007287
+     ],
+     "ori": [
+      0.011647,
+      -0.144277,
+      0.084246,
+      0.985876
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0065
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 21,
+   "grid_row": 4,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_1": 22
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.684077,
+      0.30313,
+      -0.007287
+     ],
+     "ori": [
+      0.066011,
+      -0.128817,
+      0.455376,
+      0.878454
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0091
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 22,
+   "grid_row": 0,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_1": 1
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.484077,
+      0.25313,
+      -0.007287
+     ],
+     "ori": [
+      0.002178,
+      -0.14473,
+      0.019537,
+      0.989276
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0066
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 23,
+   "grid_row": 2,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_1": 13
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.584077,
+      0.35313,
+      -0.007287
+     ],
+     "ori": [
+      0.039591,
+      -0.139226,
+      0.275105,
+      0.950455
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0065
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 24,
+   "grid_row": 1,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_1": 8
+   },
+   "objects": {
+    "red_marker_undupl_1": {
+     "pos": [
+      0.534077,
+      0.35313,
+      -0.007287
+     ],
+     "ori": [
+      0.024187,
+      -0.142711,
+      0.169916,
+      0.97477
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_1": {
+      "displacement": 0.0011,
+      "velocity": 0.0067
+     }
+    },
+    "retries": 0
+   }
+  }
+ ]
+}

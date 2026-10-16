@@ -97,6 +97,41 @@ def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
     return obj_materials
 
 
+def apply_scene_masses(env, scene_json) -> dict:
+    """Give each object the mass its scene records, if any.
+
+    A saved scene records a mass at ``objects_info.init_info[<name>].args.mass`` (kg; the light editor's
+    physics panel writes it). OmniGibson takes no load-time mass, so the value reaches PhysX only if the
+    consumer applies it after load (AGENTS.md, "The saved-scene contract"). It is authored on the root link's
+    MassAPI rather than set through the physics view: generated assets also author a diagonal inertia for
+    their original mass, which the view's setter would leave in place. Scaling it by the same ratio keeps
+    the geometry's mass distribution. Call while the simulator is stopped; PhysX reads both on play.
+
+    Args:
+        env: OmniGibson environment whose scene was built from @scene_json
+        scene_json (dict): the saved scene
+
+    Returns:
+        dict: object name -> (old mass, new mass) for every object it changed
+    """
+    changed = dict()
+    for name, info in scene_json.get("objects_info", {}).get("init_info", {}).items():
+        mass = info.get("args", {}).get("mass")
+        obj = env.scene.object_registry("name", name)
+        if mass is None or obj is None or isinstance(obj, BaseRobot):
+            continue
+        link = obj.root_link
+        old = link.get_attribute("physics:mass")
+        if old is None or old <= 0:
+            old = link.mass
+        link.set_attribute("physics:mass", float(mass))
+        if link.prim.GetAttribute("physics:diagonalInertia").HasAuthoredValue():
+            inertia = link.get_attribute("physics:diagonalInertia")
+            link.set_attribute("physics:diagonalInertia", inertia * (float(mass) / float(old)))
+        changed[name] = (float(old), float(mass))
+    return changed
+
+
 def setup_task_status_ui(task_name, env, instance_id=None, show_demo_count=True, show_reward=False):
     """
     Set up UI for displaying task instructions and goal status

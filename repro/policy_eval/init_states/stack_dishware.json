@@ -1,0 +1,1758 @@
+{
+ "task": "stack_dishware",
+ "scene": "scenes/DROID/droid_desk_stack_dishware/droid_desk_stack_dishware_scene_state_latest.json",
+ "config": {
+  "grid_resolution": [
+   5,
+   5
+  ],
+  "seed": 42,
+  "randomize_pairings": true,
+  "pairing_anchor_object": "green_plate_zritke_0",
+  "objects": [
+   {
+    "name": "cream_mug_bpupsc_1",
+    "grid_size": [
+     0.3,
+     0.2
+    ],
+    "z_rot_range": [
+     -0.524,
+     0.524
+    ]
+   },
+   {
+    "name": "blue_bowl_jpkksu_2",
+    "grid_size": [
+     0.3,
+     0.2
+    ],
+    "z_rot_range": [
+     -0.124,
+     0.0
+    ]
+   },
+   {
+    "name": "green_plate_zritke_0",
+    "grid_size": [
+     0.2,
+     0.3
+    ],
+    "z_rot_range": [
+     -0.124,
+     0.0
+    ]
+   }
+  ]
+ },
+ "physics_check": {
+  "n_physics_steps": 30,
+  "max_velocity_threshold": 0.05,
+  "max_displacement_threshold": 0.02,
+  "max_retries": 10,
+  "retry_perturbation": 0.02,
+  "max_swaps": 400
+ },
+ "init_states": [
+  {
+   "state_idx": 0,
+   "grid_row": 0,
+   "grid_col": 0,
+   "cells": {
+    "cream_mug_bpupsc_1": 15,
+    "blue_bowl_jpkksu_2": 20,
+    "green_plate_zritke_0": 0
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.60522,
+      -0.443592,
+      0.056789
+     ],
+     "ori": [
+      -0.010044,
+      -0.013793,
+      0.995501,
+      -0.093207
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.671619,
+      0.144204,
+      0.031475
+     ],
+     "ori": [
+      2.8e-05,
+      -0.000104,
+      -0.356807,
+      0.934178
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.319199,
+      -0.21,
+      0.011754
+     ],
+     "ori": [
+      -4.6e-05,
+      -2.5e-05,
+      0.983047,
+      0.183355
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0064
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0112
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0118
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 1,
+   "grid_row": 0,
+   "grid_col": 1,
+   "cells": {
+    "cream_mug_bpupsc_1": 3,
+    "blue_bowl_jpkksu_2": 19,
+    "green_plate_zritke_0": 1
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.38022,
+      -0.293592,
+      0.056789
+     ],
+     "ori": [
+      -0.013274,
+      -0.01072,
+      0.98567,
+      0.167821
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.596619,
+      0.344204,
+      0.031475
+     ],
+     "ori": [
+      2.8e-05,
+      -0.000104,
+      -0.359219,
+      0.933253
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.319199,
+      -0.135,
+      0.011754
+     ],
+     "ori": [
+      -4.6e-05,
+      -2.5e-05,
+      0.983517,
+      0.180815
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0066
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0137
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0247
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 2,
+   "grid_row": 0,
+   "grid_col": 2,
+   "cells": {
+    "cream_mug_bpupsc_1": 19,
+    "blue_bowl_jpkksu_2": 6,
+    "green_plate_zritke_0": 2
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.60522,
+      -0.243592,
+      0.056789
+     ],
+     "ori": [
+      -0.008803,
+      -0.014616,
+      0.983577,
+      -0.179682
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.446619,
+      0.194204,
+      0.031475
+     ],
+     "ori": [
+      2.4e-05,
+      -0.000105,
+      -0.390353,
+      0.920665
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.319199,
+      -0.06,
+      0.011754
+     ],
+     "ori": [
+      -4.6e-05,
+      -2.5e-05,
+      0.983981,
+      0.178274
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0067
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0014
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0116
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 3,
+   "grid_row": 0,
+   "grid_col": 3,
+   "cells": {
+    "cream_mug_bpupsc_1": 20,
+    "blue_bowl_jpkksu_2": 11,
+    "green_plate_zritke_0": 3
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.68022,
+      -0.443592,
+      0.056789
+     ],
+     "ori": [
+      -0.008482,
+      -0.014805,
+      0.97942,
+      -0.201112
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.521619,
+      0.194204,
+      0.031475
+     ],
+     "ori": [
+      2.6e-05,
+      -0.000104,
+      -0.378428,
+      0.925631
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.319199,
+      0.015,
+      0.011754
+     ],
+     "ori": [
+      -4.6e-05,
+      -2.5e-05,
+      0.984438,
+      0.175731
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0066
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0141
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0115
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 4,
+   "grid_row": 0,
+   "grid_col": 4,
+   "cells": {
+    "cream_mug_bpupsc_1": 9,
+    "blue_bowl_jpkksu_2": 13,
+    "green_plate_zritke_0": 4
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.45522,
+      -0.243592,
+      0.056789
+     ],
+     "ori": [
+      -0.01176,
+      -0.012362,
+      0.999146,
+      0.037629
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.521619,
+      0.294204,
+      0.031475
+     ],
+     "ori": [
+      2.6e-05,
+      -0.000104,
+      -0.373641,
+      0.927573
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.319199,
+      0.09,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.5e-05,
+      0.984889,
+      0.173187
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0069
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0096
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0237
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 5,
+   "grid_row": 1,
+   "grid_col": 0,
+   "cells": {
+    "cream_mug_bpupsc_1": 7,
+    "blue_bowl_jpkksu_2": 4,
+    "green_plate_zritke_0": 5
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.45522,
+      -0.343592,
+      0.056789
+     ],
+     "ori": [
+      -0.012288,
+      -0.011837,
+      0.996551,
+      0.081209
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.371619,
+      0.344204,
+      0.031475
+     ],
+     "ori": [
+      2.4e-05,
+      -0.000105,
+      -0.395104,
+      0.918636
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.369199,
+      -0.21,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.5e-05,
+      0.985333,
+      0.170643
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0068
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0234
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0093
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 6,
+   "grid_row": 1,
+   "grid_col": 1,
+   "cells": {
+    "cream_mug_bpupsc_1": 17,
+    "blue_bowl_jpkksu_2": 8,
+    "green_plate_zritke_0": 6
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.60522,
+      -0.343592,
+      0.056789
+     ],
+     "ori": [
+      -0.009432,
+      -0.014218,
+      0.990483,
+      -0.136575
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.446619,
+      0.294204,
+      0.031475
+     ],
+     "ori": [
+      2.5e-05,
+      -0.000105,
+      -0.385591,
+      0.92267
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.369199,
+      -0.135,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.5e-05,
+      0.985771,
+      0.168097
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0067
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0234
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0102
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 7,
+   "grid_row": 1,
+   "grid_col": 2,
+   "cells": {
+    "cream_mug_bpupsc_1": 24,
+    "blue_bowl_jpkksu_2": 23,
+    "green_plate_zritke_0": 7
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.68022,
+      -0.243592,
+      0.056789
+     ],
+     "ori": [
+      -0.007158,
+      -0.015488,
+      0.958145,
+      -0.285773
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.671619,
+      0.294204,
+      0.031475
+     ],
+     "ori": [
+      2.9e-05,
+      -0.000104,
+      -0.349557,
+      0.936915
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.369199,
+      -0.06,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.5e-05,
+      0.986201,
+      0.165549
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0065
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0233
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0106
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 8,
+   "grid_row": 1,
+   "grid_col": 3,
+   "cells": {
+    "cream_mug_bpupsc_1": 6,
+    "blue_bowl_jpkksu_2": 7,
+    "green_plate_zritke_0": 8
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.45522,
+      -0.393592,
+      0.056789
+     ],
+     "ori": [
+      -0.012544,
+      -0.011566,
+      0.994541,
+      0.102946
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.446619,
+      0.244204,
+      0.031475
+     ],
+     "ori": [
+      2.5e-05,
+      -0.000105,
+      -0.387973,
+      0.921671
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.369199,
+      0.015,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.5e-05,
+      0.986626,
+      0.163001
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.007
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0255
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0116
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 9,
+   "grid_row": 1,
+   "grid_col": 4,
+   "cells": {
+    "cream_mug_bpupsc_1": 10,
+    "blue_bowl_jpkksu_2": 9,
+    "green_plate_zritke_0": 9
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.53022,
+      -0.443592,
+      0.056789
+     ],
+     "ori": [
+      -0.011487,
+      -0.012616,
+      0.999729,
+      0.015807
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.446619,
+      0.344204,
+      0.031475
+     ],
+     "ori": [
+      2.5e-05,
+      -0.000105,
+      -0.383206,
+      0.923663
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.369199,
+      0.09,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.987044,
+      0.160452
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0069
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0237
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0115
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 10,
+   "grid_row": 2,
+   "grid_col": 0,
+   "cells": {
+    "cream_mug_bpupsc_1": 16,
+    "blue_bowl_jpkksu_2": 16,
+    "green_plate_zritke_0": 10
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.60522,
+      -0.393592,
+      0.056789
+     ],
+     "ori": [
+      -0.009741,
+      -0.014009,
+      0.993228,
+      -0.114918
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.596619,
+      0.194204,
+      0.031475
+     ],
+     "ori": [
+      2.7e-05,
+      -0.000104,
+      -0.366441,
+      0.930441
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.419199,
+      -0.21,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.987455,
+      0.157901
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0065
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.001,
+      "velocity": 0.0233
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0236
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 11,
+   "grid_row": 2,
+   "grid_col": 1,
+   "cells": {
+    "cream_mug_bpupsc_1": 0,
+    "blue_bowl_jpkksu_2": 5,
+    "green_plate_zritke_0": 11
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.38022,
+      -0.443592,
+      0.056789
+     ],
+     "ori": [
+      -0.013947,
+      -0.009829,
+      0.972572,
+      0.231976
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.446619,
+      0.144204,
+      0.031475
+     ],
+     "ori": [
+      2.4e-05,
+      -0.000105,
+      -0.39273,
+      0.919654
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.419199,
+      -0.135,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.987859,
+      0.15535
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.026
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0253
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0073
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 12,
+   "grid_row": 2,
+   "grid_col": 2,
+   "cells": {
+    "cream_mug_bpupsc_1": 21,
+    "blue_bowl_jpkksu_2": 24,
+    "green_plate_zritke_0": 12
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.68022,
+      -0.393592,
+      0.056789
+     ],
+     "ori": [
+      -0.008156,
+      -0.014986,
+      0.974796,
+      -0.222446
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.671619,
+      0.344204,
+      0.031475
+     ],
+     "ori": [
+      2.9e-05,
+      -0.000103,
+      -0.347135,
+      0.937815
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.419199,
+      -0.06,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.988258,
+      0.152798
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0217
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0234
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.011
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 13,
+   "grid_row": 2,
+   "grid_col": 3,
+   "cells": {
+    "cream_mug_bpupsc_1": 18,
+    "blue_bowl_jpkksu_2": 12,
+    "green_plate_zritke_0": 13
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.60522,
+      -0.293592,
+      0.056789
+     ],
+     "ori": [
+      -0.00912,
+      -0.014421,
+      0.987265,
+      -0.158166
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.521619,
+      0.244204,
+      0.031475
+     ],
+     "ori": [
+      2.6e-05,
+      -0.000104,
+      -0.376036,
+      0.926605
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.419199,
+      0.015,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.988649,
+      0.150244
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0221
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.021
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.011
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 14,
+   "grid_row": 2,
+   "grid_col": 4,
+   "cells": {
+    "cream_mug_bpupsc_1": 12,
+    "blue_bowl_jpkksu_2": 0,
+    "green_plate_zritke_0": 14
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.514982,
+      -0.349299,
+      0.056789
+     ],
+     "ori": [
+      -0.010925,
+      -0.013106,
+      0.999467,
+      -0.027849
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.36254,
+      0.129002,
+      0.031475
+     ],
+     "ori": [
+      2.3e-05,
+      -0.000105,
+      -0.404575,
+      0.914505
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.419199,
+      0.09,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.989034,
+      0.14769
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0222
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0145,
+      "velocity": 0.0264
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.014,
+      "velocity": 0.032
+     }
+    },
+    "retries": 1
+   }
+  },
+  {
+   "state_idx": 15,
+   "grid_row": 3,
+   "grid_col": 0,
+   "cells": {
+    "cream_mug_bpupsc_1": 5,
+    "blue_bowl_jpkksu_2": 14,
+    "green_plate_zritke_0": 15
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.45522,
+      -0.443592,
+      0.056789
+     ],
+     "ori": [
+      -0.012793,
+      -0.01129,
+      0.992056,
+      0.124634
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.521619,
+      0.344204,
+      0.031475
+     ],
+     "ori": [
+      2.6e-05,
+      -0.000104,
+      -0.371243,
+      0.928536
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.469199,
+      -0.21,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.989412,
+      0.145134
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0208
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.001,
+      "velocity": 0.025
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0109
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 16,
+   "grid_row": 3,
+   "grid_col": 1,
+   "cells": {
+    "cream_mug_bpupsc_1": 11,
+    "blue_bowl_jpkksu_2": 18,
+    "green_plate_zritke_0": 16
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.53022,
+      -0.393592,
+      0.056789
+     ],
+     "ori": [
+      -0.011209,
+      -0.012864,
+      0.999836,
+      -0.006022
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.596619,
+      0.294204,
+      0.031475
+     ],
+     "ori": [
+      2.8e-05,
+      -0.000104,
+      -0.361629,
+      0.932322
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.469199,
+      -0.135,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.6e-05,
+      0.989784,
+      0.142578
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0278
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0216
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0073
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 17,
+   "grid_row": 3,
+   "grid_col": 2,
+   "cells": {
+    "cream_mug_bpupsc_1": 14,
+    "blue_bowl_jpkksu_2": 15,
+    "green_plate_zritke_0": 17
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.53022,
+      -0.243592,
+      0.056789
+     ],
+     "ori": [
+      -0.010343,
+      -0.01357,
+      0.997298,
+      -0.071452
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.596619,
+      0.144204,
+      0.031475
+     ],
+     "ori": [
+      2.7e-05,
+      -0.000104,
+      -0.368844,
+      0.929491
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.469199,
+      -0.06,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.7e-05,
+      0.990149,
+      0.14002
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0255
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0216
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.011
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 18,
+   "grid_row": 3,
+   "grid_col": 3,
+   "cells": {
+    "cream_mug_bpupsc_1": 23,
+    "blue_bowl_jpkksu_2": 21,
+    "green_plate_zritke_0": 18
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.68022,
+      -0.293592,
+      0.056789
+     ],
+     "ori": [
+      -0.007494,
+      -0.015328,
+      0.964156,
+      -0.264787
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.671619,
+      0.194204,
+      0.031475
+     ],
+     "ori": [
+      2.8e-05,
+      -0.000104,
+      -0.354393,
+      0.935097
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.469199,
+      0.015,
+      0.011754
+     ],
+     "ori": [
+      -4.5e-05,
+      -2.7e-05,
+      0.990507,
+      0.137462
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.022
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.001,
+      "velocity": 0.0245
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0073
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 19,
+   "grid_row": 3,
+   "grid_col": 4,
+   "cells": {
+    "cream_mug_bpupsc_1": 2,
+    "blue_bowl_jpkksu_2": 2,
+    "green_plate_zritke_0": 19
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.38022,
+      -0.343592,
+      0.056789
+     ],
+     "ori": [
+      -0.013505,
+      -0.010428,
+      0.981771,
+      0.1893
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.371619,
+      0.244204,
+      0.031475
+     ],
+     "ori": [
+      2.3e-05,
+      -0.000105,
+      -0.399845,
+      0.916583
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.469199,
+      0.09,
+      0.011754
+     ],
+     "ori": [
+      -4.4e-05,
+      -2.7e-05,
+      0.990859,
+      0.134903
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.026
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0235
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0073
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 20,
+   "grid_row": 4,
+   "grid_col": 0,
+   "cells": {
+    "cream_mug_bpupsc_1": 4,
+    "blue_bowl_jpkksu_2": 10,
+    "green_plate_zritke_0": 20
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.38022,
+      -0.243592,
+      0.056789
+     ],
+     "ori": [
+      -0.013037,
+      -0.011008,
+      0.989099,
+      0.146262
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.521619,
+      0.144204,
+      0.031475
+     ],
+     "ori": [
+      2.5e-05,
+      -0.000104,
+      -0.380818,
+      0.92465
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.519199,
+      -0.21,
+      0.011754
+     ],
+     "ori": [
+      -4.4e-05,
+      -2.7e-05,
+      0.991204,
+      0.132342
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0015,
+      "velocity": 0.012
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0213
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0072
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 21,
+   "grid_row": 4,
+   "grid_col": 1,
+   "cells": {
+    "cream_mug_bpupsc_1": 22,
+    "blue_bowl_jpkksu_2": 3,
+    "green_plate_zritke_0": 21
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.68022,
+      -0.343592,
+      0.056789
+     ],
+     "ori": [
+      -0.007827,
+      -0.015161,
+      0.969707,
+      -0.243675
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.371619,
+      0.294204,
+      0.031475
+     ],
+     "ori": [
+      2.3e-05,
+      -0.000105,
+      -0.397476,
+      0.917613
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.519199,
+      -0.135,
+      0.011754
+     ],
+     "ori": [
+      -4.4e-05,
+      -2.7e-05,
+      0.991543,
+      0.129781
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.028
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0244
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0109
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 22,
+   "grid_row": 4,
+   "grid_col": 2,
+   "cells": {
+    "cream_mug_bpupsc_1": 1,
+    "blue_bowl_jpkksu_2": 1,
+    "green_plate_zritke_0": 22
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.38022,
+      -0.393592,
+      0.056789
+     ],
+     "ori": [
+      -0.013729,
+      -0.010131,
+      0.977404,
+      0.210688
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.371619,
+      0.194204,
+      0.031475
+     ],
+     "ori": [
+      2.3e-05,
+      -0.000105,
+      -0.402212,
+      0.915547
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.519199,
+      -0.06,
+      0.011754
+     ],
+     "ori": [
+      -4.4e-05,
+      -2.7e-05,
+      0.991875,
+      0.127219
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0066
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0069
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.024
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 23,
+   "grid_row": 4,
+   "grid_col": 3,
+   "cells": {
+    "cream_mug_bpupsc_1": 13,
+    "blue_bowl_jpkksu_2": 22,
+    "green_plate_zritke_0": 23
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.53022,
+      -0.293592,
+      0.056789
+     ],
+     "ori": [
+      -0.010637,
+      -0.013341,
+      0.99862,
+      -0.049662
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.671619,
+      0.244204,
+      0.031475
+     ],
+     "ori": [
+      2.9e-05,
+      -0.000104,
+      -0.351976,
+      0.936009
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.519199,
+      0.015,
+      0.011754
+     ],
+     "ori": [
+      -4.4e-05,
+      -2.7e-05,
+      0.9922,
+      0.124657
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0279
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0216
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.007
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 24,
+   "grid_row": 4,
+   "grid_col": 4,
+   "cells": {
+    "cream_mug_bpupsc_1": 8,
+    "blue_bowl_jpkksu_2": 17,
+    "green_plate_zritke_0": 24
+   },
+   "objects": {
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.45522,
+      -0.293592,
+      0.056789
+     ],
+     "ori": [
+      -0.012027,
+      -0.012103,
+      0.998086,
+      0.059433
+     ]
+    },
+    "blue_bowl_jpkksu_2": {
+     "pos": [
+      0.596619,
+      0.244204,
+      0.031475
+     ],
+     "ori": [
+      2.7e-05,
+      -0.000104,
+      -0.364036,
+      0.931385
+     ]
+    },
+    "green_plate_zritke_0": {
+     "pos": [
+      0.519199,
+      0.09,
+      0.011754
+     ],
+     "ori": [
+      -4.4e-05,
+      -2.7e-05,
+      0.992519,
+      0.122093
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.0018,
+      "velocity": 0.0275
+     },
+     "blue_bowl_jpkksu_2": {
+      "displacement": 0.0009,
+      "velocity": 0.0233
+     },
+     "green_plate_zritke_0": {
+      "displacement": 0.0035,
+      "velocity": 0.0108
+     }
+    },
+    "retries": 0
+   }
+  }
+ ]
+}

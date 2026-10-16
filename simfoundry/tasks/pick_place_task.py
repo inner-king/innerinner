@@ -1244,10 +1244,11 @@ class PickPlaceTask(BaseTask):
                         continue
 
                     # Special handling for the SimFoundry AABB-geometry states - reliable
-                    # for custom meshes where OG's kinematic states misbehave
-                    if state_name in ("OnTopAABB", "AboveAABB", "Lifted"):
+                    # for custom meshes where OG's kinematic states misbehave. JointClosed
+                    # is unary like Lifted and shares the factory (see make_aabb_predicate)
+                    if state_name in ("OnTopAABB", "AboveAABB", "Lifted", "JointClosed"):
                         other_obj = None
-                        if state_name != "Lifted":
+                        if state_name not in ("Lifted", "JointClosed"):
                             other_group = predicate_info["other_group"]
                             other_objs = self.group_objs[other_group]
                             assert len(other_objs) == 1, \
@@ -1373,9 +1374,9 @@ class PickPlaceTask(BaseTask):
             # Special handling for the SimFoundry AABB-geometry states. These classes
             # implement _step, so the standard check_milestones loop evaluates them
             # (including `requires` gating) - no bespoke check dict needed.
-            if state_name in ("OnTopAABB", "AboveAABB", "Lifted"):
+            if state_name in ("OnTopAABB", "AboveAABB", "Lifted", "JointClosed"):
                 other_obj = None
-                if state_name != "Lifted":
+                if state_name not in ("Lifted", "JointClosed"):
                     other_group = milestone_info["other_group"]
                     other_objs = self.group_objs.get(other_group, [])
                     if len(other_objs) != 1:

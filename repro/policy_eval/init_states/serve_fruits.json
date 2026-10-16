@@ -1,0 +1,3141 @@
+{
+ "task": "serve_fruits",
+ "scene": "scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json",
+ "config": {
+  "grid_resolution": [
+   5,
+   5
+  ],
+  "seed": 42,
+  "randomize_pairings": true,
+  "pairing_anchor_object": "teal_tray_tdxtsb_5",
+  "objects": [
+   {
+    "name": "yellow_banana_yvjcfy_3",
+    "grid_size": [
+     0.15,
+     0.15
+    ],
+    "z_rot_range": [
+     -0.174,
+     0.174
+    ]
+   },
+   {
+    "name": "red_apple_zlgmzo_2",
+    "grid_size": [
+     0.15,
+     0.15
+    ],
+    "z_rot_range": [
+     -0.174,
+     0.174
+    ]
+   },
+   {
+    "name": "teal_tray_tdxtsb_5",
+    "grid_size": [
+     0.1,
+     0.1
+    ],
+    "z_rot_range": [
+     -0.174,
+     0.174
+    ]
+   },
+   {
+    "name": "yellow_pear_uckunr_0",
+    "grid_size": [
+     0.25,
+     0.25
+    ],
+    "z_rot_range": [
+     -0.174,
+     0.174
+    ]
+   },
+   {
+    "name": "orange_fruit_rofqtq_4",
+    "grid_size": [
+     0.33,
+     0.22
+    ],
+    "z_rot_range": [
+     -0.174,
+     0.174
+    ]
+   },
+   {
+    "name": "orange_square_plate_rfnrye_1",
+    "grid_size": [
+     0.1,
+     0.1
+    ],
+    "z_rot_range": [
+     -0.174,
+     0.174
+    ]
+   }
+  ]
+ },
+ "physics_check": {
+  "n_physics_steps": 30,
+  "max_velocity_threshold": 0.05,
+  "max_displacement_threshold": 0.02,
+  "max_retries": 10,
+  "retry_perturbation": 0.02,
+  "max_swaps": 400
+ },
+ "init_states": [
+  {
+   "state_idx": 0,
+   "grid_row": 0,
+   "grid_col": 0,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 15,
+    "red_apple_zlgmzo_2": 20,
+    "teal_tray_tdxtsb_5": 0,
+    "yellow_pear_uckunr_0": 4,
+    "orange_fruit_rofqtq_4": 6,
+    "orange_square_plate_rfnrye_1": 3
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.52003,
+      -0.023197,
+      0.000595
+     ],
+     "ori": [
+      -0.001271,
+      -0.00392,
+      0.007108,
+      0.999966
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.740862,
+      -0.098021,
+      0.01641
+     ],
+     "ori": [
+      0.564984,
+      0.620564,
+      0.454664,
+      0.298285
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.526343,
+      0.231761,
+      0.0025
+     ],
+     "ori": [
+      -0.002412,
+      0.000547,
+      0.648468,
+      0.761238
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.348662,
+      0.062675,
+      0.006078
+     ],
+     "ori": [
+      0.704086,
+      0.398136,
+      0.323491,
+      -0.491024
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.574404,
+      0.079651,
+      0.015533
+     ],
+     "ori": [
+      0.365914,
+      0.884592,
+      0.115746,
+      0.264967
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.542813,
+      -0.185635,
+      -0.002322
+     ],
+     "ori": [
+      -5.1e-05,
+      0.00022,
+      0.752628,
+      -0.658446
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0166
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0256
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0162
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0317
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0221
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0299
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 1,
+   "grid_row": 0,
+   "grid_col": 1,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 16,
+    "red_apple_zlgmzo_2": 19,
+    "teal_tray_tdxtsb_5": 1,
+    "yellow_pear_uckunr_0": 23,
+    "orange_fruit_rofqtq_4": 19,
+    "orange_square_plate_rfnrye_1": 4
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.504792,
+      0.008596,
+      0.000595
+     ],
+     "ori": [
+      -0.001242,
+      -0.003929,
+      0.014358,
+      0.999888
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.694283,
+      0.036777,
+      0.01641
+     ],
+     "ori": [
+      0.569468,
+      0.616452,
+      0.45249,
+      0.301573
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.526343,
+      0.256761,
+      0.0025
+     ],
+     "ori": [
+      -0.002416,
+      0.00053,
+      0.65397,
+      0.756517
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.603653,
+      -0.011557,
+      0.006078
+     ],
+     "ori": [
+      0.642747,
+      0.491046,
+      0.253002,
+      -0.530793
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.747493,
+      0.245813,
+      0.015533
+     ],
+     "ori": [
+      0.281041,
+      0.915102,
+      0.140168,
+      0.252898
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.541776,
+      -0.166546,
+      -0.002322
+     ],
+     "ori": [
+      -5.3e-05,
+      0.000219,
+      0.747834,
+      -0.663885
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.003,
+      "velocity": 0.0174
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0232
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0163
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0074,
+      "velocity": 0.0229
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0282
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0182
+     }
+    },
+    "retries": 1
+   }
+  },
+  {
+   "state_idx": 2,
+   "grid_row": 0,
+   "grid_col": 2,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 19,
+    "red_apple_zlgmzo_2": 6,
+    "teal_tray_tdxtsb_5": 2,
+    "yellow_pear_uckunr_0": 13,
+    "orange_fruit_rofqtq_4": 5,
+    "orange_square_plate_rfnrye_1": 9
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.506257,
+      0.129581,
+      0.000595
+     ],
+     "ori": [
+      -0.001157,
+      -0.003955,
+      0.0361,
+      0.99934
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.609682,
+      -0.054526,
+      0.01641
+     ],
+     "ori": [
+      0.624955,
+      0.560123,
+      0.4221,
+      0.342819
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.526343,
+      0.281761,
+      0.0025
+     ],
+     "ori": [
+      -0.00242,
+      0.000512,
+      0.659437,
+      0.751755
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.475417,
+      0.008498,
+      0.006078
+     ],
+     "ori": [
+      0.676628,
+      0.443197,
+      0.290786,
+      -0.511072
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.580574,
+      0.024673,
+      0.015533
+     ],
+     "ori": [
+      0.372318,
+      0.881915,
+      0.113822,
+      0.265799
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.569398,
+      -0.173684,
+      -0.002322
+     ],
+     "ori": [
+      -6.1e-05,
+      0.000217,
+      0.723283,
+      -0.690552
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0175
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.018,
+      "velocity": 0.0009
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0149
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0212
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0298
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0027,
+      "velocity": 0.0165
+     }
+    },
+    "retries": 5
+   }
+  },
+  {
+   "state_idx": 3,
+   "grid_row": 0,
+   "grid_col": 3,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 20,
+    "red_apple_zlgmzo_2": 11,
+    "teal_tray_tdxtsb_5": 3,
+    "yellow_pear_uckunr_0": 22,
+    "orange_fruit_rofqtq_4": 8,
+    "orange_square_plate_rfnrye_1": 0
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.55753,
+      -0.023197,
+      0.000595
+     ],
+     "ori": [
+      -0.001128,
+      -0.003963,
+      0.043344,
+      0.999052
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.665862,
+      -0.060521,
+      0.01641
+     ],
+     "ori": [
+      0.604245,
+      0.582405,
+      0.434248,
+      0.327296
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.526343,
+      0.306761,
+      0.0025
+     ],
+     "ori": [
+      -0.002423,
+      0.000495,
+      0.66487,
+      0.746955
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.598662,
+      -0.062325,
+      0.006078
+     ],
+     "ori": [
+      0.64629,
+      0.486373,
+      0.256843,
+      -0.528945
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.574404,
+      0.189651,
+      0.015533
+     ],
+     "ori": [
+      0.35305,
+      0.889804,
+      0.119575,
+      0.263261
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.542813,
+      -0.260635,
+      -0.002322
+     ],
+     "ori": [
+      -4.7e-05,
+      0.000221,
+      0.76677,
+      -0.641922
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0006,
+      "velocity": 0.0171
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0234
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0007,
+      "velocity": 0.0141
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0237
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0085,
+      "velocity": 0.0249
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.015
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 4,
+   "grid_row": 0,
+   "grid_col": 4,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 9,
+    "red_apple_zlgmzo_2": 1,
+    "teal_tray_tdxtsb_5": 4,
+    "yellow_pear_uckunr_0": 12,
+    "orange_fruit_rofqtq_4": 13,
+    "orange_square_plate_rfnrye_1": 15
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.44503,
+      0.126803,
+      0.000595
+     ],
+     "ori": [
+      -0.00144,
+      -0.003861,
+      -0.036384,
+      0.999329
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.590862,
+      -0.060521,
+      0.01641
+     ],
+     "ori": [
+      0.644845,
+      0.537105,
+      0.409399,
+      0.357891
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.526343,
+      0.331761,
+      0.0025
+     ],
+     "ori": [
+      -0.002427,
+      0.000477,
+      0.670268,
+      0.742115
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.473662,
+      -0.062325,
+      0.006078
+     ],
+     "ori": [
+      0.679823,
+      0.43828,
+      0.294483,
+      -0.50895
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.656904,
+      0.189651,
+      0.015533
+     ],
+     "ori": [
+      0.32057,
+      0.902015,
+      0.129038,
+      0.258754
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.617813,
+      -0.260635,
+      -0.002322
+     ],
+     "ori": [
+      -7e-05,
+      0.000214,
+      0.692569,
+      -0.721352
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0155
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0228
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0166
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0208
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.021
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.011
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 5,
+   "grid_row": 1,
+   "grid_col": 0,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 7,
+    "red_apple_zlgmzo_2": 4,
+    "teal_tray_tdxtsb_5": 5,
+    "yellow_pear_uckunr_0": 16,
+    "orange_fruit_rofqtq_4": 4,
+    "orange_square_plate_rfnrye_1": 16
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.433506,
+      0.054178,
+      0.000595
+     ],
+     "ori": [
+      -0.001496,
+      -0.003839,
+      -0.050869,
+      0.998697
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.593239,
+      0.04409,
+      0.01641
+     ],
+     "ori": [
+      0.633011,
+      0.551002,
+      0.417085,
+      0.348903
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.551343,
+      0.231761,
+      0.0025
+     ],
+     "ori": [
+      -0.00243,
+      0.000459,
+      0.675631,
+      0.737236
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.54198,
+      -0.116432,
+      0.006078
+     ],
+     "ori": [
+      0.666829,
+      0.457808,
+      0.279602,
+      -0.517275
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.497332,
+      0.23634,
+      0.015533
+     ],
+     "ori": [
+      0.378702,
+      0.879193,
+      0.111892,
+      0.266617
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.613318,
+      -0.246212,
+      -0.002322
+     ],
+     "ori": [
+      -7.2e-05,
+      0.000214,
+      0.687321,
+      -0.726354
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0235
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0239
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0162
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0052,
+      "velocity": 0.015
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0327
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0026,
+      "velocity": 0.0168
+     }
+    },
+    "retries": 6
+   }
+  },
+  {
+   "state_idx": 6,
+   "grid_row": 1,
+   "grid_col": 1,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 17,
+    "red_apple_zlgmzo_2": 8,
+    "teal_tray_tdxtsb_5": 6,
+    "yellow_pear_uckunr_0": 7,
+    "orange_fruit_rofqtq_4": 11,
+    "orange_square_plate_rfnrye_1": 5
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.52003,
+      0.051803,
+      0.000595
+     ],
+     "ori": [
+      -0.001214,
+      -0.003938,
+      0.021606,
+      0.999758
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.628362,
+      0.014479,
+      0.01641
+     ],
+     "ori": [
+      0.616768,
+      0.569125,
+      0.427027,
+      0.336662
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.551343,
+      0.256761,
+      0.0025
+     ],
+     "ori": [
+      -0.002433,
+      0.000442,
+      0.680958,
+      0.732318
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.411162,
+      -0.062325,
+      0.006078
+     ],
+     "ori": [
+      0.695261,
+      0.413354,
+      0.312735,
+      -0.497943
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.656904,
+      0.079651,
+      0.015533
+     ],
+     "ori": [
+      0.333615,
+      0.897272,
+      0.125273,
+      0.260598
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.567813,
+      -0.260635,
+      -0.002322
+     ],
+     "ori": [
+      -5.5e-05,
+      0.000219,
+      0.743002,
+      -0.66929
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.017
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.019
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0163
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0251
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0236
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0178
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 7,
+   "grid_row": 1,
+   "grid_col": 2,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 24,
+    "red_apple_zlgmzo_2": 23,
+    "teal_tray_tdxtsb_5": 7,
+    "yellow_pear_uckunr_0": 15,
+    "orange_fruit_rofqtq_4": 9,
+    "orange_square_plate_rfnrye_1": 11
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.547603,
+      0.115688,
+      0.000595
+     ],
+     "ori": [
+      -0.001013,
+      -0.003994,
+      0.072294,
+      0.997375
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.745,
+      0.019503,
+      0.01641
+     ],
+     "ori": [
+      0.551354,
+      0.632705,
+      0.461044,
+      0.288326
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.551343,
+      0.281761,
+      0.0025
+     ],
+     "ori": [
+      -0.002437,
+      0.000424,
+      0.686249,
+      0.727362
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.548819,
+      -0.190051,
+      0.006078
+     ],
+     "ori": [
+      0.67013,
+      0.452962,
+      0.283345,
+      -0.515235
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.588498,
+      0.238343,
+      0.015533
+     ],
+     "ori": [
+      0.34659,
+      0.89234,
+      0.121481,
+      0.262387
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.575251,
+      -0.231985,
+      -0.002322
+     ],
+     "ori": [
+      -6.4e-05,
+      0.000216,
+      0.713194,
+      -0.700967
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0167
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.022
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0071
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0076,
+      "velocity": 0.0021
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0078,
+      "velocity": 0.0122
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0215
+     }
+    },
+    "retries": 3
+   }
+  },
+  {
+   "state_idx": 8,
+   "grid_row": 1,
+   "grid_col": 3,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 6,
+    "red_apple_zlgmzo_2": 7,
+    "teal_tray_tdxtsb_5": 8,
+    "yellow_pear_uckunr_0": 21,
+    "orange_fruit_rofqtq_4": 16,
+    "orange_square_plate_rfnrye_1": 1
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.45085,
+      0.025931,
+      0.000595
+     ],
+     "ori": [
+      -0.001524,
+      -0.003828,
+      -0.058109,
+      0.998302
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.633051,
+      -0.028668,
+      0.01641
+     ],
+     "ori": [
+      0.620878,
+      0.564639,
+      0.424575,
+      0.339749
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.551343,
+      0.306761,
+      0.0025
+     ],
+     "ori": [
+      -0.00244,
+      0.000407,
+      0.691505,
+      0.722368
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.591404,
+      -0.116136,
+      0.006078
+     ],
+     "ori": [
+      0.649799,
+      0.481675,
+      0.260671,
+      -0.527069
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.736467,
+      0.083323,
+      0.015533
+     ],
+     "ori": [
+      0.300877,
+      0.908773,
+      0.134635,
+      0.255886
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.534903,
+      -0.242219,
+      -0.002322
+     ],
+     "ori": [
+      -4.8e-05,
+      0.00022,
+      0.762096,
+      -0.647464
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.018
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0233
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0166
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.008,
+      "velocity": 0.0171
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0207
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0038,
+      "velocity": 0.025
+     }
+    },
+    "retries": 7
+   }
+  },
+  {
+   "state_idx": 9,
+   "grid_row": 1,
+   "grid_col": 4,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 10,
+    "red_apple_zlgmzo_2": 9,
+    "teal_tray_tdxtsb_5": 9,
+    "yellow_pear_uckunr_0": 17,
+    "orange_fruit_rofqtq_4": 24,
+    "orange_square_plate_rfnrye_1": 24
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.48253,
+      -0.023197,
+      0.000595
+     ],
+     "ori": [
+      -0.001412,
+      -0.003871,
+      -0.029137,
+      0.999567
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.628362,
+      0.051979,
+      0.01641
+     ],
+     "ori": [
+      0.612626,
+      0.573582,
+      0.429456,
+      0.333558
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.551343,
+      0.331761,
+      0.0025
+     ],
+     "ori": [
+      -0.002443,
+      0.000389,
+      0.696724,
+      0.717335
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.536162,
+      -0.062325,
+      0.006078
+     ],
+     "ori": [
+      0.663492,
+      0.462631,
+      0.275844,
+      -0.519289
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.821904,
+      0.244651,
+      0.015533
+     ],
+     "ori": [
+      0.247691,
+      0.924686,
+      0.149242,
+      0.247652
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.642813,
+      -0.160635,
+      -0.002322
+     ],
+     "ori": [
+      -8.4e-05,
+      0.000209,
+      0.64406,
+      -0.764975
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0065,
+      "velocity": 0.0079
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0263
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0165
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0116,
+      "velocity": 0.0205
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0239
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0074,
+      "velocity": 0.0154
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 10,
+   "grid_row": 2,
+   "grid_col": 0,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 3,
+    "red_apple_zlgmzo_2": 16,
+    "teal_tray_tdxtsb_5": 10,
+    "yellow_pear_uckunr_0": 8,
+    "orange_fruit_rofqtq_4": 14,
+    "orange_square_plate_rfnrye_1": 17
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.413394,
+      0.094505,
+      0.000595
+     ],
+     "ori": [
+      -0.001607,
+      -0.003794,
+      -0.079806,
+      0.996802
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.706096,
+      -0.059529,
+      0.01641
+     ],
+     "ori": [
+      0.58274,
+      0.603921,
+      0.445824,
+      0.311343
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.576343,
+      0.231761,
+      0.0025
+     ],
+     "ori": [
+      -0.002445,
+      0.000371,
+      0.701906,
+      0.712265
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.419054,
+      0.002927,
+      0.006078
+     ],
+     "ori": [
+      0.692246,
+      0.418384,
+      0.309117,
+      -0.500198
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.650419,
+      0.230708,
+      0.015533
+     ],
+     "ori": [
+      0.314022,
+      0.904315,
+      0.13091,
+      0.257812
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.612614,
+      -0.199215,
+      -0.002322
+     ],
+     "ori": [
+      -7.3e-05,
+      0.000213,
+      0.682037,
+      -0.731318
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0157
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0244
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0005,
+      "velocity": 0.0086
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0198
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0055,
+      "velocity": 0.0104
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0127
+     }
+    },
+    "retries": 3
+   }
+  },
+  {
+   "state_idx": 11,
+   "grid_row": 2,
+   "grid_col": 1,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 0,
+    "red_apple_zlgmzo_2": 3,
+    "teal_tray_tdxtsb_5": 11,
+    "yellow_pear_uckunr_0": 6,
+    "orange_fruit_rofqtq_4": 12,
+    "orange_square_plate_rfnrye_1": 8
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.40753,
+      -0.023197,
+      0.000595
+     ],
+     "ori": [
+      -0.001689,
+      -0.003759,
+      -0.101466,
+      0.99483
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.590862,
+      0.014479,
+      0.01641
+     ],
+     "ori": [
+      0.636989,
+      0.546399,
+      0.414545,
+      0.351917
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.576343,
+      0.256761,
+      0.0025
+     ],
+     "ori": [
+      -0.002448,
+      0.000353,
+      0.707051,
+      0.707158
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.411162,
+      -0.124825,
+      0.006078
+     ],
+     "ori": [
+      0.698239,
+      0.408303,
+      0.316337,
+      -0.495663
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.656904,
+      0.134651,
+      0.015533
+     ],
+     "ori": [
+      0.327101,
+      0.899667,
+      0.127159,
+      0.259683
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.567813,
+      -0.185635,
+      -0.002322
+     ],
+     "ori": [
+      -5.9e-05,
+      0.000218,
+      0.72827,
+      -0.68529
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0171
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0238
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0123
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0268
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0179
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0277
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 12,
+   "grid_row": 2,
+   "grid_col": 2,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 21,
+    "red_apple_zlgmzo_2": 24,
+    "teal_tray_tdxtsb_5": 12,
+    "yellow_pear_uckunr_0": 10,
+    "orange_fruit_rofqtq_4": 1,
+    "orange_square_plate_rfnrye_1": 12
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.571876,
+      0.027519,
+      0.000595
+     ],
+     "ori": [
+      -0.001099,
+      -0.003971,
+      0.050586,
+      0.998711
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.728846,
+      0.037986,
+      0.01641
+     ],
+     "ori": [
+      0.546753,
+      0.636685,
+      0.463122,
+      0.284976
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.576343,
+      0.281761,
+      0.0025
+     ],
+     "ori": [
+      -0.00245,
+      0.000336,
+      0.71216,
+      0.702013
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.467725,
+      -0.191002,
+      0.006078
+     ],
+     "ori": [
+      0.686106,
+      0.428377,
+      0.301832,
+      -0.504627
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.508421,
+      0.08093,
+      0.015533
+     ],
+     "ori": [
+      0.397734,
+      0.870749,
+      0.106067,
+      0.268988
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.598963,
+      -0.222631,
+      -0.002322
+     ],
+     "ori": [
+      -6.6e-05,
+      0.000216,
+      0.708093,
+      -0.706119
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0062,
+      "velocity": 0.0172
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0242
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0157
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0059,
+      "velocity": 0.0223
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0121,
+      "velocity": 0.024
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0038,
+      "velocity": 0.012
+     }
+    },
+    "retries": 1
+   }
+  },
+  {
+   "state_idx": 13,
+   "grid_row": 2,
+   "grid_col": 3,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 18,
+    "red_apple_zlgmzo_2": 12,
+    "teal_tray_tdxtsb_5": 13,
+    "yellow_pear_uckunr_0": 0,
+    "orange_fruit_rofqtq_4": 3,
+    "orange_square_plate_rfnrye_1": 20
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.52003,
+      0.089303,
+      0.000595
+     ],
+     "ori": [
+      -0.001185,
+      -0.003946,
+      0.028854,
+      0.999575
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.665862,
+      -0.023021,
+      0.01641
+     ],
+     "ori": [
+      0.600006,
+      0.58677,
+      0.436609,
+      0.324139
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.576343,
+      0.306761,
+      0.0025
+     ],
+     "ori": [
+      -0.002453,
+      0.000318,
+      0.71723,
+      0.696832
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.348662,
+      -0.187325,
+      0.006078
+     ],
+     "ori": [
+      0.715334,
+      0.377553,
+      0.337592,
+      -0.481438
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.491904,
+      0.189651,
+      0.015533
+     ],
+     "ori": [
+      0.385066,
+      0.876424,
+      0.109956,
+      0.267421
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.642813,
+      -0.260635,
+      -0.002322
+     ],
+     "ori": [
+      -7.8e-05,
+      0.000212,
+      0.665971,
+      -0.745978
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.017
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0246
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0005,
+      "velocity": 0.0155
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0243
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0051,
+      "velocity": 0.0216
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.013
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 14,
+   "grid_row": 2,
+   "grid_col": 4,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 12,
+    "red_apple_zlgmzo_2": 0,
+    "teal_tray_tdxtsb_5": 14,
+    "yellow_pear_uckunr_0": 5,
+    "orange_fruit_rofqtq_4": 15,
+    "orange_square_plate_rfnrye_1": 22
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.497262,
+      0.057054,
+      0.000595
+     ],
+     "ori": [
+      -0.001356,
+      -0.003891,
+      -0.014641,
+      0.999884
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.606011,
+      -0.093892,
+      0.01641
+     ],
+     "ori": [
+      0.648722,
+      0.532416,
+      0.406793,
+      0.36085
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.576343,
+      0.331761,
+      0.0025
+     ],
+     "ori": [
+      -0.002455,
+      0.0003,
+      0.722264,
+      0.691613
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.406437,
+      -0.205527,
+      0.006078
+     ],
+     "ori": [
+      0.701181,
+      0.40323,
+      0.319922,
+      -0.493357
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.746382,
+      0.029186,
+      0.015533
+     ],
+     "ori": [
+      0.307457,
+      0.906568,
+      0.132776,
+      0.256856
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.651314,
+      -0.211707,
+      -0.002322
+     ],
+     "ori": [
+      -8.1e-05,
+      0.00021,
+      0.655084,
+      -0.755556
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.016
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.01,
+      "velocity": 0.0254
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0165
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.02
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0209
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.003,
+      "velocity": 0.0171
+     }
+    },
+    "retries": 6
+   }
+  },
+  {
+   "state_idx": 15,
+   "grid_row": 3,
+   "grid_col": 0,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 5,
+    "red_apple_zlgmzo_2": 14,
+    "teal_tray_tdxtsb_5": 15,
+    "yellow_pear_uckunr_0": 1,
+    "orange_fruit_rofqtq_4": 7,
+    "orange_square_plate_rfnrye_1": 2
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.436498,
+      -0.027374,
+      0.000595
+     ],
+     "ori": [
+      -0.001551,
+      -0.003817,
+      -0.065345,
+      0.997854
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.661394,
+      0.037615,
+      0.01641
+     ],
+     "ori": [
+      0.591435,
+      0.595408,
+      0.441263,
+      0.317774
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.601343,
+      0.231761,
+      0.0025
+     ],
+     "ori": [
+      -0.002457,
+      0.000282,
+      0.727259,
+      0.686359
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.339399,
+      -0.137992,
+      0.006078
+     ],
+     "ori": [
+      0.712578,
+      0.382729,
+      0.334093,
+      -0.483873
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.577025,
+      0.123714,
+      0.015533
+     ],
+     "ori": [
+      0.359492,
+      0.887221,
+      0.117664,
+      0.264121
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.529347,
+      -0.204444,
+      -0.002322
+     ],
+     "ori": [
+      -5e-05,
+      0.00022,
+      0.757382,
+      -0.652972
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0175
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0224
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.002,
+      "velocity": 0.0053
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0201
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0135,
+      "velocity": 0.0258
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0203
+     }
+    },
+    "retries": 4
+   }
+  },
+  {
+   "state_idx": 16,
+   "grid_row": 3,
+   "grid_col": 1,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 11,
+    "red_apple_zlgmzo_2": 18,
+    "teal_tray_tdxtsb_5": 16,
+    "yellow_pear_uckunr_0": 18,
+    "orange_fruit_rofqtq_4": 2,
+    "orange_square_plate_rfnrye_1": 10
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.484641,
+      0.031606,
+      0.000595
+     ],
+     "ori": [
+      -0.001384,
+      -0.003881,
+      -0.02189,
+      0.999752
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.684328,
+      0.014454,
+      0.01641
+     ],
+     "ori": [
+      0.573922,
+      0.612307,
+      0.450292,
+      0.304846
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.601343,
+      0.256761,
+      0.0025
+     ],
+     "ori": [
+      -0.002459,
+      0.000264,
+      0.732216,
+      0.681068
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.54636,
+      -0.013911,
+      0.006078
+     ],
+     "ori": [
+      0.660121,
+      0.467429,
+      0.272072,
+      -0.521275
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.495162,
+      0.154372,
+      0.015533
+     ],
+     "ori": [
+      0.39141,
+      0.87361,
+      0.108014,
+      0.268211
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.592784,
+      -0.249923,
+      -0.002322
+     ],
+     "ori": [
+      -6.3e-05,
+      0.000217,
+      0.718257,
+      -0.695778
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0015,
+      "velocity": 0.0166
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0171
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0021,
+      "velocity": 0.0171
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0223
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.01,
+      "velocity": 0.0267
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0198
+     }
+    },
+    "retries": 2
+   }
+  },
+  {
+   "state_idx": 17,
+   "grid_row": 3,
+   "grid_col": 2,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 14,
+    "red_apple_zlgmzo_2": 15,
+    "teal_tray_tdxtsb_5": 17,
+    "yellow_pear_uckunr_0": 9,
+    "orange_fruit_rofqtq_4": 18,
+    "orange_square_plate_rfnrye_1": 13
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.477055,
+      0.124814,
+      0.000595
+     ],
+     "ori": [
+      -0.001299,
+      -0.00391,
+      -0.000142,
+      0.999992
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.719306,
+      -0.106182,
+      0.01641
+     ],
+     "ori": [
+      0.587103,
+      0.59968,
+      0.443555,
+      0.314567
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.601343,
+      0.281761,
+      0.0025
+     ],
+     "ori": [
+      -0.002461,
+      0.000247,
+      0.737134,
+      0.675742
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.428814,
+      0.066851,
+      0.006078
+     ],
+     "ori": [
+      0.689194,
+      0.423392,
+      0.305482,
+      -0.502426
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.751047,
+      0.193329,
+      0.015533
+     ],
+     "ori": [
+      0.287668,
+      0.91304,
+      0.138331,
+      0.253907
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.589823,
+      -0.191532,
+      -0.002322
+     ],
+     "ori": [
+      -6.7e-05,
+      0.000215,
+      0.702955,
+      -0.711234
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0005,
+      "velocity": 0.0163
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0227
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0157
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0017,
+      "velocity": 0.0213
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0217
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0138
+     }
+    },
+    "retries": 3
+   }
+  },
+  {
+   "state_idx": 18,
+   "grid_row": 3,
+   "grid_col": 3,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 23,
+    "red_apple_zlgmzo_2": 21,
+    "teal_tray_tdxtsb_5": 18,
+    "yellow_pear_uckunr_0": 2,
+    "orange_fruit_rofqtq_4": 17,
+    "orange_square_plate_rfnrye_1": 21
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.55753,
+      0.089303,
+      0.000595
+     ],
+     "ori": [
+      -0.001042,
+      -0.003987,
+      0.065062,
+      0.997873
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.740862,
+      -0.060521,
+      0.01641
+     ],
+     "ori": [
+      0.56047,
+      0.624644,
+      0.456815,
+      0.29498
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.601343,
+      0.306761,
+      0.0025
+     ],
+     "ori": [
+      -0.002463,
+      0.000229,
+      0.742014,
+      0.67038
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.348662,
+      -0.062325,
+      0.006078
+     ],
+     "ori": [
+      0.709785,
+      0.387885,
+      0.330576,
+      -0.486282
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.739404,
+      0.134651,
+      0.015533
+     ],
+     "ori": [
+      0.29428,
+      0.910931,
+      0.136486,
+      0.254904
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.642813,
+      -0.235635,
+      -0.002322
+     ],
+     "ori": [
+      -8e-05,
+      0.000211,
+      0.660545,
+      -0.750787
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0172
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0252
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0156
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0273
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0255
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0156
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 19,
+   "grid_row": 3,
+   "grid_col": 4,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 2,
+    "red_apple_zlgmzo_2": 2,
+    "teal_tray_tdxtsb_5": 19,
+    "yellow_pear_uckunr_0": 3,
+    "orange_fruit_rofqtq_4": 0,
+    "orange_square_plate_rfnrye_1": 7
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.401789,
+      0.070948,
+      0.000595
+     ],
+     "ori": [
+      -0.001634,
+      -0.003783,
+      -0.087031,
+      0.996197
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.5992,
+      -0.013343,
+      0.01641
+     ],
+     "ori": [
+      0.640934,
+      0.541766,
+      0.411983,
+      0.354914
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.601343,
+      0.331761,
+      0.0025
+     ],
+     "ori": [
+      -0.002464,
+      0.000211,
+      0.746855,
+      0.664983
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.363824,
+      -5.5e-05,
+      0.006078
+     ],
+     "ori": [
+      0.706954,
+      0.393021,
+      0.327042,
+      -0.488666
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.478068,
+      0.015221,
+      0.015533
+     ],
+     "ori": [
+      0.404036,
+      0.867842,
+      0.104114,
+      0.269749
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.578608,
+      -0.216992,
+      -0.002322
+     ],
+     "ori": [
+      -5.8e-05,
+      0.000218,
+      0.733219,
+      -0.679992
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0018,
+      "velocity": 0.0166
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0218
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0166
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.022
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.005,
+      "velocity": 0.0192
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0215
+     }
+    },
+    "retries": 4
+   }
+  },
+  {
+   "state_idx": 20,
+   "grid_row": 4,
+   "grid_col": 0,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 4,
+    "red_apple_zlgmzo_2": 17,
+    "teal_tray_tdxtsb_5": 20,
+    "yellow_pear_uckunr_0": 24,
+    "orange_fruit_rofqtq_4": 22,
+    "orange_square_plate_rfnrye_1": 18
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.40753,
+      0.126803,
+      0.000595
+     ],
+     "ori": [
+      -0.001579,
+      -0.003806,
+      -0.072577,
+      0.997354
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.703362,
+      -0.023021,
+      0.01641
+     ],
+     "ori": [
+      0.578346,
+      0.60813,
+      0.44807,
+      0.308102
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.626343,
+      0.231761,
+      0.0025
+     ],
+     "ori": [
+      -0.002466,
+      0.000193,
+      0.751656,
+      0.659551
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.598662,
+      0.062675,
+      0.006078
+     ],
+     "ori": [
+      0.63917,
+      0.495693,
+      0.249147,
+      -0.532613
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.821904,
+      0.134651,
+      0.015533
+     ],
+     "ori": [
+      0.261073,
+      0.920998,
+      0.145635,
+      0.24979
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.617813,
+      -0.185635,
+      -0.002322
+     ],
+     "ori": [
+      -7.5e-05,
+      0.000213,
+      0.676717,
+      -0.736243
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0259
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0174
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0165
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0012,
+      "velocity": 0.0192
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0222
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0194
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 21,
+   "grid_row": 4,
+   "grid_col": 1,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 22,
+    "red_apple_zlgmzo_2": 5,
+    "teal_tray_tdxtsb_5": 21,
+    "yellow_pear_uckunr_0": 14,
+    "orange_fruit_rofqtq_4": 23,
+    "orange_square_plate_rfnrye_1": 19
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.576385,
+      0.05311,
+      0.000595
+     ],
+     "ori": [
+      -0.00107,
+      -0.003979,
+      0.057825,
+      0.998318
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.63532,
+      -0.10282,
+      0.01641
+     ],
+     "ori": [
+      0.629,
+      0.555577,
+      0.419604,
+      0.34587
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.626343,
+      0.256761,
+      0.0025
+     ],
+     "ori": [
+      -0.002467,
+      0.000175,
+      0.756418,
+      0.654084
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.482373,
+      0.074672,
+      0.006078
+     ],
+     "ori": [
+      0.673397,
+      0.448091,
+      0.287073,
+      -0.513167
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.817077,
+      0.182047,
+      0.015533
+     ],
+     "ori": [
+      0.254389,
+      0.922866,
+      0.147442,
+      0.248727
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.604002,
+      -0.170594,
+      -0.002322
+     ],
+     "ori": [
+      -7.7e-05,
+      0.000212,
+      0.671361,
+      -0.74113
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0103,
+      "velocity": 0.0157
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0065,
+      "velocity": 0.0017
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0148
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0066,
+      "velocity": 0.017
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0244
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0013,
+      "velocity": 0.0212
+     }
+    },
+    "retries": 6
+   }
+  },
+  {
+   "state_idx": 22,
+   "grid_row": 4,
+   "grid_col": 2,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 1,
+    "red_apple_zlgmzo_2": 22,
+    "teal_tray_tdxtsb_5": 22,
+    "yellow_pear_uckunr_0": 20,
+    "orange_fruit_rofqtq_4": 10,
+    "orange_square_plate_rfnrye_1": 14
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.40753,
+      0.014303,
+      0.000595
+     ],
+     "ori": [
+      -0.001661,
+      -0.003771,
+      -0.094251,
+      0.99554
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.740862,
+      -0.023021,
+      0.01641
+     ],
+     "ori": [
+      0.555927,
+      0.628691,
+      0.458942,
+      0.291661
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.626343,
+      0.281761,
+      0.0025
+     ],
+     "ori": [
+      -0.002468,
+      0.000157,
+      0.76114,
+      0.648583
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.598662,
+      -0.187325,
+      0.006078
+     ],
+     "ori": [
+      0.653274,
+      0.476951,
+      0.264486,
+      -0.525165
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.656904,
+      0.024651,
+      0.015533
+     ],
+     "ori": [
+      0.340111,
+      0.89483,
+      0.12338,
+      0.261499
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.592813,
+      -0.160635,
+      -0.002322
+     ],
+     "ori": [
+      -6.9e-05,
+      0.000215,
+      0.69778,
+      -0.716312
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0257
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0182
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0159
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0082,
+      "velocity": 0.0421
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.022
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0154
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 23,
+   "grid_row": 4,
+   "grid_col": 3,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 13,
+    "red_apple_zlgmzo_2": 13,
+    "teal_tray_tdxtsb_5": 23,
+    "yellow_pear_uckunr_0": 19,
+    "orange_fruit_rofqtq_4": 20,
+    "orange_square_plate_rfnrye_1": 23
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.48253,
+      0.089303,
+      0.000595
+     ],
+     "ori": [
+      -0.001328,
+      -0.003901,
+      -0.007392,
+      0.999964
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.665862,
+      0.014479,
+      0.01641
+     ],
+     "ori": [
+      0.595737,
+      0.591105,
+      0.438948,
+      0.320965
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.626343,
+      0.306761,
+      0.0025
+     ],
+     "ori": [
+      -0.002469,
+      0.000139,
+      0.765822,
+      0.643047
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.536162,
+      0.062675,
+      0.006078
+     ],
+     "ori": [
+      0.656715,
+      0.472202,
+      0.268286,
+      -0.523234
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.821904,
+      0.024651,
+      0.015533
+     ],
+     "ori": [
+      0.274399,
+      0.917115,
+      0.141998,
+      0.251875
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.642813,
+      -0.185635,
+      -0.002322
+     ],
+     "ori": [
+      -8.3e-05,
+      0.00021,
+      0.649589,
+      -0.760285
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0064,
+      "velocity": 0.0127
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0233
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.0151
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0045,
+      "velocity": 0.0155
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0237
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0012,
+      "velocity": 0.0117
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 24,
+   "grid_row": 4,
+   "grid_col": 4,
+   "cells": {
+    "yellow_banana_yvjcfy_3": 8,
+    "red_apple_zlgmzo_2": 10,
+    "teal_tray_tdxtsb_5": 24,
+    "yellow_pear_uckunr_0": 11,
+    "orange_fruit_rofqtq_4": 21,
+    "orange_square_plate_rfnrye_1": 6
+   },
+   "objects": {
+    "yellow_banana_yvjcfy_3": {
+     "pos": [
+      0.432689,
+      0.079041,
+      0.000595
+     ],
+     "ori": [
+      -0.001468,
+      -0.00385,
+      -0.043628,
+      0.999039
+     ]
+    },
+    "red_apple_zlgmzo_2": {
+     "pos": [
+      0.672404,
+      -0.114387,
+      0.01641
+     ],
+     "ori": [
+      0.608451,
+      0.578008,
+      0.431863,
+      0.330435
+     ]
+    },
+    "teal_tray_tdxtsb_5": {
+     "pos": [
+      0.626343,
+      0.331761,
+      0.0025
+     ],
+     "ori": [
+      -0.00247,
+      0.000121,
+      0.770464,
+      0.637478
+     ]
+    },
+    "yellow_pear_uckunr_0": {
+     "pos": [
+      0.487136,
+      -0.114669,
+      0.006078
+     ],
+     "ori": [
+      0.682983,
+      0.43334,
+      0.298165,
+      -0.506802
+     ]
+    },
+    "orange_fruit_rofqtq_4": {
+     "pos": [
+      0.810928,
+      0.071312,
+      0.015533
+     ],
+     "ori": [
+      0.267743,
+      0.919081,
+      0.14382,
+      0.250839
+     ]
+    },
+    "orange_square_plate_rfnrye_1": {
+     "pos": [
+      0.577372,
+      -0.233017,
+      -0.002322
+     ],
+     "ori": [
+      -5.6e-05,
+      0.000218,
+      0.73813,
+      -0.674659
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "yellow_banana_yvjcfy_3": {
+      "displacement": 0.0002,
+      "velocity": 0.0176
+     },
+     "red_apple_zlgmzo_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0165
+     },
+     "teal_tray_tdxtsb_5": {
+      "displacement": 0.0004,
+      "velocity": 0.015
+     },
+     "yellow_pear_uckunr_0": {
+      "displacement": 0.0108,
+      "velocity": 0.0225
+     },
+     "orange_fruit_rofqtq_4": {
+      "displacement": 0.0049,
+      "velocity": 0.0253
+     },
+     "orange_square_plate_rfnrye_1": {
+      "displacement": 0.0062,
+      "velocity": 0.0152
+     }
+    },
+    "retries": 2
+   }
+  }
+ ]
+}

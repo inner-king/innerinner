@@ -17,7 +17,7 @@ log = create_module_logger(module_name=__name__)
 
 # States handled by SimFoundry directly rather than OmniGibson's state registry.
 # IsGrasping is milestone-only; PlaceOnTop is init-only; the rest are goal + milestone.
-SPECIAL_STATE_NAMES = ("PlaceOnTop", "InsideAABB", "OnTopAABB", "AboveAABB", "Lifted", "IsGrasping")
+SPECIAL_STATE_NAMES = ("PlaceOnTop", "InsideAABB", "OnTopAABB", "AboveAABB", "Lifted", "JointClosed", "IsGrasping")
 
 
 def check_inside_aabb(inner_obj, outer_obj, outer_link_name=None, shrink_factor=0.0, shrink_z_factor=None,
@@ -329,19 +329,75 @@ class LiftedPredicate(SuccessCondition):
         return all(results) == self.expected_value
 
 
-def make_aabb_predicate(state_name, objs, other_obj, expected_value, state_kwargs):
+class JointClosedPredicate(SuccessCondition):
     """
-    Build an OnTopAABB / AboveAABB / Lifted predicate from task-config fields.
+    Unary articulation check: every selected joint of each object sits within `threshold` (a fraction
+    of the joint's range) of its closed end.
+
+    OmniGibson's Open state takes the opening direction from the asset's `openable_joint_ids`
+    metadata and assumes the positive direction without it. Reconstructed and hand-authored assets
+    carry none, so a joint that opens toward negative values -- the DROID trash-can lid,
+    [-101 deg, 0] with 0 shut -- reads as open while it is shut. Here the task config states which
+    end is closed. The default threshold is Open's (5% of the range).
+
+    Check-only: has no set().
 
     Args:
-        state_name (str): "OnTopAABB", "AboveAABB", or "Lifted"
         objs (list): objects from the predicate's `group`
-        other_obj: the single object from `other_group` (None for Lifted)
+        joint_names (None or list of str): joints to check; None checks every joint of the object
+        closed_end (str): "lower" or "upper", the limit at which the joints are closed
+        threshold (float): largest fraction of the range away from `closed_end` that still counts as closed
+        expected_value (bool): the `value` field; False asks for at least one selected joint open
+    """
+
+    def __init__(self, objs, joint_names=None, closed_end="lower", threshold=0.05, expected_value=True):
+        if closed_end not in ("lower", "upper"):
+            raise ValueError(f"JointClosed closed_end must be 'lower' or 'upper', got {closed_end!r}")
+        self.objs = objs
+        self.joint_names = None if joint_names is None else list(joint_names)
+        self.closed_end = closed_end
+        self.threshold = threshold
+        self.expected_value = expected_value
+        super().__init__()
+
+    def _joints(self, obj):
+        if self.joint_names is None:
+            return list(obj.joints.values())
+        missing = [name for name in self.joint_names if name not in obj.joints]
+        if missing:
+            raise KeyError(f"JointClosed: object '{obj.name}' has no joint(s) {missing}; it has {list(obj.joints)}")
+        return [obj.joints[name] for name in self.joint_names]
+
+    def _step(self, task, env, action):
+        closed = []
+        for obj in self.objs:
+            for joint in self._joints(obj):
+                position = float(joint.get_state()[0][0])
+                lo, hi = float(joint.lower_limit), float(joint.upper_limit)
+                span = hi - lo
+                if span <= 0:
+                    continue
+                away = (position - lo) if self.closed_end == "lower" else (hi - position)
+                closed.append(away / span <= self.threshold)
+        return all(closed) == self.expected_value
+
+
+def make_aabb_predicate(state_name, objs, other_obj, expected_value, state_kwargs):
+    """
+    Build an OnTopAABB / AboveAABB / Lifted / JointClosed predicate from task-config fields.
+
+    JointClosed is not an AABB state, but it is unary like Lifted and is built from the same
+    config fields, so it shares this factory and its call sites.
+
+    Args:
+        state_name (str): "OnTopAABB", "AboveAABB", "Lifted", or "JointClosed"
+        objs (list): objects from the predicate's `group`
+        other_obj: the single object from `other_group` (None for Lifted and JointClosed)
         expected_value (bool): the `value` field
         state_kwargs (None or dict): the `state_kwargs` field
 
     Raises:
-        ValueError: if state_name is not one of the three AABB states.
+        ValueError: if state_name is not one of these four states.
     """
     kwargs = dict() if state_kwargs is None else state_kwargs
     if state_name == "OnTopAABB":
@@ -364,6 +420,14 @@ def make_aabb_predicate(state_name, objs, other_obj, expected_value, state_kwarg
         return LiftedPredicate(
             objs=objs,
             min_height=kwargs.get("min_height", 0.05),
+            expected_value=expected_value,
+        )
+    if state_name == "JointClosed":
+        return JointClosedPredicate(
+            objs=objs,
+            joint_names=kwargs.get("joint_names", None),
+            closed_end=kwargs.get("closed_end", "lower"),
+            threshold=kwargs.get("threshold", 0.05),
             expected_value=expected_value,
         )
     raise ValueError(f"Unknown AABB predicate state '{state_name}'")
