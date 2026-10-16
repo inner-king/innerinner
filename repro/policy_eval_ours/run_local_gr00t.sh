@@ -29,6 +29,12 @@ GR00T_PORT="${GR00T_PORT:-5555}"
 GR00T_MODEL="${GR00T_MODEL:-/data/models/gr00t/GR00T-N1.6-DROID}"
 EVAL_ROOT="${EVAL_ROOT:-${REPO}/results/policy_eval_ours/gr00t}"
 OPENPI_STUBS="${OPENPI_STUBS:?set OPENPI_STUBS to a directory holding an openpi_client import stub}"
+# As run_table_g1.sh: no viewer. Next to the 6.8 GB server, the viewer's render products took Serve Fruits
+# (the busiest scene) past 12 GB and the renderer segfaulted out of device memory.
+export OMNIGIBSON_HEADLESS=1 OMNI_KIT_ACCEPT_EULA=YES
+# EXTERNAL_SENSORS=nv_franka_droid_single_cam keeps external_cam0_left (same pose; the policy's exterior
+# image) and drops the second exterior camera, which only goes into the videos, and the depth outputs.
+# Serve Fruits needs it here: with both cameras its renderer ran out of the 12 GB next to the server.
 mkdir -p "${EVAL_ROOT}/logs" "${EVAL_ROOT}/out" "${EVAL_ROOT}/work"
 
 spec() {  # spec <spec yaml> <python expression over s>
@@ -92,6 +98,7 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
     --config-name=real2sim_cfg "task=policy_eval/${task}" \
     "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_gr00t_${tag}" \
     s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" s15_eval.checkpoint=gr00t_n16_droid \
+    "s15_eval.external_sensors_cfg=${EXTERNAL_SENSORS:-nv_franka_droid}" \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
     "s15_eval.init_states_path=${init}" \
