@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# GR00T N1.6-DROID, the third zero-shot policy of Table G.1, on this machine's 12 GB GPU (repro/README.md,
+# chapter 19). Table G.1's per-task Pearson r is taken across the policies run on a task; with pi0 and
+# pi0.5 alone it is +-1 by construction, so a third public checkpoint is what makes it a measurement.
+#
+# The policy runs as Isaac-GR00T's own server (commit e29d8fc, the one Isaac Lab Arena pins for
+# nvidia/GR00T-N1.6-DROID) in that repository's uv env; the episodes run through the repository's eval stage
+# (scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py, unmodified) with s15_eval.policy=gr00t,
+# whose Gr00tClient detects the N1.6 modality config. Task settings come from the same specs as the pi0/pi0.5
+# runs: repro/policy_eval/table_g1.yaml for the authors' scenes, repro/policy_eval_ours/ours.yaml for ours.
+#
+#   server                       start the GR00T server on ${GR00T_PORT:-5555} and wait until it answers
+#   stop                         stop it
+#   eval SPEC TASK [N] [TAG]     one run of N episodes (default 25) from <EVAL_ROOT>/init_states/<task>.json
+#
+# Setup (once): Isaac-GR00T at e29d8fc in ${GR00T_DIR}, `uv sync --python 3.10 --no-install-package flash-attn`,
+# then the prebuilt flash-attn 2.8.0.post2 wheel for torch 2.7 / cxx11abi TRUE / cp310 and
+# `uv pip install --no-deps -e .` (no nvcc here to build the pinned 2.7.4.post1; the GR00T README tested 2.8.0.post2).
+# The eval stage imports openpi_client unconditionally; a GR00T run never calls it, so OPENPI_STUBS holds an
+# import-only stub instead of installing the client into the shared simfoundry env.
+set -uo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+REPO="$(cd "${HERE}/../.." && pwd)"
+PY="${SIMFOUNDRY_PY:-${HOME}/miniforge3/envs/simfoundry/bin/python}"
+GR00T_DIR="${GR00T_DIR:-/home/inner/real2sim/tools/Isaac-GR00T}"
+GR00T_PORT="${GR00T_PORT:-5555}"
+# A local copy: this link stalls on large Hugging Face files, so the shards were fetched with curl -C -.
+GR00T_MODEL="${GR00T_MODEL:-/data/models/gr00t/GR00T-N1.6-DROID}"
+EVAL_ROOT="${EVAL_ROOT:-${REPO}/results/policy_eval_ours/gr00t}"
+OPENPI_STUBS="${OPENPI_STUBS:?set OPENPI_STUBS to a directory holding an openpi_client import stub}"
+mkdir -p "${EVAL_ROOT}/logs" "${EVAL_ROOT}/out" "${EVAL_ROOT}/work"
+
+spec() {  # spec <spec yaml> <python expression over s>
+  "${PY}" -c "import yaml,sys; s=yaml.safe_load(open(sys.argv[1])); print(eval(sys.argv[2]))" "$1" "$2"
+}
+
+server_up() {
+  # PolicyClient's REQ socket has no receive timeout, so a probe of a port nobody serves blocks for good:
+  # the hard kill bounds it.
+  timeout -s KILL 10 "${PY}" - "${GR00T_PORT}" <<'EOF' > /dev/null 2>&1
+import sys
+sys.path.insert(0, ".")
+from simfoundry.policies.gr00t_utils import PolicyClient
+sys.exit(0 if PolicyClient(host="localhost", port=int(sys.argv[1])).ping() else 1)
+EOF
+}
+
+gpu_idle() {  # other sessions start GPU jobs at any time; take the card only when nothing else holds it
+  local used
+  used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)
+  [[ ${used} -lt ${GPU_IDLE_MIB:-1000} ]]
+}
+
+server() {
+  if (cd "${REPO}" && server_up); then echo "[gr00t] server already up on ${GR00T_PORT}"; return 0; fi
+  gpu_idle || echo "[gr00t] $(date +%T) waiting for the GPU to be free"
+  until gpu_idle; do sleep 30; done
+  (cd "${GR00T_DIR}" && setsid nohup .venv/bin/python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID \
+    --use_sim_policy_wrapper --model-path "${GR00T_MODEL}" --device cuda --host 127.0.0.1 \
+    --port "${GR00T_PORT}" > "${EVAL_ROOT}/logs/server_gr00t.log" 2>&1 < /dev/null &)
+  for _ in $(seq 180); do (cd "${REPO}" && server_up) && { echo "[gr00t] server up on ${GR00T_PORT}"; return 0; }; sleep 5; done
+  echo "[gr00t] server did not come up, see ${EVAL_ROOT}/logs/server_gr00t.log"; return 1
+}
+
+stop() { pkill -f "run_gr00t_server.py .*--port ${GR00T_PORT}" && echo "[gr00t] stopped"; sleep 5; }
+
+eval_one() {  # eval_one SPEC TASK [N] [TAG]
+  local sp="$1" t="$2" n="${3:-25}" tag="${4:-main}"
+  local scene task prompt timeout horizon init work log
+  scene=$(spec "${sp}" "s['tasks']['${t}']['scene']")
+  task=$(spec "${sp}" "s['tasks']['${t}']['task']")
+  prompt=$(spec "${sp}" "s['tasks']['${t}']['prompt']")
+  timeout=$(spec "${sp}" "s['tasks']['${t}']['timeout_s']")
+  horizon=$(spec "${sp}" "s['tasks']['${t}']['execute_horizon']")
+  init="${EVAL_ROOT}/init_states/${t}.json"
+  [[ -s "${init}" ]] || { echo "[eval] no init states for ${t} at ${init}"; return 1; }
+  if [[ ${n} -lt 25 ]]; then
+    "${PY}" -c "import json,sys; d=json.load(open(sys.argv[1])); d['init_states']=d['init_states'][:int(sys.argv[2])]; json.dump(d, open(sys.argv[3],'w'))" \
+      "${init}" "${n}" "${EVAL_ROOT}/init_states/${t}_first${n}.json"
+    init="${EVAL_ROOT}/init_states/${t}_first${n}.json"
+  fi
+  # The eval stage reads the task YAML from scripts/cfg/task; the copy is for this run only (untracked).
+  mkdir -p "${REPO}/scripts/cfg/task/policy_eval"
+  cp "$(dirname "${sp}")/tasks/${task}.yaml" "${REPO}/scripts/cfg/task/policy_eval/"
+  work="${EVAL_ROOT}/work/${t}_gr00t_${tag}"
+  log="${EVAL_ROOT}/logs/eval_${t}_gr00t_${tag}.log"
+  mkdir -p "${work}"
+  echo "[eval] $(date +%T) gr00t ${t} n=${n} tag=${tag} -> ${log}"
+  (cd "${work}" && PYTHONPATH="${REPO}:${OPENPI_STUBS}" "${PY}" \
+    "${REPO}/scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py" \
+    --config-name=real2sim_cfg "task=policy_eval/${task}" \
+    "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_gr00t_${tag}" \
+    s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" s15_eval.checkpoint=gr00t_n16_droid \
+    "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" \
+    "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
+    "s15_eval.init_states_path=${init}" \
+    s15_eval.save_video=true s15_eval.video_fps=10 "+s15_eval.video_resolution=[180,320]" \
+    > "${log}" 2>&1)
+  local rc=$?
+  echo "[eval] $(date +%T) gr00t ${t} rc=${rc}: $(grep -a 'Success rate:' "${log}" | tail -1)"
+  return ${rc}
+}
+
+case "${1:-}" in
+  server) server ;;
+  stop) stop ;;
+  eval) shift; eval_one "$@" ;;
+  *) echo "usage: $0 server|stop|eval SPEC TASK [N] [TAG]" >&2; exit 2 ;;
+esac
