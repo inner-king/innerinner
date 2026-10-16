@@ -419,9 +419,16 @@ fi
 cd sam3
 
 pip install -e . > /dev/null
-pip install decord pycocotools 
+pip install decord pycocotools
 echo "Installed SAM3"
 cd .. # back to deps directory
+
+# SAM 2.1 video predictor: auto_bg step 1 (1_generate_quadmask_for_void.py) propagates the object
+# masks through the video with it, in this env; only install_any6d.sh installed it before, into any6d.
+# The commit is the one the reproduction machine ran (repro/README.md, chapter 17).
+SAM2_COMMIT="${SAM2_COMMIT:-2b90b9f5ceec907a1c18123530e92e794ad901a4}"
+pip install "git+https://github.com/facebookresearch/sam2.git@${SAM2_COMMIT}" > /dev/null
+echo "Installed SAM2"
 
 # Install rembg. Use the [cpu] extra (plain onnxruntime), NOT [gpu]: the [gpu] extra
 # pulls onnxruntime-gpu, whose recent builds (>=1.27) link CUDA 13 (libcudart.so.13) and

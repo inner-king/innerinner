@@ -2,7 +2,7 @@
 
 - 논문: *SimFoundry: Modular and Automated Scene Generation for Policy Learning and Evaluation* (v4, 2026-08-05)
 - 코드: [NVlabs/SimFoundry](https://github.com/NVlabs/SimFoundry) @ `9e34ebe` (2026-08-26)
-- 재현 장비: i9-12900K, RAM 31 GiB, **RTX 3060 12 GB**. 논문은 RTX 3090 24 GB를 썼고, 저장소 최소 사양은 16 GB입니다.
+- 재현 장비: i9-12900K, RAM 31 GiB, **RTX 3060 12 GB**. 논문은 RTX 3090 24 GB를 썼고, 저장소 최소 사양은 16 GB입니다. 12 GB 때문에 바꾸거나 못 한 실행은 Colab G4 런타임(**RTX PRO 6000 Blackwell 96 GB**)에서 저장소 기본값대로 다시 돌렸습니다(17장).
 - 이 폴더(`repro/`)에는 이 기록과 재현에 쓴 실행 래퍼와 스크립트가 모두 있습니다(목록은 15장). 아래 경로는 저장소 루트 기준입니다.
 - 결과 영상·이미지·로그, 장면 데이터(`Data/<scene>`), 체크포인트는 git에 넣지 않고 Google Drive [`Inner-King/innerinner/`](https://drive.google.com/drive/folders/1lmzFWqMATc52zW7gyiog0YZM3ewKDUzY)에 둡니다(14장). 이 기록의 `results_view/…`, `diagnostics/…`, `logs/…` 경로는 그 폴더의 `results/` 아래입니다.
 
@@ -13,10 +13,10 @@
 | 동영상 → 시뮬레이션 장면 복원 (Pipeline A) | 재현 (로컬 모델로 대체) | 코드 공개 |
 | Digital cousin·태스크 생성 (Pipeline B) | 재현 (로컬 모델로 대체) | 코드 공개 |
 | OmniGibson 로딩·물리 스모크 테스트 (Pipeline C) | 재현 | 코드 공개 |
-| 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정 |
+| 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정. 3060(7장)과 96 GB G4(17장) |
 | 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽(공개 π0/π0.5-DROID를 저자 공개 장면 5개에서 평가)은 원칙적으로 재현 가능하나 미수행 (12장 참고) |
 | 기하 정확도 Chamfer/F1 (Table L.2) | 불가 | YCB 장면의 준정답(quasi-GT) 스캔 미공개 |
-| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 재현 (PutMarkerInCup) | 저장소 auto_bg 7단계 그대로. 12 GB용 수정과 로컬 VLM 보완은 13장 |
+| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
 
 ## 2. 원본과 다른 점 (대체·조정)
 
@@ -132,7 +132,7 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | 항목 | 논문 | 이 재현 | 판정 |
 |---|---|---|---|
 | 동영상 하나로 sim-ready 장면 자동 생성 | 수동 주석 없이 1시간 이내 | 두 장면 모두 사람 개입 없이 완료(설정 오버라이드만). 28~32분 | 재현됨 |
-| 복원 시간 (Table L.4, 물체당 약 5분, RTX 3090) | 2개 물체 19.98분 | 3개 물체 28.2분(캐시 없음) / 32.5분, 물체당 9.4~10.8분 (RTX 3060 12 GB, 순차 실행, 로컬 모델) | 같은 자릿수. 약 2배 느림 (예상 범위) |
+| 복원 시간 (Table L.4, 물체당 약 5분, RTX 3090) | 2개 물체 19.98분 | 3개 물체 28.2분(캐시 없음) / 32.5분, 물체당 9.4~10.8분 (RTX 3060 12 GB, 순차 실행, 로컬 모델). **96 GB G4에서 저장소 기본값(스트리밍)으로 8.7~9.1분, 물체당 약 3분** (17장) | 같은 자릿수. 3060은 약 2배 느림, G4는 논문 수치보다 빠름 |
 | 물체별 메시·포즈·물리 파라미터 | Hunyuan3D-2.1, FoundationPose, VLM 질량·마찰 | 같은 모듈 사용 (VLM만 로컬). 크기가 실물 크기대와 맞음 | 재현됨 |
 | OmniGibson 로딩·시뮬레이션 | | 두 장면 모두 스모크 테스트 통과 | 재현됨 |
 | Digital cousin (형상·위상·외관 변형) | Gemini 텍스트 + 이미지 | 변형 제안과 이미지·메시 생성 성공(더 긴 컵, 손잡이가 바뀐 가위). 장면 변형 2/2 유효 | 재현됨 (로컬 모델) |
@@ -140,7 +140,7 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
 | 정책 학습·sim-real 상관 (0.911)·성공률 개선 (+17/21/40%) | | 코드 미공개, 실제 로봇 필요 | 재현 불가 |
 
-**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 논문의 핵심 정량 결과(sim-to-real 정책 성능)는 데이터 생성·학습 코드가 공개되지 않았고 실제 로봇이 필요해서 재현할 수 없습니다.
+**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과(sim-to-real 정책 성능)는 데이터 생성·학습 코드가 공개되지 않았고 실제 로봇이 필요해서 재현할 수 없습니다.
 
 ## 8. 다시 실행하는 법
 
@@ -350,7 +350,8 @@ python repro/scripted_pick_place.py --scene put_cup_in_bowl_v2 \
 - **가위 날 잔상**: VOID가 100–159프레임에 남긴 가위 날 일부가 splat에도 그 자리에 들어갔습니다. 시뮬레이션에서는 같은 자리에 놓인 복원 가위가 대부분 가립니다.
 - **촬영되지 않은 영역**: 90° 렌즈는 휴대폰이 찍지 않은 영역(왼쪽 가장자리, 위쪽)까지 보여서 그곳에는 뿌연 가우시안(floater)이 보입니다. 노란 상자 안(실제 카메라 시야)은 깨끗합니다.
 - **책상 밖 물체**: 배경에는 책상 위 물체만 빠지고 방의 나머지는 남습니다. 왼쪽의 로봇 거치대도 남는데, 방의 일부라서 그렇습니다.
-- **두 번째 장면 미수행**: PutMarkerInCup만 했습니다. PutCupInBowl은 splat-prep 정규 재구성(약 1시간)과 VOID(약 1.5시간)가 더 필요합니다.
+- **로봇 카메라 시점 (2026-10-16 확인)**: 로봇의 외부 카메라로 렌더하면 이 배경은 줄무늬와 부유물로 무너져 쓸 수 없습니다. 위 결과는 촬영 카메라 시점에서만 확인한 것입니다(17.4). 재학습으로 나아진 정도는 17.7에 있습니다.
+- **두 번째 장면 미수행**: PutMarkerInCup만 했습니다(17장에서 두 장면 모두 실행). PutCupInBowl은 splat-prep 정규 재구성(약 1시간)과 VOID(약 1.5시간)가 더 필요합니다.
 - **디스크**: void 환경 8.1 GB, nerfstudio 환경 15 GB, 3dgrut 환경 14 GB, VOID 가중치 41 GB(`deps/void-model`, 게이트 없음), 장면 데이터 2.9 GB입니다.
 
 ### 13.5 수정·추가한 파일
@@ -413,17 +414,24 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | 파일 | 용도 | 장 |
 |---|---|---|
 | `run_local_pipeline.sh`, `start_ollama.sh` | 로컬 백엔드로 A/B/C 실행 | 8 |
-| `eval_pose_fit.py` | 포즈 정합 잔차 | 3.2, 6, 11 |
+| `eval_pose_fit.py` | 포즈 정합 잔차 | 3.2, 6, 11, 17 |
 | `compare_scenes.py` | 저자 공개 장면과 크기·거리 비교 | 3.2 |
 | `q21/compare_image_backends.py` | 이미지 백엔드 비교 | 10 |
 | `rerun_v2.sh` | v2 재실행 | 11 |
-| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크 | 12, 13 |
+| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크 | 12, 13, 17 |
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
-| `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 | 13 |
+| `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
+| `g4/setup_g4.sh`, `g4/constraints_simfoundry.txt` | Colab G4 런타임 설치(Vulkan·libGLU 보완, 버전 고정) | 17 |
+| `g4/rerun_g4.sh`, `g4/auto_bg_g4.sh` | 12 GB 조정 없이 A/B/C, 저장소 기본값으로 auto_bg | 17 |
+| `g4/compare_runs.py` | 두 실행의 단계별 시간, 물체 크기·질량, 정합 잔차 비교 | 17 |
+| `g4/compare_da3_tracks.py`, `g4/splat_depth_scale.py` | void-DA3 궤적과 원본 DA3 비교, 배경 splat의 깊이 축척 | 17 |
+| `g4/eval_splat.sh`, `g4/ns_run.sh` | 배경 splat의 학습 제외 프레임 PSNR·SSIM·LPIPS (`ns-eval`) | 17 |
+| `g4/render_bg_views.py`, `g4/check_bg_variant.sh` | 배경 장면을 실제 카메라와 로봇 카메라 4대로 렌더 | 17.7 |
+| `g4/retrain_bg.sh`, `g4/scale_void_da3.py`, `g4/crop_bg_splat.py`, `g4/carve_bg_splat.py` | 배경 splat 재학습(A100)과 후처리 | 17.7 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
 | `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래) | |
 
@@ -543,3 +551,251 @@ repro/run_local_pipeline.sh C_application --scene-name put_marker_in_cup_q35 --m
 repro/run_local_pipeline.sh B_augmentation --scene-name put_marker_in_cup_q35 "${C[@]}" -- \
   prompt_cousin_structured.max_objects=2 prompt_cousin_structured.max_generated_images_per_object=1 cousin_generation.low_vram=true
 ```
+
+## 17. 96 GB GPU(Colab G4)에서 저장소 기본값으로 다시 돌리기 (2026-10-16)
+
+12 GB 때문에 바꾸거나 하지 못한 실행을 Colab G4 런타임(RTX PRO 6000 Blackwell Server Edition 96 GB)에서 저장소 기본값대로 다시 돌렸습니다. 스크립트는 `repro/g4/`에 있습니다.
+
+### 17.1 3060 실행과 다른 점
+
+v2(11장) 구성에서 12 GB 때문에 바꾼 것만 되돌렸습니다.
+
+| 항목 | RTX 3060 12 GB (11·13장) | G4 96 GB (이 장) |
+|---|---|---|
+| A 5단계 PDA 기하 깊이 백엔드 | `depth_pro` | `da3` (기본값) |
+| A 7단계 Hunyuan3D-2.1 | `low_vram=true` | `false` (기본값) |
+| A 5~8단계 | 순차 (`--no-stream`) | 스트리밍 (기본값) |
+| B cousin 메시 | `low_vram=true` | `false` (기본값) |
+| 로컬 모델 | 호출마다 VRAM에서 내림 | 계속 올려 둠 (`SIMFOUNDRY_OLLAMA_KEEP_ALIVE=24h`, `SIMFOUNDRY_COMFY_FREE_AFTER=0`, `SIMFOUNDRY_LOCAL_OFFLOAD=0`) |
+| auto_bg 프레임 수 | 160 | 400 (기본값) |
+| VOID | `VOID_LOW_VRAM=1` (타일 디코딩, CPU 오프로딩) | 원래 코드 경로 |
+| void DA3 | 앵커 정렬 (`repro/da3_anchored_stage.py`) | 저장소 2b (220프레임 덩어리 연쇄) |
+| auto_bg 장면 | PutMarkerInCup | PutMarkerInCup, PutCupInBowl |
+
+그대로 둔 것도 있습니다.
+- Gemini 대신 로컬 모델: Ollama `qwen3-vl:8b-instruct`, ComfyUI Qwen-Image-2.1-Turbo Q8_0. 16장 이후 `run_local_pipeline.sh`는 Pipeline A에 `qwen3.5:9b`를 쓰므로, `rerun_g4.sh`와 `auto_bg_g4.sh`는 `qwen3-vl:8b-instruct`로 고정합니다.
+- 원본 SAM3, 물체 제거 기본 순서 `[mask, outline, bbox]`.
+- DA3를 simfoundry 환경에서 실행.
+- auto_bg 1단계의 물체 목록을 재구성 5단계에서 가져오기(로컬 VLM 보완, 13.2).
+
+### 17.2 G4 런타임 준비
+
+- **임대**: Colab CLI 0.7.4로 `colab new --gpu G4`를 썼습니다. 런타임 한 대에 시간당 8.9 compute unit입니다. 명령은 `colab ssh --proxy-mode`를 SSH의 ProxyCommand로 써서 보냈습니다. 유료 플랜에서는 SSH가 허용됩니다. 런타임 하나에 SSH 연결은 하나만 열립니다(두 번째는 HTTP 429).
+- **사양**: GPU 96 GB(sm_120, 드라이버 580.82.07), 48 vCPU, RAM 176 GB, 디스크 236 GB, Ubuntu 24.04.
+- **설치**: `repro/g4/setup_g4.sh`로 했습니다. 저장소 설치 스크립트는 모두 cu128과 sm_120을 지원해서 그대로 썼고, 아래 네 가지만 더했습니다.
+  - **Vulkan**: Colab은 드라이버의 CUDA·EGL·GLX 라이브러리는 마운트하지만 Vulkan ICD 파일이 없어서, Isaac Sim이 GPU를 찾지 못합니다. 같은 버전(580.82.07) NVIDIA 드라이버 패키지에서 빠진 사용자 공간 라이브러리와 ICD 파일만 꺼내 넣었습니다. 커널 모듈은 건드리지 않았습니다.
+  - **libGLU**: Colab 이미지에 없어서 Iray/MDL 라이브러리(libneuray)가 로드되지 않았습니다. 그러면 재질 셰이더를 만들지 못해 RTX 렌더러가 시작되지 않습니다(13단계에서 크래시). `libglu1-mesa`를 설치했습니다. 다른 시스템 라이브러리는 빠진 것이 없음을 ldd로 확인했습니다.
+  - **패키지 버전 고정**: 3060 환경을 만든 10-08 이후에 opencv 5.0과 pyarrow 26이 나왔고, 둘 다 numpy 2 이상을 요구합니다. simfoundry 환경은 numpy 1.26.4를 고정하므로 `import omnigibson`이 실패했습니다. `repro/g4/constraints_simfoundry.txt`로 3060 환경과 같은 버전에 고정했습니다(opencv 4.11.0.86, pyarrow 25.0.1, cmeel-boost 1.83.0, pin 2.7.0, transformers 5.19.0 등). 다른 환경은 설치 스크립트가 스스로 버전을 고정합니다. 모든 환경에 걸면 hunyuan의 opencv 고정(4.10)과 부딪힙니다.
+  - **SAM 2**: auto_bg 1단계는 simfoundry 환경에서 `sam2`를 import합니다. 그런데 저장소 설치 스크립트는 sam2를 any6d 환경에만 설치합니다. 3060 환경에는 따로 설치돼 있었습니다. 같은 커밋(`2b90b9f`)을 설치했고, `install_simfoundry.sh`에도 추가했습니다.
+- **런타임 두 대**: 환경 전체, VOID 가중치(41 GB), 모델 캐시를 합치면 236 GB에 들어가지 않습니다.
+  - 런타임 1: A·B·C를 맡았습니다. 끝난 뒤 ComfyUI 모델을 지우고 void·nerfstudio를 설치해 PutCupInBowl의 splat-prep A와 auto_bg도 맡았습니다.
+  - 런타임 2: PutMarkerInCup의 splat-prep A와 auto_bg를 맡았습니다.
+  - 7단계(3dgrut로 PLY → USDZ, 43초)와 배경 위 조작 시연은 3dgrut 환경이 있는 3060 컴퓨터에서 했습니다.
+- **비용**: 런타임 1은 3.4시간, 런타임 2는 2.1시간을 썼습니다. 합계 약 48 compute unit입니다(계정 잔액은 1,259.99에서 1,208.73으로 줄었고, 차이 중 약 3은 이 작업과 무관하게 먼저 켜져 있던 G4 런타임 몫입니다). 끝난 뒤 두 런타임을 모두 종료했습니다.
+
+### 17.3 결과: A·B·C (시간을 잰 실행)
+
+워밍업으로 A를 한 번 돌려 모델 다운로드와 셰이더 컴파일을 끝낸 뒤 쟀습니다(`repro/g4/rerun_g4.sh warmup|timed`). 로컬 모델의 응답 캐시는 새 폴더를 썼습니다. cache 모드는 캐시에 있는 응답을 다시 쓰기 때문입니다.
+
+| 단계 (초) | PutMarkerInCup 3060 v2 | PutMarkerInCup G4 | PutCupInBowl 3060 v2 | PutCupInBowl G4 |
+|---|---|---|---|---|
+| 1b~4 | 75 | 44 | 77 | 45 |
+| 5 장면 분해 | 531 | 84 | 551 | 79 |
+| 6 업샘플 | 193 | 66 | 191 | 65 |
+| 7 메시 | 618 | 216 | 635 | 232 |
+| 8 포즈 | 109 | 71 | 112 | 71 |
+| 5~8 실제 경과 | 1,450 (순차) | **318** (스트리밍) | 1,489 (순차) | **325** (스트리밍) |
+| 10~12 | 63 | 62 | 84 | 78 |
+| 13~14 (Isaac Sim) | 119 | 97 | 98 | 97 |
+| **A 전체** | **1,708 (28.5분)** | **524 (8.7분)** | **1,748 (29.1분)** | **548 (9.1분)** |
+
+- **속도**: 물체 3개 장면이 8.7~9.1분으로, 물체당 약 3분입니다. 논문 Table L.4는 RTX 3090과 Gemini API로 물체 2개 장면에 19.98분이고, FAQ는 물체당 약 5분입니다. 3060보다 3.2배 빠르고, 대부분은 5~8단계에서 줄었습니다.
+  - 3060에서는 로컬 모델을 호출마다 VRAM에 다시 올리고, 단계를 하나씩 돌렸습니다.
+  - G4에서는 이미지 편집 한 번이 평균 51.7초(10장)에서 5.9초로 줄었고, VLM 호출은 중앙값 1.2초입니다.
+  - 5~8단계가 동시에 돌 때 GPU 사용량은 최대 59 GB였습니다(상주한 로컬 모델 약 35 GB 포함). VRAM 예산 때문에 기다린 단계는 없었습니다.
+- **C 스모크 테스트**: 두 장면 모두 통과했습니다(53초, 49초).
+- **B (PutMarkerInCup)**: 321초가 걸렸습니다(3060 v2는 662초, 1단계 첫 시도 240초는 따로). 3단계 cousin 메시는 428초에서 122초로 줄었습니다.
+  - 장면 변형은 2개 모두 유효했습니다.
+  - 컵 cousin은 이번에도 "같은 바닥 지름에서 더 긴 컵"이었습니다.
+  - 제안된 태스크는 `pick_marker_and_place_in_cup`과 `pick_scissors_and_lift`(Lifted ≥ 5 cm)입니다. 마커 태스크의 목표 조건이 v2의 `InsideAABB`가 아니라 `OnTopAABB`로 나왔습니다. 같은 8B VLM이라도 실행마다 답이 달라집니다.
+- **품질**: 물체 구성은 3060과 같고, 크기와 정합 잔차도 같은 수준입니다(`repro/g4/compare_runs.py`).
+
+| 장면 | 물체 | 크기 (cm) 3060 v2 → G4 | 정합 잔차 평균 3060 v2 → G4 |
+|---|---|---|---|
+| PutMarkerInCup | 컵 | 9.5×9.5×11.2 → 9.9×9.7×11.3 | 1.97 → 2.74 mm |
+| | 마커 | 길이 13.7 → 13.3 | 3.79 → 2.90 mm |
+| | 가위 | 길이 20.0 → 21.3* | 1.88 → 2.13 mm |
+| PutCupInBowl | 그릇 | 25.7×25.8×13.7 → 26.0×26.3×12.3 | 12.00 → 13.28 mm |
+| | 펜 | 길이 12.8 → 12.9 | 2.85 → 5.02 mm |
+| | 컵 | 9.4×9.1×11.0 → 9.4×8.9×10.8 | 2.87 → 2.93 mm |
+
+\* G4의 가위는 정면 정렬이 45° 돌아가 축 정렬 bbox가 15.3×16.0 cm로 나옵니다. 그래서 회전 bbox의 긴 변을 적었습니다(3060 v2는 같은 방식으로 20.6 cm).
+
+장면 평균 잔차는 PutMarkerInCup 2.55 → 2.59 mm, PutCupInBowl 5.91 → 7.08 mm입니다. 펜은 실행마다 크게 흔들립니다(v1 6.0, v2 2.85, G4 5.02 mm).
+
+VLM이 추정한 질량도 실행마다 다릅니다. 가위는 50 g에서 150 g, 펜은 10 g에서 15 g, 컵은 70 g에서 80 g이 됐습니다.
+
+### 17.4 결과: 자동 3DGS 배경 (저장소 기본값)
+
+`repro/g4/auto_bg_g4.sh`로 splat-prep A(400프레임, 672×384, auto_bg README의 명령)를 돌리고, 이어서 `repro/run_auto_bg.sh`(`VOID_LOW_VRAM=0 VOID_DA3=canonical`)를 돌렸습니다.
+
+| 단계 | 3060 PutMarkerInCup (160프레임) | G4 PutMarkerInCup (400) | G4 PutCupInBowl (400) |
+|---|---|---|---|
+| splat-prep A | | 18.6분** | 11.5분 |
+| 1 quadmask | 1.9분 | 0.9분 | 0.9분 |
+| 2 VOID pass1 | 26.5분 | 15.5분 | 15.2분 |
+| 3 VOID pass2 | 43분 | 12.3분 | 12.3분 |
+| void DA3 | 1.3분 (앵커) | 1.0분 (2b, 220프레임 덩어리 2개) | 1.0분 |
+| 5 splat 80k | 43분 | 20.0분 | 18.7분 |
+| 1~6 합계 | 약 116분 | 49.8분 | 48.2분 |
+
+\** 런타임 2에서는 첫 실행이라 모델 다운로드가 포함됐습니다.
+
+품질은 시점별로 나눠 봤습니다.
+
+**촬영 시점 근처**에서는 splat이 VOID 결과를 재현합니다.
+- 학습 프레임에서 nerfstudio로 렌더하면 세 splat 모두 VOID 프레임과 거의 같습니다.
+- 학습에서 뺀 10% 프레임으로 `ns-eval`을 돌린 수치는 아래 표에 있습니다(`repro/g4/eval_splat.sh`).
+- 다만 이 프레임들은 학습 궤적 사이에 끼어 있어서 새 시점의 품질은 재지 못합니다. PSNR 22~23 dB도 정적 장면 splat으로는 낮은 값입니다.
+
+**로봇 카메라 시점**에서는 세 배경 모두 쓸 수 없습니다.
+- 조작 시연을 로봇의 외부 카메라 두 대(`sim_franka_teleop`)로 렌더하면 책상과 벽이 긴 줄무늬와 무지개색 부유물로 무너집니다. 촬영되지 않은 방향은 하늘(skybox)이 보이고, 물체만 제대로 보입니다.
+- 13장의 3060 배경도 같습니다. 13장의 "실제 프레임과 겹친다"는 촬영 카메라 시점에서만 확인한 것이었습니다.
+- **원인**: 입력은 서서 책상 주위를 한 번 훑은 14.9초 휴대폰 영상뿐입니다. 로봇 외부 카메라는 낮은 높이에서 옆으로 보는데, 이 시점은 학습 시점에서 멉니다.
+  - 그래서 학습 시점에서만 맞고 3D 모양은 틀린 가우시안이 많습니다. 세 축 길이 비가 중앙값 84~283배이고, 상위 1%는 10⁶배인 바늘·원판 모양입니다. 이런 가우시안이 다른 시점에서 줄무늬로 보입니다.
+  - splatfacto의 scale regularization은 저장소 기본값에서 꺼져 있습니다(`use_scale_regularization=False`).
+- **12 GB 때문이 아님**: 프레임 수(160 → 400)와 VOID·DA3 경로를 저장소 기본값으로 되돌려도 이 한계는 그대로입니다.
+- **물리에는 영향 없음**: 배경은 보이기만 하는 물체라 조작 시연은 세 배경 모두 성공했습니다. 하지만 시점이 바뀌면 카메라 영상이 망가지므로, 이 배경에서 카메라 입력을 쓰는 정책을 평가하거나 학습하기는 어렵습니다.
+
+아래 표의 측정 도구는 다음과 같습니다. 3060 결과도 같은 스크립트로 다시 쟀고, 3060의 궤적 수치는 13.1의 기록과 같습니다.
+- void-DA3 궤적: `repro/g4/compare_da3_tracks.py`로 원본 DA3 카메라 궤적과 비교했습니다. 4단계와 같은 강체 정렬입니다.
+- 깊이 축척: `repro/g4/splat_depth_scale.py`로 splat이 렌더한 깊이를 두 DA3 깊이와 비교했습니다.
+
+| | 3060 PutMarkerInCup | G4 PutMarkerInCup | G4 PutCupInBowl |
+|---|---|---|---|
+| PSNR (dB) / SSIM / LPIPS | 23.55±3.87 / 0.669 / 0.087 (16프레임) | 23.29±1.69 / 0.671 / 0.084 (40프레임) | 22.04±0.92 / 0.650 / 0.094 (40프레임) |
+| 가우시안 수 | 388k | 390k | 382k |
+| 로봇 카메라 시점 | 무너짐 | 무너짐 | 무너짐 |
+| void-DA3 궤적 오차 (강체, 평균/최대) | 4.6 / 12.1 mm, 방향 0.87° | 8.1 / 30.4 mm, 방향 3.4° | 25.7 / 50.7 mm, 방향 5.6° |
+| void-DA3 축척 (원본 대비) | 0.990 | 0.991 | **1.062** |
+| 렌더 깊이 / 원본 DA3 (중앙값) | 1.012 | 1.020 | **0.937** |
+| 렌더 깊이 / void-DA3 (중앙값) | 0.997 | 0.992 | 0.997 |
+| 조작 시연 (`InsideAABB`) | 성공, 864스텝 | 성공, 857스텝 | 성공, 699스텝 |
+
+- **void-DA3**: 저장소 2b 경로는 96 GB에서 설계대로 돌았습니다. 220프레임 덩어리 2개였고, 12 GB의 16프레임 덩어리처럼 20° 넘게 틀어지지 않았습니다.
+- **축척 문제 (PutCupInBowl)**: void-DA3와 원본 DA3의 축척이 6.2% 달랐습니다.
+  - 저장소 4단계는 두 DA3를 강체로만 맞추고, 5단계는 원본 DA3의 카메라와 void-DA3의 깊이로 학습합니다. 그래서 splat 깊이가 물체가 놓인 원본 DA3 세계보다 6.3% 얕습니다.
+  - 3060 실행과 PutMarkerInCup에서는 두 DA3 축척 차이가 1% 안쪽이었습니다.
+  - 광선 방향의 깊이 오차라 촬영 카메라 시점에서는 거의 보이지 않습니다.
+- **영상과 그림**: 3060 컴퓨터의 `~/simfoundry_logs/g4/local/`에 있습니다.
+  - `sim_gsbg_*_g4.mp4`: 촬영 시점, 90° 렌즈.
+  - `sim_gsbg_*_cams.mp4`: 로봇 카메라 시점.
+  - `figures/`: 학습 프레임 렌더 대 VOID 프레임(`*_train.jpg`), 로봇 카메라 첫 프레임(`cams_*.jpg`), 입력 대 VOID(`bowl_real_vs_void.jpg`).
+
+### 17.5 정리
+
+- **A·B·C**: 12 GB 조정을 모두 뺀 저장소 기본값(96 GB)으로도 결과가 같은 수준이었습니다. 물체 구성, 크기, 정합 잔차, C 스모크 테스트, B의 장면 변형이 모두 같았습니다. 12 GB 조정은 속도만 늦췄습니다.
+- **복원 시간**: 물체 3개 장면이 9분 안팎, 물체당 약 3분입니다. 논문의 물체당 약 5분(RTX 3090, Gemini)보다 빠릅니다.
+- **자동 배경**: 저장소 기본값으로 두 장면 모두 끝까지 돌았습니다. 하지만 결과 배경은 촬영 시점 근처에서만 맞고, 로봇 카메라 시점에서는 쓸 수 없습니다. 3060 배경도 같으며, 13장의 평가는 이 점을 놓쳤습니다.
+- **배경 재학습 (17.7)**: 설정을 바꿔 다시 학습하고 빈 공간의 가우시안을 지우니, 로봇 카메라 시점에서도 책상과 물체가 보이게 됐습니다. 하지만 영상에 없던 영역은 학습으로 채워지지 않습니다. 남은 방법은 다음과 같습니다(미수행).
+  - 로봇 카메라 높이와 방향을 덮는 영상을 새로 찍기.
+  - 시뮬레이션 카메라를 촬영 궤적 근처에 두기.
+  - 로봇 시점에는 저자 공개 메시 배경(12장)을 쓰기.
+- **축척 문제**: void-DA3와 원본 DA3의 축척이 다르면 배경 깊이가 어긋납니다(PutCupInBowl 6%). 17.7에서는 void-DA3를 닮음 변환으로 원본 축척에 맞춘 뒤 다시 학습했습니다(`repro/g4/scale_void_da3.py`). 저장소 4·5단계에는 아직 반영하지 않았습니다.
+- **저장소 설치 스크립트의 빈틈 두 가지**
+  - simfoundry 환경에 sam2가 없습니다. `install_simfoundry.sh`에 추가했습니다.
+  - Colab 같은 컨테이너에는 Vulkan ICD와 libGLU가 없습니다. `setup_g4.sh`에서 보완했습니다.
+
+### 17.6 다시 실행하는 법
+
+```bash
+colab new -s sf-g4 --gpu G4      # 런타임 하나 (A·B·C), 둘째는 -s sf-g4b
+# 체크아웃을 /content/SimFoundry에 복사하고, HF 토큰(facebook/sam3 게이트)과
+# FoundationPose 가중치(/content/fallback/deps/FoundationPose/weights)를 올린 뒤:
+G4_ENVS="" bash repro/g4/setup_g4.sh all                   # A·B·C 런타임
+G4_ENVS="void nerfstudio" bash repro/g4/setup_g4.sh all    # auto_bg 런타임
+bash repro/g4/rerun_g4.sh warmup && bash repro/g4/rerun_g4.sh timed
+AUTO_BG_STOP_BEFORE_ASSETS=1 bash repro/g4/auto_bg_g4.sh   # 7단계는 3dgrut 환경이 있는 곳에서
+```
+
+결과 비교(3060 컴퓨터, simfoundry 환경):
+
+```bash
+python repro/g4/compare_runs.py 3060v2=Data/put_marker_in_cup_v2 G4=Data/put_marker_in_cup_g4
+python repro/g4/compare_da3_tracks.py Data/put_cup_in_bowl_bg_g4
+repro/g4/ns_run.sh python repro/g4/splat_depth_scale.py Data/put_cup_in_bowl_bg_g4
+repro/g4/eval_splat.sh Data/put_cup_in_bowl_bg_g4/auto_bg/splat eval.json
+```
+
+결과 위치: 장면은 3060 컴퓨터의 `Data/{put_marker_in_cup,put_cup_in_bowl}{_g4,_bg_g4}`, 로그는 `~/simfoundry_logs/g4/`, 응답 캐시는 `.cache/simfoundry/model_calls_g4*`에 있습니다. Drive에는 아직 올리지 않았습니다.
+
+### 17.7 배경 재학습: 로봇 카메라 시점에서 확인하며 (2026-10-17)
+
+17.4의 배경은 로봇 카메라 시점에서 무너졌습니다. 그래서 학습 설정을 바꾸고 후처리를 더해 다시 만들고, 매번 로봇 카메라 시점으로 렌더해 확인했습니다.
+
+**확인 방법**
+- `repro/g4/render_bg_views.py`가 7단계 장면을 실제 카메라와 로봇 외부 카메라 4대(DROID 배치 2대, teleop 배치 2대)로 렌더해 한 장으로 만듭니다. 로봇은 시연처럼 물체 앞 0.55 m에 둡니다.
+- 학습 제외 프레임의 PSNR은 학습 궤적 근처 시점만 보므로 참고만 했습니다. 판정은 이 그림으로 했습니다.
+- `repro/g4/check_bg_variant.sh`가 변형 하나를 받아 7단계와 렌더까지 합니다. 변형은 `assets/scenes/<scene>_<variant>/`에 따로 만들어서, 기본 배경은 그대로 둡니다.
+
+**학습 환경**
+- G4는 계정의 동시 3대 한도가 이 작업과 무관한 G4 세 대로 차 있어서 받지 못했습니다. 대신 A100 80 GB(`--gpu A100 --high-mem`, 시간당 6.77 CU)를 썼습니다. A100에는 RT 코어가 없어 Isaac Sim 렌더는 못 하지만 splat 학습에는 필요 없습니다. 렌더는 3060 컴퓨터에서 했습니다.
+- 4~6단계는 nerfstudio 환경에서 돌렸습니다. `simfoundry.utils.processing_utils`가 import하는 `supervision`만 따로 넣으면 됩니다(`setup_g4.sh splat`). bridge 결과는 simfoundry 환경과 1e-9까지 같았고, 설치는 6분으로 줄었습니다.
+- 모든 변형은 먼저 void-DA3를 원본 DA3 축척에 맞추고 seed를 다시 만든 뒤 학습했습니다(`scale_void_da3.py`). 닮음 변환 축척은 PutMarkerInCup 0.9907, PutCupInBowl 1.0619였습니다(17.4의 축척 문제).
+- 학습 스크립트는 `repro/g4/retrain_bg.sh`입니다. ns-train에 옵션을 더 넘길 수 있게 `5_train_bg_splat.py`에 선택 설정 `s5_train_bg_splat.extra_model_args`를 추가했습니다(기본값은 빈 목록).
+
+**변형**
+
+| 이름 | 바꾼 설정 (나머지는 저장소 기본값) |
+|---|---|
+| sreg_sh0_depth2_30k | scale regularization(가우시안 축 길이 비 상한 10), SH 차수 3 → 0, 깊이 손실 0.5 → 2.0, 저불투명도 제거 기준 0.005 → 0.1, 30k 반복 |
+| iso3_sh0_depth2_30k | 위와 같고 축 길이 비 상한 10 → 3 |
+| sreg + crop | sreg 결과에서 책상 면 10 cm 아래(OG z < -0.10 m) 가우시안을 제거(`crop_bg_splat.py`). 19~30% 제거 |
+| sreg + carve | sreg 결과에서 빈 공간의 가우시안을 제거(`carve_bg_splat.py`). 학습 프레임 400장의 깊이로 판정해, 관측 표면보다 max(3 cm, 5%) 앞에 있다고 나온 프레임이 보이는 프레임의 20% 이상(3회 이상)인 것과 어느 프레임에도 안 보이는 것을 지움. PutCupInBowl 6%, PutMarkerInCup 17% 제거 |
+
+80k 반복 변형도 띄웠지만, A100에서 6개를 함께 돌리니 반복 한 번에 110 ms라 2.5시간이 걸릴 상황이어서 멈췄습니다. 판정은 30k 반복으로 했습니다.
+
+**결과**
+
+| 변형 | 학습 제외 프레임 PSNR / SSIM / LPIPS, PutCupInBowl | PutMarkerInCup | 로봇 카메라 시점 |
+|---|---|---|---|
+| 17.4 기본 | 22.04 / 0.650 / 0.094 | 23.29 / 0.671 / 0.084 | 무너짐: 무지개 줄무늬, 바늘 모양, 하늘. 책상과 물체를 알아보기 어려움 |
+| sreg_sh0_depth2_30k | 22.19 / 0.646 / 0.101 | 20.86 / 0.634 / 0.132 | 책상이 물체 아래 판으로 보이고, 그릇·컵·마커가 그 위에 보임. 무지개 줄무늬 없음. 카메라 앞 회색 안개, 책상 가장자리 파편, 하늘은 남음 |
+| iso3_sh0_depth2_30k | 22.20 / 0.650 / 0.106 | 20.78 / 0.632 / 0.137 | sreg와 거의 같음. 파편이 조금 뭉툭해짐 |
+| sreg + crop | (재학습 없음) | | sreg와 거의 같음. 파편은 책상 아래가 아니라 책상 높이와 그 위에 있었음 |
+| **sreg + carve** | (재학습 없음) | | **가장 나음.** 카메라 앞 회색 안개와 책상 위 파편이 크게 줄어듦. 하늘과 책상 가장자리 파편은 남음. PutMarkerInCup은 실제 카메라 시점의 왼쪽 아래가 조금 흐려짐 |
+
+- 비교 그림: 3060 컴퓨터의 `~/simfoundry_logs/g4/bgfix/compare_{bowl,marker}.jpg`(행은 변형, 열은 실제 카메라와 로봇 카메라 4대)와 변형별 `views_*.jpg`입니다.
+- PutMarkerInCup의 PSNR이 2.4 dB 떨어진 것은 SH 0(시점마다 색을 바꾸지 못함)과 강한 정규화 때문입니다. 실제 카메라 시점의 그림에서는 차이가 거의 보이지 않습니다.
+
+**남은 한계**: 입력은 서서 책상을 내려다본 15초 휴대폰 영상 하나뿐입니다. 로봇 카메라 높이에서 보이는 책상 옆, 책상 아래, 위쪽 공간은 찍히지 않았고, 학습 설정이나 후처리로는 채울 수 없습니다. 그곳은 하늘(skybox)이나 파편으로 보입니다. 로봇 카메라 영상을 쓰는 정책 평가에 쓰려면 17.5의 방법(로봇 시점을 덮는 촬영 등)이 필요합니다.
+
+**진행 중 겪은 문제**
+- 처음 빌린 G4 런타임은 3060 컴퓨터가 재부팅되면서 keepalive 연결이 끊긴 뒤 20분 안에 회수됐습니다. 설치와 업로드를 다시 했습니다.
+- `colab ssh -s 이름`은 그 이름의 세션이 없으면 CPU 런타임을 새로 만듭니다. G4 할당이 거절된 직후 한 번 생겨서 바로 껐습니다.
+- 변형 여러 개를 동시에 띄우면 gsplat이 CUDA 확장을 같은 폴더에 동시에 JIT 빌드하다 서로 깨뜨립니다. `retrain_bg.sh`는 잠금을 건 채 먼저 한 번만 빌드합니다.
+- 3060 컴퓨터의 GPU는 다른 세션과 같이 씁니다. 렌더(3~4 GB)가 다른 세션의 파이프라인(Hunyuan 8~9 GB)을 두 번 메모리 부족으로 멈췄습니다. 그 뒤로는 다른 세션의 파이프라인 프로세스가 없을 때만 렌더했습니다.
+
+**비용**: A100 약 1.25시간, 약 8.5 CU입니다.
+
+**다시 실행하는 법** (A100 런타임)
+
+```bash
+colab new -s sf-bgfix2 --gpu A100 --high-mem
+# 체크아웃을 /content/SimFoundry에, 장면의 학습 입력(s2_da/da/exports/npz, auto_bg/da3/void,
+# auto_bg/void/pass2/cleaned_frames, s4_frame, s3_ground)을 Data/<scene>/에 올린 뒤:
+bash repro/g4/setup_g4.sh splat
+bash repro/g4/retrain_bg.sh put_cup_in_bowl_bg_g4 sreg_sh0_depth2_30k   # Data/<scene>/auto_bg/splat_<variant>/
+```
+
+3060 컴퓨터에서(결과 폴더를 받은 뒤):
+
+```bash
+python repro/g4/scale_void_da3.py Data/put_cup_in_bowl_bg_g4 Data/put_cup_in_bowl_bg_g4/auto_bg/da3/void_sim3.npz
+python repro/g4/carve_bg_splat.py Data/put_cup_in_bowl_bg_g4 \
+  Data/put_cup_in_bowl_bg_g4/auto_bg/splat_sreg_sh0_depth2_30k/export/put_cup_in_bowl_bg_g4_bg.ply \
+  Data/put_cup_in_bowl_bg_g4/auto_bg/splat_sreg_sh0_depth2_30k_carve/export/put_cup_in_bowl_bg_g4_bg.ply
+repro/g4/check_bg_variant.sh put_cup_in_bowl_bg_g4 sreg_sh0_depth2_30k_carve iter_2 iter_0 views.jpg
+```
+
+조작 시연에 쓰려면 `repro/scripted_pick_place.py --scene-file assets/scenes/<scene>_<variant>/<scene>_<variant>_scene_state_auto_bg.json`으로 엽니다.

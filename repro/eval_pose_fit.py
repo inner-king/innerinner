@@ -19,23 +19,28 @@ import open3d as o3d
 import trimesh
 from scipy.spatial import cKDTree
 
-scene_dir = sys.argv[1]
-s8 = os.path.join(scene_dir, "s8_pose")
-rows = []
-for info_path in sorted(glob.glob(f"{s8}/info/iter_*.json")):
-    name = os.path.splitext(os.path.basename(info_path))[0]
-    tf = json.load(open(info_path))["z_up"]
-    mesh = trimesh.load(f"{s8}/canonical_mesh/{name}.glb", force="mesh")
-    scale = np.asarray(tf["scale"], dtype=float)
-    rot, trans = np.asarray(tf["rot"]), np.asarray(tf["trans"])
-    mesh.vertices = (scale * mesh.vertices) @ rot.T + trans
-    surface, _ = trimesh.sample.sample_surface(mesh, 200_000, seed=0)
-    obs = np.asarray(o3d.io.read_point_cloud(f"{s8}/pc/{name}.ply").points)
-    d, _ = cKDTree(surface).query(obs)
-    rows.append((name, len(obs), d.mean(), np.median(d), (d < 0.01).mean(), (d < 0.005).mean()))
+def pose_fit(scene_dir):
+    """Per object: (name, n_obs, mean, median, fraction < 1 cm, fraction < 5 mm), distances in m."""
+    s8 = os.path.join(scene_dir, "s8_pose")
+    rows = []
+    for info_path in sorted(glob.glob(f"{s8}/info/iter_*.json")):
+        name = os.path.splitext(os.path.basename(info_path))[0]
+        tf = json.load(open(info_path))["z_up"]
+        mesh = trimesh.load(f"{s8}/canonical_mesh/{name}.glb", force="mesh")
+        scale = np.asarray(tf["scale"], dtype=float)
+        rot, trans = np.asarray(tf["rot"]), np.asarray(tf["trans"])
+        mesh.vertices = (scale * mesh.vertices) @ rot.T + trans
+        surface, _ = trimesh.sample.sample_surface(mesh, 200_000, seed=0)
+        obs = np.asarray(o3d.io.read_point_cloud(f"{s8}/pc/{name}.ply").points)
+        d, _ = cKDTree(surface).query(obs)
+        rows.append((name, len(obs), d.mean(), np.median(d), (d < 0.01).mean(), (d < 0.005).mean()))
+    return rows
 
-print(f"{'object':8s} {'n_obs':>7s} {'mean(mm)':>9s} {'median(mm)':>11s} {'<1cm':>6s} {'<5mm':>6s}")
-for name, n, mean, med, p10, p5 in rows:
-    print(f"{name:8s} {n:7d} {mean * 1000:9.2f} {med * 1000:11.2f} {p10 * 100:5.1f}% {p5 * 100:5.1f}%")
-means = np.array([r[2] for r in rows]); p10s = np.array([r[4] for r in rows])
-print(f"{'avg':8s} {'':7s} {means.mean() * 1000:9.2f} {'':11s} {p10s.mean() * 100:5.1f}%")
+
+if __name__ == "__main__":
+    rows = pose_fit(sys.argv[1])
+    print(f"{'object':8s} {'n_obs':>7s} {'mean(mm)':>9s} {'median(mm)':>11s} {'<1cm':>6s} {'<5mm':>6s}")
+    for name, n, mean, med, p10, p5 in rows:
+        print(f"{name:8s} {n:7d} {mean * 1000:9.2f} {med * 1000:11.2f} {p10 * 100:5.1f}% {p5 * 100:5.1f}%")
+    means = np.array([r[2] for r in rows]); p10s = np.array([r[4] for r in rows])
+    print(f"{'avg':8s} {'':7s} {means.mean() * 1000:9.2f} {'':11s} {p10s.mean() * 100:5.1f}%")

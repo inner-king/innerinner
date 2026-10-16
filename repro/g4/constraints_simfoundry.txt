@@ -1,0 +1,16 @@
+# Pins applied to every pip/uv install of the simfoundry env on G4 (repro/g4/setup_g4.sh), at the
+# versions of the 3060 machine's env, built on 2026-10-08. install_simfoundry.sh pins numpy 1.26.4
+# but leaves these unpinned, and by 2026-10-16 their latest releases needed numpy>=2:
+#   opencv 5.0.0.93, cmeel-boost 1.90.0 (pulled in by pin), and pyarrow 26.0.0, which
+#   `import omnigibson` reaches through lerobot -> datasets.
+# transformers/tokenizers and onnxruntime (rembg) are held at the 3060 versions so the two machines
+# run the same model code. The other envs' installers pin opencv and numpy themselves.
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86
+opencv-python-headless==4.11.0.86
+cmeel-boost==1.83.0
+pin==2.7.0
+pyarrow==25.0.1
+transformers==5.19.0
+tokenizers==0.23.2
+onnxruntime==1.30.0

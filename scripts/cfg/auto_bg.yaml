@@ -178,6 +178,9 @@ s5_train_bg_splat:                                # env: simfoundry — train_bg
   method: splatfacto-big                          # options: splatfacto, splatfacto-big
   max_num_iterations: 80000                       # Canonical recipe; ns-train default is 30000
   camera_optimizer_mode: SO3xR3                   # options: off, SO3xR3, SE3 — SO3xR3 absorbs DA3 pose error + void/orig DA3 offset
+  # Extra splatfacto model flags passed to ns-train, e.g.
+  # '["--pipeline.model.use-scale-regularization=True","--pipeline.model.sh-degree=0"]'. Empty = the recipe above.
+  extra_model_args: []
   # Seed PLY (if no --seed-ply-path)
   seed_conf_min: 2.0
   seed_max_points: 200000

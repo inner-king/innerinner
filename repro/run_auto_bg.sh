@@ -82,13 +82,24 @@ step "2 pass1" "${D}/auto_bg/void/pass1/pass1.mp4" "${PY}" ${S}/2_run_void_pass1
 # PASS2_REUSE=true resumes pass 2 keeping finished chunks (only valid if pass 1 and the mask are unchanged).
 step "3 pass2" "${D}/auto_bg/void/pass2/pass2.mp4" "${PY}" ${S}/3_run_void_pass2.py "${COMMON[@]}" \
   s3_pass2.reuse_chunks="${PASS2_REUSE:-false}"
-step "da3 void (anchored)" "${D}/auto_bg/da3/void/da/exports/npz/results.npz" \
-  "${PY}" "${HERE}/da3_anchored_stage.py" "${D}/auto_bg/void/pass2/cleaned_frames" "${D}/auto_bg/da3/void"
+# VOID_DA3=canonical runs the repo's own void-DA3 (stage 2b, 220-frame chunk chain, as in
+# run_auto_align.sh) instead of the anchored variant; it needs the ~24 GB the anchored one avoids.
+if [[ "${VOID_DA3:-anchored}" == canonical ]]; then
+  step "da3 void (canonical 2b)" "${D}/auto_bg/da3/void/da/exports/npz/results.npz" \
+    "${PY}" scripts/pipeline/A_reconstruction/stages/2b_run_da.py scene_name="${SCENE}" \
+    s2_da.frames_dir="${D}/auto_bg/void/pass2/cleaned_frames" s2_da.out_dir="${D}/auto_bg/da3/void"
+else
+  step "da3 void (anchored)" "${D}/auto_bg/da3/void/da/exports/npz/results.npz" \
+    "${PY}" "${HERE}/da3_anchored_stage.py" "${D}/auto_bg/void/pass2/cleaned_frames" "${D}/auto_bg/da3/void"
+fi
 step "4 seed ply" "${D}/auto_bg/seed.ply" "${PY}" ${S}/4_build_seed_ply_from_void_da3.py "${COMMON[@]}"
 ln -sfn "void/pass2/cleaned_frames" "${D}/auto_bg/clean_frames"
 step "5 train splat" "${D}/auto_bg/splat/export/${SCENE}_bg.ply" \
   "${PY}" ${S}/5_train_bg_splat.py "${COMMON[@]}" "${S5_EXTRA[@]}"
 step "6 bridge" "${D}/auto_bg/splat/export/${SCENE}_bg.ply.pose.json" "${PY}" ${S}/6_bridge_bg_splat_to_og.py "${COMMON[@]}"
+# AUTO_BG_STOP_BEFORE_ASSETS=1 ends here, for a machine without the 3dgrut env; step 7 then runs where
+# that env is, on a copy of Data/<scene> and the stage-13 object assets.
+if [[ "${AUTO_BG_STOP_BEFORE_ASSETS:-0}" == 1 ]]; then echo "[auto_bg] stopped before step 7"; exit 0; fi
 step "7 assets" "${REPO}/assets/scenes/${SCENE}/${SCENE}_scene_state_auto_bg.json" \
   "${PY}" ${S}/7_build_og_scene_assets.py "${COMMON[@]}"
 echo "[auto_bg] SUCCESS -> ${REPO}/assets/scenes/${SCENE}/${SCENE}_scene_state_auto_bg.json"

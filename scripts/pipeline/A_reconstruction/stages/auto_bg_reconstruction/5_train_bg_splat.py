@@ -510,6 +510,8 @@ def main(cfg):
         # camera-optimizer.mode is model-side config; must precede the
         # dataparser subcommand boundary.
         f"--pipeline.model.camera-optimizer.mode={sec.camera_optimizer_mode}",
+        # Optional extra splatfacto model flags (also model-side, so also before the boundary).
+        *[str(a) for a in (sec.get("extra_model_args") or [])],
     ]
     train_cmd += [
         "nerfstudio-data",
