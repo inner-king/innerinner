@@ -5,6 +5,7 @@
 #   image model  Qwen-Image-2.1-Turbo (instead of Qwen-Image-Edit-2511)
 #   removal      SimFoundry default prompt order [mask, outline, bbox] (no override)
 #   SAM          official facebook/sam3 (run_local_pipeline.sh default)
+#   VLM          qwen3-vl:8b-instruct, pinned: run_local_pipeline.sh now picks qwen3.5:9b for A
 # Still adapted to 12 GB: depth_pro PDA backend, Hunyuan low_vram, no streaming.
 # Usage: repro/rerun_v2.sh      (logs: ${SIMFOUNDRY_LOG_DIR:-~/simfoundry_logs}/v2_*.log)
 set -uo pipefail
@@ -13,6 +14,9 @@ REPO="$(cd "${HERE}/.." && pwd)"
 [[ -f "${REPO}/local/env.sh" ]] && source "${REPO}/local/env.sh"
 cd "${REPO}"
 export SIMFOUNDRY_IMAGE_BACKEND=qwen21
+# The v2 runs' VLM, whose answers the response cache below also holds (its keys name the Gemini model
+# a stage asked for, not the Ollama model that answered).
+export SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct
 # Separate response cache: cache keys do not include the backend, so the default cache would
 # replay Edit-2511 images for identical inputs.
 CACHE=(--cache-mode --model-cache-dir .cache/simfoundry/model_calls_qwen21)

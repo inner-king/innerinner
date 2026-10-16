@@ -22,10 +22,10 @@
 
 | 원본 | 이 재현 | 이유 |
 |---|---|---|
-| Gemini `gemini-3.1-pro-preview` / `2.5-pro` (텍스트·비전) | Ollama `qwen3-vl:8b-instruct` (Q4_K_M) | Gemini 키 없음 |
+| Gemini `gemini-3.1-pro-preview` / `2.5-pro` (텍스트·비전) | Ollama `qwen3-vl:8b-instruct` (Q4_K_M). 2026-10-16부터 Pipeline A는 `qwen3.5:9b`(Q4_K_M, thinking 끔, 16장) | Gemini 키 없음 |
 | Gemini `gemini-3-pro-image` (물체 제거, 업샘플, cousin 이미지) | ComfyUI Qwen-Image-Edit-2511 Q3_K_M + Lightning 4-step LoRA | 위와 같음 |
 | `facebook/sam3` 체크포인트 | 로컬 SAM 3.1 가중치의 `detector.*` (이미지 모델) | 실행 당시 HF 게이트 승인 대기 중. 2026-10-10 승인 후 원본과 비교 (아래) |
-| 박스 좌표 [ymin,xmin,ymax,xmax] (Gemini 규약) | Qwen의 [x1,y1,x2,y2] 출력을 shim에서 변환 | Qwen은 순서 지정 요청을 따르지 않음 (확인함) |
+| 박스 좌표 [ymin,xmin,ymax,xmax] (Gemini 규약) | Qwen의 [x1,y1,x2,y2] 출력을 shim에서 변환 | Qwen은 순서 지정 요청을 따르지 않음 (확인함). Qwen3.5도 thinking을 끄면 같고, 켜면 요청한 순서를 따름 (16장) |
 | 5단계 PDA 기하 깊이 백엔드 `da3` (DA3-giant fp32 6.8 GB) | `depth_pro` (설정 옵션 `s5_scene.pda_geometric_backend`) | SAM3+DA3+PDA+SBERT 상주량이 약 13 GB로 12 GB 초과 |
 | 7단계 `s7_mesh.low_vram=false` | `true` + 텍스처 모델 CPU 대기·VAE slicing·베이킹 전 확산 모델 CPU 이동 (`mesh_generator.py` Hunyuan) | 형상 최대 6.5 GB, 텍스처 최대 10.9 GB로 측정됨. 원래 코드는 텍스처 모델 6.6 GB를 GPU에 상주시킴 |
 | 5~8단계 스트리밍(병렬) | `--no-stream` (순차) | 12 GB에서 단계 동시 실행 불가 |
@@ -160,7 +160,7 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 ~/miniforge3/envs/simfoundry/bin/python repro/eval_pose_fit.py Data/NAME
 ```
 
-전제 조건: ComfyUI(127.0.0.1:8189)가 실행 중이어야 합니다. Ollama는 래퍼가 필요할 때 띄웁니다. `--video-fpath`는 절대 경로로 줍니다(스테이지가 다른 작업 디렉터리에서 실행됨). Ollama 실행 파일이나 모델 저장소가 기본 위치가 아니면 `OLLAMA_BIN`, `OLLAMA_MODELS`로 지정합니다. 체크아웃에 `local/env.sh`가 있으면(머신별 브랜치, 예: `hanbin5/local`) 래퍼가 먼저 읽어서 이런 값을 채웁니다.
+전제 조건: ComfyUI(127.0.0.1:8189)가 실행 중이어야 합니다. Ollama는 래퍼가 필요할 때 띄웁니다. VLM은 Pipeline A가 `qwen3.5:9b`(thinking 끔), B와 C가 `qwen3-vl:8b-instruct`입니다(16장). 두 모델을 모두 받아 둡니다(`ollama pull qwen3.5:9b`). 없으면 래퍼가 시작할 때 멈춥니다. 3~13장의 A 결과를 같은 VLM으로 재현하려면 `SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct`를 줍니다(`rerun_v2.sh`는 이미 고정). `--video-fpath`는 절대 경로로 줍니다(스테이지가 다른 작업 디렉터리에서 실행됨). Ollama 실행 파일이나 모델 저장소가 기본 위치가 아니면 `OLLAMA_BIN`, `OLLAMA_MODELS`로 지정합니다. 체크아웃에 `local/env.sh`가 있으면(머신별 브랜치, 예: `hanbin5/local`) 래퍼가 먼저 읽어서 이런 값을 채웁니다.
 
 ## 9. 수정한 파일 목록
 
@@ -173,6 +173,7 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 | `scripts/pipeline/B_augmentation/stages/4_make_cousins_sim_ready.py:146` | `trimesh.load(..., force="mesh")` (원본 버그 수정) |
 | `scripts/pipeline/B_augmentation/stages/1_prompt_object_cousins.py` (`parse_reasonableness_response`) | JSON 형식 답변도 파싱되도록 따옴표 허용 (v2) |
 | `simfoundry/models/local_backends.py` (v2 추가분) | Qwen-Image-2.1(-Turbo) 백엔드 `SIMFOUNDRY_IMAGE_BACKEND=qwen21`, 불투명 RGBA 출력 → RGB |
+| `simfoundry/models/local_backends.py` (16장 추가분) | `SIMFOUNDRY_OLLAMA_THINK`: `0`이면 Ollama에 `think: false`, `1`이면 `true`. 설정하지 않으면 보내지 않음(예전과 같음) |
 | hunyuan env `basicsr/data/degradations.py` | `functional_tensor` → `functional` |
 
 ## 10. 추가 실험: 이미지 백엔드 비교 (2026-10-10)
@@ -420,6 +421,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 | 13 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
+| `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
@@ -433,3 +435,66 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 - 과일 4개를 평면으로 잘라 반쪽 메시를 만듭니다. 단면 캡과 충돌용 볼록 껍질이 포함됩니다.
 - 칼과 칼꽂이를 넣고, 장면 JSON과 자르기 계획(`cut_plan.json`)을 씁니다.
 - 아직 미완성입니다. 이 장면을 쓰는 시연 스크립트(`slice_fruits_demo.py`)는 없고, 출력 장면(`assets/scenes/DROID/droid_desk_fruit_slicing`)을 만든 흔적도 없습니다.
+
+## 16. 로컬 VLM 비교: Pipeline A는 Qwen3.5-9B로 (2026-10-16)
+
+Qwen3.5-9B(Ollama `qwen3.5:9b`, Q4_K_M, 본체 5.6 GB와 비전 0.9 GB)는 공개 벤치마크에서 Qwen3-VL-8B보다 높게 나옵니다. 다만 그 수치는 thinking 모드로 보입니다. 파이프라인은 4096 토큰 한도 안에서 바로 답해야 하므로, 파이프라인의 실제 VLM 호출로 두 모델을 직접 비교했습니다.
+
+- **방법** (`repro/vlm_compare/`)
+  - 앞선 실행이 저장한 입력을 그대로 씁니다: 키프레임, 3단계 후보 시트, 5단계 반복 이미지, 메시와 정면 렌더, 장면 JSON.
+  - 같은 프롬프트와 인자를 `Gemini(...)` → shim → Ollama 경로로 다시 보냅니다. `refine_with_vlm`, B7의 프롬프트 빌더와 파서 같은 스테이지 함수도 그대로 씁니다.
+  - ComfyUI가 필요 없고, `Data/` 아래에는 아무것도 쓰지 않습니다.
+  - 응답 캐시는 끕니다. 캐시 키에 Ollama 모델이 들어가지 않아서, 켜 두면 다른 모델의 답이 재생됩니다.
+  - 박스 정답은 원래 실행의 SAM3 마스크입니다.
+  - 같은 입력이면 qwen3-vl은 원래 실행과 같은 답을 냅니다. 3단계 선택, 8단계 정면 선택, 11단계 질량(3장의 가위 50 g·마커 36 g·컵 70 g)이 그대로 다시 나옵니다.
+  - Pipeline A의 VLM 호출은 3·5·8·11단계뿐입니다(6단계 검사는 기본으로 꺼져 있음). 모두 재생했습니다.
+- **thinking은 꺼야 합니다.** Qwen3.5는 기본이 thinking입니다.
+  - 켜 두면 생각만으로 4096 토큰을 쓰고 잘립니다. 8호출 중 6호출이 한도에 걸렸고 4호출은 재시도해도 실패했습니다. 1·5단계에서는 단계가 예외로 멈추고, 한도에 걸린 호출은 120–167 s가 걸립니다.
+  - 박스도 프롬프트가 요청한 [ymin,xmin,ymax,xmax] 순서로 씁니다. 그러면 shim의 순서 변환이 박스를 뒤집습니다(합성 도형 2/2).
+  - 그래서 shim에 `SIMFOUNDRY_OLLAMA_THINK`를 추가했습니다(`0`이면 `think: false`).
+  - thinking을 끄면 좌표 규약이 qwen3-vl과 같습니다. 박스 [x1,y1,x2,y2]와 점 [x,y](0–1000)를 쓰고 [y,x] 요청을 무시합니다(합성 도형 2장과 실제 프레임, 18/18).
+  - qwen3-vl에 `think: false`를 보내도 답이 바이트 단위로 같습니다.
+
+**Pipeline A 호출** (qwen3.5는 thinking 끔)
+
+| 호출 | `qwen3-vl:8b-instruct` | `qwen3.5:9b` |
+|---|---|---|
+| 1단계(auto_bg) 키프레임 0 물체 목록 | 컵·가위. **마커 누락** | 3/3 |
+| 같은 호출을 같은 영상 8프레임에 | 마커 4/8 (먼 시점 4장 누락) | 마커 6/8 |
+| 3단계 프레임 선택, 후보 시트 3개 | v1 시트에서 4096 토큰 반복 루프 → 재시도로 답(120 s). 최선 1개, 차선 1개, 최하위 1개(마커가 가장 크다는 틀린 근거) | 루프 없음(약 20 s). 최선 2개, 차선 1개 |
+| 5단계 검출 (3장면, 물체 18개, 마지막 빈 책상 9회) | 18/18, 오검출 0, 빈 결과 9/9 | 같음 |
+| 5단계 박스 IoU (SAM3 대비 평균, 중심이 정답 박스 안) | 0.71, 18/18 | 0.76, 18/18 |
+| 8단계 정면 선택 (물체 9개) | 9개 중 4개가 qwen3.5와 다름 | 다른 4개 중 3개(마커 2개, 가위)는 사진과 같은 방향의 뷰를 고름: 마커는 뚜껑 방향과 라벨 면, 가위는 날 끝. 렌더를 눈으로 보면 이쪽이 맞음. 무늬 있는 종이컵은 NONE 대신 A. 호출당 17 s → 6 s |
+| 11단계 질량 | 종이컵 70·150·70 g | 종이컵 30·25·20 g(실물 약 10 g). **그릇 5.51 kg**(qwen3-vl 0.5 kg) |
+| 22호출 합계(1·3·5단계) | 300 s, MAX_TOKENS 1회 | 192 s, 0회 |
+| VRAM (호출이 더한 장치 메모리) | 7.8 GB, 이미지 4장이면 8.2 GB | 6.7 GB |
+
+- 11단계는 qwen3.5가 프롬프트의 "chain of thought"를 실제로 써서 호출당 13–33 s가 걸립니다(qwen3-vl은 JSON만 내고 5 s).
+- 그릇 5.51 kg은 스테이지가 넘긴 부피(닫히지 않은 메시라 바운딩 박스의 65%, 5.8 L)에 플라스틱 밀도를 곱한 값입니다. 속이 빈 그릇을 꽉 찬 물체로 계산했습니다. 컵은 속이 비었다고 보고 맞게 줄였습니다.
+- 마커처럼 꽉 찬 물체는 두 모델 모두 부피 × 물 밀도로 답합니다(약 36–40 g, 실물 약 15–20 g).
+
+**Pipeline B 호출**
+
+| 호출 | `qwen3-vl:8b-instruct` | `qwen3.5:9b` |
+|---|---|---|
+| B1 부품 목록 (가위, 컵) | [Handle, Blade, Pivot Point], [Main Body, Rim, Logo, Text, Green Stripe, Bottom Ring] | [Handle], **[杯身]** (중국어) |
+| B7 태스크 제안 (2장면 × seed 0·1000·2000, 온도 0.7) | 6/6 실행에서 5개씩 파싱. PutCupInBowl에서 "컵을 그릇에"가 2/3 실행에 나옴 | 4/6만 5개. PutCupInBowl은 2개, 0개 파싱(`task_name` 키가 빠지거나 YAML 들여쓰기가 틀림). "컵을 그릇에"는 한 번도 없음 |
+
+**결론과 바꾼 점**
+
+- `run_local_pipeline.sh`는 이제 Pipeline A에 `qwen3.5:9b`를, B와 C에는 `qwen3-vl:8b-instruct`를 줍니다(C는 VLM을 부르지 않음). 둘 다 `SIMFOUNDRY_OLLAMA_THINK=0`입니다.
+- `run_auto_bg.sh`도 A와 같은 모델을 줍니다. 1단계는 주어진 물체 목록을 쓰므로 VLM을 부르지 않습니다. 그 목록을 계속 쓰는 이유는 qwen3.5도 먼 시점 프레임 2장에서 마커를 놓쳤기 때문입니다.
+- `rerun_v2.sh`는 qwen3-vl로 고정했습니다. 응답 캐시도 qwen3-vl의 답을 담고 있습니다.
+- shim의 기본값(`qwen3-vl:8b-instruct`, think 미설정)은 그대로입니다.
+- 모델을 직접 고르려면 `SIMFOUNDRY_OLLAMA_MODEL`을 줍니다. 래퍼는 시작할 때 Ollama에 그 모델이 있는지 확인합니다.
+
+**한계**
+
+- **ComfyUI가 지금 이 머신에 없습니다.** 설치 폴더와 Qwen-Image 가중치가 없어서, 새 기본값으로 A/B 전체를 끝까지 돌리지는 못했습니다. 위 비교는 이미지 모델이 필요 없는 VLM 호출을 모두 재생한 것입니다.
+- 같은 입력에 온도 0이어도, 다른 작업이 GPU를 같이 쓰면 Ollama가 모델을 작은 버퍼로 올립니다(5,591 → 5,519 MiB). 그러면 경계에 있는 답이 바뀝니다(B1·B7에서 관찰). 그래서 스크립트는 호출마다 GPU가 빌 때까지 기다리고, 겹친 호출은 표시합니다. 위 표는 모두 GPU가 비었을 때의 값입니다.
+- qwen3.5의 Modelfile에는 `presence_penalty 1.5`가 들어 있습니다(shim은 온도와 seed만 바꿈). 0으로 바꾼 시험은 다른 작업과 겹쳐 결론을 내지 못했습니다. B1의 중국어 답과 그릇 질량은 0에서도 그대로였습니다.
+
+```bash
+repro/vlm_compare/run.sh results/diagnostics/vlm_compare qwen3-vl:8b-instruct qwen3.5:9b:0   # 모델당 약 10분
+python repro/vlm_compare/coord_test.py results/diagnostics/vlm_compare/coord                   # 좌표 순서
+```

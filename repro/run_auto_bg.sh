@@ -5,10 +5,11 @@
 #
 # Same step scripts and order as run_auto_align.sh. Differences, each forced by that setup:
 #   - Local model backend (no Gemini): step 1's object proposal uses the text VLM
-#     (s1_quadmask.gemini_model=gemini-3.1-pro-preview -> Qwen3-VL) instead of the image model,
+#     (s1_quadmask.gemini_model=gemini-3.1-pro-preview -> the local VLM) instead of the image model,
 #     since the step only reads text (get_result_text) from it.
-#     Its object list is the canonical stage-5 one (s1_quadmask.objects) because the 8B local VLM
-#     missed an object on keyframe 0 that it found on the decomposition frame.
+#     Its object list is the canonical stage-5 one (s1_quadmask.objects) because the local VLM can
+#     miss an object on keyframe 0 that it finds on the decomposition frame: Qwen3-VL 8B missed the
+#     marker there, and Qwen3.5-9B, which finds it there, missed it on 2 of 8 other far frames.
 #   - void-DA3 ("canonical 2b") runs repro/da3_anchored_stage.py instead of 2b_run_da.py: the repo
 #     chains 220-frame chunks (24 GB); 16-frame chunks that fit 12 GB drifted >20 deg, so chunks are
 #     aligned to a joint reference call instead (same Umeyama fit, star instead of chain).
@@ -31,6 +32,10 @@ export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-${HOME}/miniforge3}"
 # Steps run with the env python directly (not `mamba run`), so put the env bin (ffmpeg, ns-*) on PATH.
 export PATH="${MAMBA_ROOT_PREFIX}/envs/simfoundry/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}"
 export SIMFOUNDRY_LOCAL_BACKEND=1 SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0
+# Pipeline A's local VLM, as run_local_pipeline.sh picks it (the given object list means step 1 does
+# not call it).
+export SIMFOUNDRY_OLLAMA_MODEL="${SIMFOUNDRY_OLLAMA_MODEL:-qwen3.5:9b}"
+export SIMFOUNDRY_OLLAMA_THINK="${SIMFOUNDRY_OLLAMA_THINK:-0}"
 export SIMFOUNDRY_IMAGE_BACKEND="${SIMFOUNDRY_IMAGE_BACKEND:-qwen21}"
 export VOID_LOW_VRAM="${VOID_LOW_VRAM:-1}"
 export GCLOUD_PROJECT="${GCLOUD_PROJECT:-local}" OMNI_KIT_ACCEPT_EULA=YES
@@ -67,7 +72,7 @@ step() {  # step <label> <done-marker> <cmd...>
 }
 
 # Objects to erase = the canonical reconstruction's stage-5 categories (same prompt and VLM, run on
-# the decomposition frame). Qwen3-VL on keyframe 0 alone missed the marker next to the cup.
+# the decomposition frame). On keyframe 0 alone Qwen3-VL missed the marker next to the cup.
 OBJS=$("${PY}" -c "import json,sys; print('[' + ','.join(repr(o) for o in json.load(open(sys.argv[1]))['vlm_categories_full']) + ']')" \
   "${D}/s5_scene/obj_cat_list/iter_0.json")
 step "1 quadmask" "${D}/auto_bg/void/input/quadmask_0.mp4" \
