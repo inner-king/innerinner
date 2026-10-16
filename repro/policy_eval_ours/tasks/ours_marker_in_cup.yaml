@@ -1,0 +1,72 @@
+# Table G.1 "Marker in Cup" on our reconstruction of PutMarkerInCup.mp4, put on the authors' DROID desk
+# (repro/policy_eval_ours/build_droid_scene.py; repro/README.md, chapter 19).
+# Rubric (paper App. I.2): 1. touch marker 2. pick up marker 3. place marker in cup.
+# Goal and milestones as in scripts/cfg/task/droid/droid_desk_put_marker_in_cup.yaml, grouped by category; the
+# video's scissors are left out, as that config and the authors' scene leave them out.
+# No randomization here: every episode starts from a fixed init state (5x5 grid per object, paper App. J.1),
+# applied by the eval stage after reset (s15_eval.init_states_path).
+task_name: ours_marker_in_cup
+og_task_config:
+  type: PickPlaceTask
+  activity_name: ${task_name}
+  semantic_group_mapping:
+    robot: [agent]
+    marker: [red_marker]
+    cup: [white_paper_cup]
+  init_predicates_all: null
+  init_predicates_any: null
+  init_predicates_specific: null
+  goal_predicates_all:
+    - state: InsideAABB
+      value: true
+      group: marker
+      other_group: cup
+      state_kwargs:
+        volume_threshold: 0.50
+  goal_predicates_any:
+    - state: Touching
+      state_kwargs: null
+      value: false
+      group: robot
+      other_group: marker
+  goal_predicates_specific: null
+  milestone_predicates:
+    - name: touched_marker
+      state: Touching
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: marker
+      requires: []
+    - name: picked_marker
+      state: IsGrasping
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: marker
+      requires: [touched_marker]
+    - name: marker_in_cup
+      state: InsideAABB
+      state_kwargs:
+        volume_threshold: 0.50
+      value: true
+      group: marker
+      other_group: cup
+      requires: []
+  robot_pose: null
+  robot_xyz_randomization: null
+  robot_z_rot_randomization: null
+  robot_joint_randomization: null
+  camera_look_at_point: null
+  group_init_relative_poses: null
+  group_xyz_randomization: null
+  group_z_rot_randomization: null
+  group_predicate_placement: null
+  workspace_bounds: null
+  additional_objects: null
+  termination_config:
+    max_steps: 1000
+  reward_config:
+    r_potential: 1.0
+  include_obs: false
+  hdr_background_name: null

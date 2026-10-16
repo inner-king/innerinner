@@ -1,0 +1,76 @@
+# Table G.1's zero-shot rows on scenes our own pipeline reconstructed (repro/README.md, chapter 19).
+# Same schema as repro/policy_eval/table_g1.yaml, read by its sample_init_states.py (--spec) and run_table_g1.sh
+# (SPEC=...), plus a `build` block per task for build_droid_scene.py.
+#
+#   template   the authors' DROID desk scene whose robot, sensors, mesh background and ground plane every scene
+#              here keeps; its own task objects are dropped
+#   build      source: our reconstruction under Data/; objects: <category> -> the source object (`from`), the
+#              xy it is moved to, and optionally a template object whose long-axis heading it takes (`align_to`)
+#   prompt     paper App. I.2, lower-cased without the final period, as table_g1.yaml writes them
+#   timeout_s  the repository's eval config for the task (PutCupInBowl.yaml 60 s, PutMarkerInCup.yaml 90 s);
+#              execute_horizon likewise (8)
+#   paper      Table G.1's simulation success rate (%) on the authors' scene; paper_real the real-world one
+#   init_states 25 fixed starts, a 5x5 grid per object (paper App. J.1). Grid sizes are the repository's task
+#              config ranges (group_xyz_randomization +-r -> 2r), no yaw (its group_z_rot_randomization is 0)
+#
+# Placement: the cup (Cup in Bowl) and the marker (Marker in Cup), the objects the robot picks, sit where the
+# authors' marker sits in the template; the receptacle where the authors' mug sits. The two grids then never
+# overlap (nearest centres 29 cm apart against the bowl's 13 cm radius plus the cup's 5 cm).
+template: scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json
+
+tasks:
+  cup_in_bowl_ours:
+    scene: scenes/DROID/droid_desk_put_cup_in_bowl_ours/droid_desk_put_cup_in_bowl_ours_scene_state_latest.json
+    task: ours_cup_in_bowl
+    prompt: "pick up the cup, and put the cup inside the bowl"
+    timeout_s: 60
+    execute_horizon: 8
+    paper: {pi0: 56, pi05: 92}
+    paper_real: {pi0: 88, pi05: 100}
+    build:
+      source: put_cup_in_bowl_v2
+      objects:
+        white_paper_cup: {from: iter_2, xy: [0.605, -0.189]}
+        orange_bowl: {from: iter_0, xy: [0.599, 0.273]}
+        black_pen: {from: iter_1, xy: [0.78, 0.05]}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: white_paper_cup_eqmylj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: orange_bowl_sfufgv_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+        - {name: black_pen_wpmeam_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
+  marker_in_cup_ours:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup_ours/droid_desk_put_marker_in_cup_ours_scene_state_latest.json
+    task: ours_marker_in_cup
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88}
+    paper_real: {pi0: 40, pi05: 92}
+    build:
+      source: put_marker_in_cup_v2
+      objects:
+        red_marker: {from: iter_2, xy: [0.605, -0.189], align_to: red_marker_undupl_2}
+        white_paper_cup: {from: iter_1, xy: [0.599, 0.273]}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_nvnysj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: white_paper_cup_owccwy_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
+policies:
+  pi0:
+    checkpoint: pi0_droid_jointpos
+    config: pi0_droid_jointpos_polaris
+    port: 8000
+  pi05:
+    checkpoint: pi05_droid_jointpos
+    config: pi05_droid_jointpos_polaris
+    port: 8001
