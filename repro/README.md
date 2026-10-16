@@ -4,7 +4,7 @@
 - 코드: [NVlabs/SimFoundry](https://github.com/NVlabs/SimFoundry) @ `9e34ebe` (2026-08-26)
 - 재현 장비: i9-12900K, RAM 31 GiB, **RTX 3060 12 GB**. 논문은 RTX 3090 24 GB를 썼고, 저장소 최소 사양은 16 GB입니다.
 - 이 폴더(`repro/`)에는 이 기록과 재현에 쓴 실행 래퍼와 스크립트가 모두 있습니다(목록은 15장). 아래 경로는 저장소 루트 기준입니다.
-- 결과 영상·이미지·로그, 장면 데이터(`Data/<scene>`), 체크포인트는 git에 넣지 않고 Google Drive `Inner-King/innerinner/`에 둡니다(14장). 이 기록의 `results_view/…`, `diagnostics/…`, `logs/…` 경로는 그 폴더의 `results/` 아래입니다.
+- 결과 영상·이미지·로그, 장면 데이터(`Data/<scene>`), 체크포인트는 git에 넣지 않고 Google Drive [`Inner-King/innerinner/`](https://drive.google.com/drive/folders/1lmzFWqMATc52zW7gyiog0YZM3ewKDUzY)에 둡니다(14장). 이 기록의 `results_view/…`, `diagnostics/…`, `logs/…` 경로는 그 폴더의 `results/` 아래입니다.
 
 ## 1. 재현 범위
 
@@ -375,7 +375,7 @@ repro/run_auto_bg.sh put_marker_in_cup_bg "desk, table, or counter"
 
 ## 14. 결과와 체크포인트 (Google Drive)
 
-git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장면 데이터, 체크포인트는 Google Drive의 `Inner-King/innerinner/` 폴더에 둡니다.
+git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장면 데이터, 체크포인트는 Google Drive의 [`Inner-King/innerinner/`](https://drive.google.com/drive/folders/1lmzFWqMATc52zW7gyiog0YZM3ewKDUzY) 폴더에 둡니다. 링크가 있으면 누구나 볼 수 있고, 폴더의 `README.md`에 장면별 내용이 있습니다.
 
 | Drive 경로 | 내용 | 체크아웃 쪽 |
 |---|---|---|
