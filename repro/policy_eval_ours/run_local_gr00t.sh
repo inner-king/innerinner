@@ -102,9 +102,20 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
   return ${rc}
 }
 
+all() {  # all N TAG SPEC:TASK...: one task after another. A run that dies (another session's job took the
+         # card mid-run) is retried once from its first episode.
+  local n="$1" tag="$2" item; shift 2
+  for item in "$@"; do
+    eval_one "${item%%:*}" "${item#*:}" "${n}" "${tag}" && continue
+    echo "[eval] $(date +%T) ${item#*:} failed; retrying once in 2 minutes"; sleep 120
+    eval_one "${item%%:*}" "${item#*:}" "${n}" "${tag}"
+  done
+}
+
 case "${1:-}" in
   server) server ;;
   stop) stop ;;
   eval) shift; eval_one "$@" ;;
-  *) echo "usage: $0 server|stop|eval SPEC TASK [N] [TAG]" >&2; exit 2 ;;
+  all) shift; all "$@" ;;
+  *) echo "usage: $0 server|stop|eval SPEC TASK [N] [TAG]|all N TAG SPEC:TASK..." >&2; exit 2 ;;
 esac
