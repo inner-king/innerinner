@@ -61,7 +61,11 @@ simfoundry() {
   local C="${REPO}/repro/g4/constraints_simfoundry.txt"
   step miniforge install_miniforge || return 1
   step preclone_b1k preclone https://github.com/StanfordVL/BEHAVIOR-1K.git "${REPO}/deps/BEHAVIOR-1K" || return 1
-  step env_simfoundry env PIP_CONSTRAINT="${C}" UV_CONSTRAINT="${C}" \
+  # The installer pins CUDA 12.8 and stops when the image's nvcc reports another release (Colab images carry
+  # 13.0 since 2026-10-17); with no nvcc on PATH it installs the 12.8 toolkit into the env itself.
+  local path_no_cuda
+  path_no_cuda="$(tr ':' '\n' <<< "${PATH}" | grep -v '/cuda' | paste -sd: -)"
+  step env_simfoundry env PATH="${path_no_cuda}" PIP_CONSTRAINT="${C}" UV_CONSTRAINT="${C}" \
     bash "${REPO}/scripts/installation/install_simfoundry.sh" --project-root "${REPO}" --env-name simfoundry \
     --cuda-version 12.8 --default || return 1
   mamba clean -a -y > /dev/null 2>&1; rm -rf /root/.cache/pip
@@ -71,7 +75,9 @@ openpi_server() {
   preclone https://github.com/Physical-Intelligence/openpi.git "${OPENPI_DIR}" || return 1
   git -C "${OPENPI_DIR}" checkout --detach "${OPENPI_COMMIT}" || return 1
   # lerobot is a git dependency whose LFS files the server does not need.
-  (cd "${OPENPI_DIR}" && GIT_LFS_SKIP_SMUDGE=1 uv sync && GIT_LFS_SKIP_SMUDGE=1 uv pip install -e .)
+  # --python: without it uv pip targets the first python on PATH, miniforge's base, whose Python 3.14
+  # (miniforge's latest since 2026-10) has no torch 2.7.1 wheels.
+  (cd "${OPENPI_DIR}" && GIT_LFS_SKIP_SMUDGE=1 uv sync && GIT_LFS_SKIP_SMUDGE=1 uv pip install --python .venv/bin/python -e .)
 }
 
 openpi_client() {
