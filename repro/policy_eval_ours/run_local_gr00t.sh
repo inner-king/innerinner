@@ -98,7 +98,7 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
     --config-name=real2sim_cfg "task=policy_eval/${task}" \
     "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_gr00t_${tag}" \
     s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" s15_eval.checkpoint=gr00t_n16_droid \
-    "s15_eval.external_sensors_cfg=${EXTERNAL_SENSORS:-nv_franka_droid}" \
+    "s15_eval.external_sensors_cfg=${EXTERNAL_SENSORS:-nv_franka_droid}" "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
     "s15_eval.init_states_path=${init}" \

@@ -23,6 +23,11 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def lazy_get_tonemap():
+    import omnigibson.lazy as lazy
+    return lazy.carb.settings.get_settings().get("/rtx/post/tonemap/op")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--spec", default=os.path.join(HERE, "ours.yaml"))
@@ -31,6 +36,8 @@ def main():
     ap.add_argument("--scene", default=None, help="scene JSON under the asset dir; default: the task's")
     ap.add_argument("--out", required=True)
     ap.add_argument("--settle-s", type=float, default=2.0)
+    ap.add_argument("--tonemap", type=int, default=None,
+                    help="RTX tone-mapping operator (/rtx/post/tonemap/op), e.g. 1 linear; default: Isaac Sim's (6, ACES)")
     args = ap.parse_args()
 
     import omnigibson as og
@@ -62,13 +69,18 @@ def main():
                "use_skybox": True, "include_robots": True},
         task=parse_config(task_yaml)["og_task_config"]))
     env.reset()
+    if args.tonemap is not None:
+        import omnigibson.lazy as lazy
+        lazy.carb.settings.get_settings().set("/rtx/post/tonemap/op", args.tonemap)
+    print(f"[check] tonemap op {lazy_get_tonemap()}")
 
     names = [o["name"] for o in spec["init_states"]["objects"]]
     objs = {n: env.scene.object_registry("name", n) for n in names}
     start = {n: o.get_position_orientation()[0].cpu().numpy() for n, o in objs.items()}
     for _ in range(int(args.settle_s * 120)):
         og.sim.step_physics()
-    for _ in range(3):
+    # Render settings such as the tone mapper reach the sensors' outputs only after several frames.
+    for _ in range(20):
         og.sim.render()
     print(f"[check] {args.task}: {scene_rel}")
     for n, o in objs.items():

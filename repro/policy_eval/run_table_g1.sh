@@ -10,7 +10,8 @@
 #   init [TASK...]                 25 fixed starts per task (sample_init_states.py), in parallel
 #   eval POLICY TASK [N] [TAG]     one run of N episodes (default 25); TAG names the run (default "main");
 #                                  SCENE_JSON=<path under assets/> evaluates a copy of the scene instead,
-#                                  PROMPT=<text> another instruction, SENSORS_CFG=<name> another camera config
+#                                  PROMPT=<text> another instruction, SENSORS_CFG=<name> another camera config,
+#                                  TONEMAP_OP=<op> another RTX tone mapper (1 = linear; default Isaac Sim's ACES)
 #   all POLICY [JOBS] [N] [TAG]    every task for one policy, JOBS eval processes at a time (default 2)
 #   summary [TAG]                  summarize.py over the runs
 #
@@ -130,6 +131,7 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
     "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_${p}_${tag}" \
     s15_eval.policy=openpi s15_eval.host=localhost "s15_eval.port=${port}" "s15_eval.checkpoint=${ckpt}" \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" "s15_eval.external_sensors_cfg=${sensors}" \
+    "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
     "s15_eval.init_states_path=${init}" \
     s15_eval.save_video=true s15_eval.video_fps=10 "+s15_eval.video_resolution=[180,320]" \

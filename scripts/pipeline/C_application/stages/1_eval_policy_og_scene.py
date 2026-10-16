@@ -409,6 +409,19 @@ def main(cfg):
             sensor.horizontal_aperture=5.376
             # sensor.vertical_aperture=3.024
 
+    # RTX tone-mapping operator for every camera the policy sees (/rtx/post/tonemap/op; 1 = linear). Null keeps
+    # Isaac Sim's default, ACES (6), which neither OmniGibson nor this stage changes. The DROID backgrounds are
+    # scans textured from photographs; ACES raises their contrast and saturation, linear keeps the photos'
+    # colours (on a splat background linear matched the real frame at mean abs error 0.032 against ACES's
+    # 0.126, repro/README.md 13.3). A post-processing change reaches the sensors' outputs only after a few
+    # rendered frames, hence the renders below.
+    tonemap_op = cfg.s15_eval.get("tonemap_op", None)
+    if tonemap_op is not None:
+        lazy.carb.settings.get_settings().set("/rtx/post/tonemap/op", int(tonemap_op))
+        for _ in range(20):
+            og.sim.render()
+        print(f"[render] tone mapper op {int(tonemap_op)}")
+
     # Load init states for deterministic evaluation if provided
     init_states_path = cfg.s15_eval.get("init_states_path", None)
     init_states = None
