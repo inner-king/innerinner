@@ -114,6 +114,7 @@ s3_pass2:                                         # env: simfoundry — run_void
   model_checkpoint: "void_pass2.safetensors"
   chunk_warmup_frames: 5                          # Frames re-fed at chunk boundary to maintain temporal consistency
   restitch_only: false                            # If true, only re-stitch existing per-chunk outputs (debug)
+  reuse_chunks: false                             # If true, keep per-chunk outputs that already exist (resume)
 
 # Original-frame DA3 is OWNED by the canonical reconstruction (stage 2 / DA3 backend),
 # run BEFORE this add-on. It lives at the path below; both the canonical foreground

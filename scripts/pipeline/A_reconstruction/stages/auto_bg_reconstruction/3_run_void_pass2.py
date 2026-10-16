@@ -267,6 +267,11 @@ def main(cfg):
                 )
             logger.info("[chunk %d] RESTITCH-ONLY: loading existing %s", ci, existing)
             out_mp4 = existing
+        elif sec.get("reuse_chunks") and (out_dir / "_chunks" / f"chunk_{ci:02d}" / "out"
+                                          / f"{sec.video_name}_warped_noise_inference.mp4").exists():
+            # Resume after a later chunk failed: a finished chunk depends only on its own window.
+            out_mp4 = out_dir / "_chunks" / f"chunk_{ci:02d}" / "out" / f"{sec.video_name}_warped_noise_inference.mp4"
+            logger.info("[chunk %d] reusing existing %s", ci, out_mp4)
         else:
             out_mp4 = _run_pass2_chunk(
                 in_dir=in_dir, video_name=sec.video_name, chunk_id=ci,
