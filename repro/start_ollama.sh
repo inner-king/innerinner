@@ -4,7 +4,8 @@
 # Models unload after OLLAMA_KEEP_ALIVE so the 12 GB GPU is free for pipeline stages.
 #
 #   OLLAMA_BIN     ollama executable (default: `ollama` on PATH)
-#   OLLAMA_MODELS  model store holding qwen3-vl:8b-instruct (default: Ollama's own)
+#   OLLAMA_MODELS  model store holding qwen3.5:9b (Pipeline A) and qwen3-vl:8b-instruct (Pipeline B,
+#                  and every run before 2026-10-16); default: Ollama's own
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 # Machine-specific locations (Ollama binary, model stores, ...) come from local/env.sh when the
 # checkout has one, as a machine's own branch does (e.g. hanbin5/local).

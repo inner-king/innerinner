@@ -4,14 +4,17 @@
 Enabled with SIMFOUNDRY_LOCAL_BACKEND=1 (see ``vlm._get_genai_module``). The pipeline keeps calling
 ``Gemini(...)`` exactly as before; only the client underneath is swapped:
 
-- text/vision models (gemini-*-pro, -flash, ...) -> a local Ollama serving Qwen3-VL
+- text/vision models (gemini-*-pro, -flash, ...) -> a local Ollama serving a Qwen VLM: qwen3-vl:8b-instruct
+                                                   by default; repro/run_local_pipeline.sh picks
+                                                   qwen3.5:9b with thinking off for Pipeline A
 - image models (anything with "image" in the name, e.g. gemini-3-pro-image)
                                                    -> a local ComfyUI running Qwen-Image-Edit-2511
 
 Box/point conventions differ: Gemini answers ``box_2d`` as [ymin, xmin, ymax, xmax] and points as
-[y, x] (0-1000), while Qwen3-VL emits [x1, y1, x2, y2] / [x, y] in the same 0-1000 frame and keeps
-doing so even when a prompt asks otherwise. We pin Qwen to its native order with a system message
-and swap the coordinates back on the way out, so callers see Gemini's convention.
+[y, x] (0-1000), while Qwen3-VL, and Qwen3.5 with thinking off, emit [x1, y1, x2, y2] / [x, y] in the
+same 0-1000 frame and keep doing so even when a prompt asks otherwise (a thinking Qwen3.5 follows the
+prompt instead; see OLLAMA_THINK). We pin Qwen to its native order with a system message and swap
+the coordinates back on the way out, so callers see Gemini's convention.
 """
 
 import base64
@@ -35,6 +38,11 @@ OLLAMA_MAX_TOKENS = int(os.environ.get("SIMFOUNDRY_OLLAMA_MAX_TOKENS", "4096"))
 # Layers to place on the GPU; unset lets Ollama fit what is free, 0 keeps the VLM entirely on CPU
 # so it never competes with SAM3 / ComfyUI for the 12 GB card.
 OLLAMA_NUM_GPU = os.environ.get("SIMFOUNDRY_OLLAMA_NUM_GPU")
+# Whether a thinking model reasons before answering: 0 sends think=false, 1 think=true; unset sends
+# nothing and the model keeps its default. Qwen3.5 thinks by default and needs 0: its reasoning counts
+# against OLLAMA_MAX_TOKENS, and while thinking it writes boxes in the [y, x] order a prompt asks for
+# rather than the order SYSTEM_PROMPT pins, so to_gemini_coordinates would swap them the wrong way.
+OLLAMA_THINK = os.environ.get("SIMFOUNDRY_OLLAMA_THINK")
 # Long side of images sent to the VLM. Coordinates are normalized, so downscaling only costs detail;
 # it bounds the visual-token count (and CPU time when the GPU is busy).
 VLM_MAX_SIDE = int(os.environ.get("SIMFOUNDRY_LOCAL_VLM_MAX_SIDE", "1280"))
@@ -214,6 +222,8 @@ def ollama_chat(prompt, images, temperature=0.0, seed=0, max_tokens=None, verbos
     }
     if OLLAMA_NUM_GPU not in (None, ""):
         body["options"]["num_gpu"] = int(OLLAMA_NUM_GPU)
+    if OLLAMA_THINK not in (None, ""):
+        body["think"] = OLLAMA_THINK.strip().lower() in {"1", "true", "yes", "on"}
     try:
         for attempt in range(2):
             t0 = time.time()
