@@ -5,6 +5,10 @@
 #
 #   OLLAMA_BIN     ollama executable (default: `ollama` on PATH)
 #   OLLAMA_MODELS  model store holding qwen3-vl:8b-instruct (default: Ollama's own)
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+# Machine-specific locations (Ollama binary, model stores, ...) come from local/env.sh when the
+# checkout has one, as a machine's own branch does (e.g. hanbin5/local).
+[[ -f "${REPO}/local/env.sh" ]] && source "${REPO}/local/env.sh"
 export OLLAMA_HOST=127.0.0.1:11434
 export OLLAMA_KEEP_ALIVE=60s
 export OLLAMA_FLASH_ATTENTION=1

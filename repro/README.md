@@ -159,7 +159,7 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 ~/miniforge3/envs/simfoundry/bin/python repro/eval_pose_fit.py Data/NAME
 ```
 
-전제 조건: ComfyUI(127.0.0.1:8189)가 실행 중이어야 합니다. Ollama는 래퍼가 필요할 때 띄웁니다. `--video-fpath`는 절대 경로로 줍니다(스테이지가 다른 작업 디렉터리에서 실행됨). Ollama 실행 파일이나 모델 저장소가 기본 위치가 아니면 `OLLAMA_BIN`, `OLLAMA_MODELS`로 지정합니다.
+전제 조건: ComfyUI(127.0.0.1:8189)가 실행 중이어야 합니다. Ollama는 래퍼가 필요할 때 띄웁니다. `--video-fpath`는 절대 경로로 줍니다(스테이지가 다른 작업 디렉터리에서 실행됨). Ollama 실행 파일이나 모델 저장소가 기본 위치가 아니면 `OLLAMA_BIN`, `OLLAMA_MODELS`로 지정합니다. 체크아웃에 `local/env.sh`가 있으면(머신별 브랜치, 예: `hanbin5/local`) 래퍼가 먼저 읽어서 이런 값을 채웁니다.
 
 ## 9. 수정한 파일 목록
 

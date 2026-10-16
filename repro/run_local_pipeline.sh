@@ -13,6 +13,9 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "${HERE}/.." && pwd)"
+# Machine-specific locations (Ollama binary, model stores, ...) come from local/env.sh when the
+# checkout has one, as a machine's own branch does (e.g. hanbin5/local).
+[[ -f "${REPO}/local/env.sh" ]] && source "${REPO}/local/env.sh"
 
 export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-${HOME}/miniforge3}"
 export PATH="${MAMBA_ROOT_PREFIX}/bin:${PATH}"
@@ -40,7 +43,8 @@ if ! curl -fsS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
     sleep 1
   done
 fi
-curl -fsS http://127.0.0.1:8189/system_stats >/dev/null || { echo "ComfyUI is not reachable on :8189" >&2; exit 1; }
+COMFY_URL="${SIMFOUNDRY_COMFY_URL:-http://127.0.0.1:8189}"
+curl -fsS "${COMFY_URL}/system_stats" >/dev/null || { echo "ComfyUI is not reachable at ${COMFY_URL}" >&2; exit 1; }
 
 pipeline="$1"; shift
 cd "${REPO}"
