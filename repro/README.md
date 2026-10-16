@@ -423,6 +423,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
+| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기, 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV | 19 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
 | `g4/setup_g4.sh`, `g4/constraints_simfoundry.txt` | Colab G4 런타임 설치(Vulkan·libGLU 보완, 버전 고정) | 17 |
@@ -825,3 +826,57 @@ repro/g4/check_bg_variant.sh put_cup_in_bowl_bg_g4 sreg_sh0_depth2_30k_carve ite
 ```
 
 조작 시연에 쓰려면 `repro/scripted_pick_place.py --scene-file assets/scenes/<scene>_<variant>/<scene>_<variant>_scene_state_auto_bg.json`으로 엽니다.
+
+## 19. Table G.1 제로샷 행: 우리가 복원한 장면과 세 번째 정책 (2026-10-17, 진행 중)
+
+논문의 핵심 정량 결과는 "시뮬레이션 평가가 실제 성능을 예측한다"는 것입니다. Table G.1은 과제마다 여러 정책의 시뮬 성공률과 실제 성공률을 나란히 싣고, 과제별로 두 열 사이의 Pearson r과 MMRV를 냅니다. 초록의 **r 0.911과 MMRV 0.018은 이 7개 과제 값의 평균**입니다. `repro/policy_eval_ours/correlate.py --check-paper`는 Table G.1의 시뮬·실제 열에서 7개 과제의 r과 MMRV를 모두 소수 셋째 자리까지 그대로 다시 계산합니다.
+
+18장은 저자들이 공개한 장면 5개에서 공개 π0·π0.5 체크포인트를 평가합니다. 이 장은 거기에 두 가지를 더합니다.
+
+- **우리가 복원한 장면.** 미세조정 없이 평가하는 과제 4개 중 Cup in Bowl은 저자 장면이 공개되지 않았습니다. 그런데 저장소의 태스크 설정(`scripts/cfg/task/droid/droid_desk_put_cup_in_bowl.yaml`)이 부르는 물체(흰 종이컵, 주황 그릇, 검은 펜)가 예제 영상 PutCupInBowl.mp4의 물체이고, 우리 파이프라인이 그 영상을 복원했습니다(11장 `put_cup_in_bowl_v2`). 그 결과로 장면을 만들어 평가합니다. Marker in Cup도 우리 복원(`put_marker_in_cup_v2`)으로 같은 방식의 장면을 만들어, 18장의 저자 장면 결과와 나란히 봅니다.
+- **세 번째 정책.** 정책이 둘뿐이면 과제별 r은 정의상 ±1이라 측정이 되지 않습니다. 논문의 제로샷 열 가운데 공개 DROID 체크포인트가 있는 GR00T N1.6-DROID(`nvidia/GR00T-N1.6-DROID`)를 더했습니다. GR00T N1.7은 DROID 체크포인트를 찾지 못했고(기본 모델도 백본 접근 승인이 필요), DreamZero-DROID는 14B라 H100급 GPU가 필요해 이번에는 하지 않았습니다.
+
+### 19.1 장면
+
+`repro/policy_eval_ours/build_droid_scene.py`는 저자 장면 `droid_desk_put_marker_in_cup`을 틀로 씁니다. 로봇과 제어기·센서 설정, 저자들이 맞춘 droid_v1 메시 배경 위치, 바닥면(z = -0.02)은 그대로 두고, 그 장면의 물체 두 개(머그컵, 마커)를 빼고 우리 물체를 넣습니다.
+
+- 물체는 12단계에서 z = 0 위에 안정된 자세 그대로 두고, xy만 옮기고 z는 바닥면 높이만큼 내립니다.
+- 집는 물체(Cup in Bowl의 컵, Marker in Cup의 마커)는 저자 장면의 마커 자리에, 넣을 곳(그릇, 컵)은 머그컵 자리에 둡니다. 우리 마커는 저자 마커의 긴 축 방향으로 돌립니다(-2.7°). 펜은 방해물로 그 뒤쪽 (0.78, 0.05)에 둡니다.
+- 물체 폴더는 real2sim-assets에서 장면 폴더로 복사하고 `USDObject`로 불러옵니다. 저자 장면과 같은 형식이고, USD 해시가 원래 장면이 기대하는 값과 같은지 확인합니다.
+- 질량은 우리 파이프라인의 추정값 그대로입니다: 컵 70 g, 그릇 500 g, 펜 10 g / 마커 37.6 g, 컵 150 g.
+- 장면: `assets/scenes/DROID/droid_desk_put_cup_in_bowl_ours/`, `assets/scenes/DROID/droid_desk_put_marker_in_cup_ours/`(물체 포함 46 MB).
+
+`check_scene.py`는 평가 단계와 같은 환경(nv_franka_droid 카메라 1280×720, 바닥면 숨김, 태스크 설정)을 띄워 확인합니다. 두 장면 모두 2초 동안 물체가 움직인 거리 0 mm, 시작 시 마일스톤 0이었습니다. 카메라 화면은 `diagnostics/policy_eval_ours/check_*/`에 있습니다.
+
+### 19.2 시작 상태와 실행
+
+- **시작 상태**: 논문 App. J.1대로 물체마다 5×5 격자 25칸을 씁니다. 18장의 `sample_init_states.py`로 만들었습니다(seed 42). 격자 크기는 저장소 태스크 설정의 범위(±r → 2r)입니다. 집는 물체는 25 cm, 넣을 곳과 펜은 10 cm이고 회전은 없습니다. 두 장면 모두 25칸 전부가 물리 검사를 그대로 통과했습니다.
+- **설정**: 지시문은 App. I.2를 소문자로 마침표 없이 씁니다. 시간 제한은 저장소 평가 설정(Cup in Bowl 60 s, Marker in Cup 90 s), 실행 지평은 8입니다(`repro/policy_eval_ours/ours.yaml`, 18장 `table_g1.yaml`과 같은 형식).
+- **π0·π0.5**: 18장의 Colab L4 런타임에서 18장 드라이버로 돌립니다(`SPEC=repro/policy_eval_ours/ours.yaml`).
+- **GR00T N1.6**: 이 머신의 RTX 3060에서 `repro/policy_eval_ours/run_local_gr00t.sh`로 돌립니다.
+  - 서버는 Isaac-GR00T `e29d8fc`(Isaac Lab Arena가 이 체크포인트에 고정한 커밋)를 그 저장소의 uv 환경에서 띄웁니다. 6.8 GB를 쓰고, 추론 1회에 0.24 s가 걸리며, 32스텝의 절대 관절 위치를 냅니다.
+  - 에피소드는 저장소의 평가 단계를 그대로 `s15_eval.policy=gr00t`로 씁니다. Isaac Sim까지 합쳐 GPU 11.4 GB입니다.
+  - 저자 장면 두 과제(Marker in Cup, Serve Fruits)도 18장 런타임과 같은 시작 상태 파일로 돌립니다.
+  - 설치 메모: nvcc가 없어 고정된 flash-attn 2.7.4.post1을 빌드할 수 없었습니다. 그래서 GR00T README가 검증한 2.8.0.post2의 torch 2.7용 wheel을 썼습니다. transformers가 import하는 deepspeed가 `CUDA_HOME`을 요구해서, 추론에 쓰지 않는 deepspeed는 이 환경에서 뺐습니다. 이 회선은 큰 Hugging Face 파일을 받다가 멈추므로 체크포인트는 `curl -C -`로 받아 `/data/models/gr00t/`에 두었습니다(체크섬 확인).
+
+### 19.3 결과 (진행 중)
+
+| 과제 (장면) | 정책 | 우리 시뮬 | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|---|
+| Cup in Bowl (우리 복원) | GR00T N1.6 | **25/25 = 100%** | 40% | 68% |
+
+- GR00T N1.6은 우리 Cup in Bowl 장면에서 25회 모두 성공했습니다. 에피소드 길이의 중앙값은 193스텝(12.9 s), 최대는 537스텝으로 60 s 제한 안에 끝났습니다. 성공 영상을 확인해 보니 컵을 집어 그릇 안에 내려놓고 놓았습니다(`diagnostics/policy_eval_ours/gr00t_cup_in_bowl_success_ep0_ep7.jpg`).
+- 논문의 GR00T N1.6(시뮬 40%, 실제 68%)보다 훨씬 높습니다. 원인 후보는 두 가지입니다. 장면이 더 쉬울 수 있고(우리 그릇은 지름 25.7 cm), 공개 체크포인트가 논문이 쓴 것과 다를 수 있습니다. 같은 장면의 π0·π0.5 결과와 저자 장면 결과가 나오면 가를 수 있습니다.
+- 남은 실행: GR00T의 우리 Marker in Cup, 저자 Marker in Cup, 저자 Serve Fruits(이 머신, 진행 중), 우리 두 장면의 π0·π0.5(18장 런타임 대기열). 결과가 나오는 대로 이 표와 과제별 r·MMRV를 채웁니다.
+
+```bash
+# 장면 만들기 (simfoundry 환경)
+python repro/policy_eval_ours/build_droid_scene.py --task cup_in_bowl_ours \
+  --asset-dir assets --data-dir Data --dataset-dir deps/BEHAVIOR-1K/datasets/real2sim-assets
+python repro/policy_eval_ours/check_scene.py --task cup_in_bowl_ours --out results/diagnostics/policy_eval_ours/check_cup_in_bowl
+# GR00T N1.6 (OPENPI_STUBS: openpi_client import만 막는 빈 패키지가 든 폴더)
+repro/policy_eval_ours/run_local_gr00t.sh server
+repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/ours.yaml:cup_in_bowl_ours ...
+# 집계: 과제별로 우리 시뮬 대 논문 실제의 r·MMRV
+python repro/policy_eval_ours/correlate.py --check-paper --results results/policy_eval_ours/gr00t/out:main
+```
