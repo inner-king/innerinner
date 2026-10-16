@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Retry wrapper: `git clone` over this link drops TLS mid-transfer now and then.
+# Only clone is retried; every other subcommand passes straight through.
+REAL_GIT=/usr/bin/git
+if [[ "$1" != "clone" ]]; then exec "$REAL_GIT" "$@"; fi
+dest=""
+for a in "$@"; do [[ "$a" != -* && "$a" != clone ]] && last="$a"; done
+for attempt in 1 2 3 4 5; do
+  "$REAL_GIT" "$@" && exit 0
+  rc=$?
+  # Remove a partial checkout so the next attempt starts clean.
+  if [[ -n "$last" && "$last" != *://* && -d "$last" ]]; then rm -rf -- "$last"
+  else d="$(basename "${last%.git}")"; [[ -d "$d" ]] && rm -rf -- "$d"; fi
+  echo "git clone failed (rc=$rc), retry $attempt/5 in $((attempt*10))s" >&2
+  sleep $((attempt*10))
+done
+exit $rc

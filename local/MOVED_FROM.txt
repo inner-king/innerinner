@@ -1,0 +1,17 @@
+/data/models/huggingface/hub	<- /home/inner/.cache/huggingface/hub
+/data/models/hy3dgen	<- /home/inner/.cache/hy3dgen
+/data/models/torch	<- /home/inner/.cache/torch
+/data/models/acwm-checkpoints	<- /home/inner/acwm/checkpoints
+/data/models/simfoundry-checkpoints	<- /home/inner/real2sim/SimFoundry/checkpoints
+/data/models/void-model/CogVideoX-Fun-V1.5-5b-InP	<- /home/inner/real2sim/SimFoundry/deps/void-model/CogVideoX-Fun-V1.5-5b-InP
+/data/models/void-model/void_pass1.safetensors	<- /home/inner/real2sim/SimFoundry/deps/void-model/void_pass1.safetensors
+/data/models/void-model/void_pass2.safetensors	<- /home/inner/real2sim/SimFoundry/deps/void-model/void_pass2.safetensors
+/data/models/ml-depth-pro-checkpoints	<- /home/inner/real2sim/SimFoundry/deps/ml-depth-pro/checkpoints
+/data/models/real2sim-tools-checkpoints	<- /home/inner/real2sim/tools/checkpoints
+/data/models/ollama	<- /home/inner/real2sim/tools/ollama_models
+/data/datasets/acwm	<- /home/inner/acwm/data
+/data/datasets/acwm_run-results	<- /home/inner/acwm_run/results
+/data/datasets/simfoundry	<- /home/inner/real2sim/SimFoundry/Data
+/data/datasets/behavior-1k/omnigibson-robot-assets	<- /home/inner/real2sim/SimFoundry/deps/BEHAVIOR-1K/datasets/omnigibson-robot-assets
+/data/datasets/behavior-1k/real2sim-assets	<- /home/inner/real2sim/SimFoundry/deps/BEHAVIOR-1K/datasets/real2sim-assets
+/data/datasets/behavior-1k/custom-assets	<- /home/inner/real2sim/SimFoundry/deps/BEHAVIOR-1K/datasets/custom-assets
