@@ -373,6 +373,38 @@ python repro/scripted_pick_place.py --scene put_cup_in_bowl_v2 \
 repro/run_auto_bg.sh put_marker_in_cup_bg "desk, table, or counter"
 ```
 
+## 14. 결과와 체크포인트 (Google Drive)
+
+git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장면 데이터, 체크포인트는 Google Drive의 `Inner-King/innerinner/` 폴더에 둡니다.
+
+| Drive 경로 | 내용 | 체크아웃 쪽 |
+|---|---|---|
+| `results/results_view/` | 최종 영상·이미지 (12·13장) | `results/results_view/` |
+| `results/diagnostics/` | 점검 이미지(`realview_alignment.jpg` 등), 이미지 백엔드 비교(`q21/`) | `results/diagnostics/` |
+| `results/logs/` | 설치·실행 로그 (A/B/C, 시연, auto_bg) | `${SIMFOUNDRY_LOG_DIR:-~/simfoundry_logs}` |
+| `results/model_calls/` | VLM·이미지 모델 응답 캐시. `--cache-mode`로 같은 응답을 다시 씀 | `.cache/simfoundry/` |
+| `results/scenes/<scene>.tar` | 장면별 파이프라인 산출물. 저장소 루트에서 풀면 `Data/<scene>/`가 됨(13장 장면은 `assets/scenes/<scene>/`도) | `Data/<scene>/` |
+| `checkpoints/` | 우리가 학습한 가중치. 지금은 13장의 배경 splat (splatfacto 30k·80k 반복) | `Data/put_marker_in_cup_bg/auto_bg/splat*/outputs/…/nerfstudio_models/` |
+
+- 장면 tar에는 `*.ckpt`를 넣지 않습니다. 시뮬레이션에 쓰는 splat 결과(`auto_bg/splat/export/*.ply`, 7단계 USDZ)는 tar에 있습니다. 학습을 이어 가려면 `checkpoints/`의 파일을 원래 자리에 둡니다.
+- 밖에서 받는 사전 학습 가중치(Hunyuan3D-2.1, DA3, SAM 2.1/3, VOID, Ollama·ComfyUI 모델)는 올리지 않습니다. 원래 배포처에서 받습니다(일부는 게이트가 있음).
+- 올리고 받기는 `repro/drive_sync.sh`(rclone)로 합니다. 올릴 때는 복사만 하고 Drive에서 지우지 않습니다.
+
+```bash
+repro/drive_sync.sh push results                 # results/ -> Drive results/
+repro/drive_sync.sh push logs
+repro/drive_sync.sh push scene put_marker_in_cup_bg
+repro/drive_sync.sh push checkpoint <파일 또는 폴더> put_marker_in_cup_bg/splatfacto_80k
+repro/drive_sync.sh pull scene put_marker_in_cup_v2  # 받아서 저장소 루트에 풂
+repro/drive_sync.sh ls results
+```
+
+rclone 원격은 한 번 만들어 둡니다. 이름은 `innerking`이고, 루트는 Inner-King 폴더입니다(폴더 ID는 Drive 주소의 `folders/` 뒤).
+
+```bash
+rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴더 ID>
+```
+
 ## 15. `repro/` 파일과 그 밖의 실험 기록
 
 | 파일 | 용도 | 장 |
@@ -385,6 +417,7 @@ repro/run_auto_bg.sh put_marker_in_cup_bg "desk, table, or counter"
 | `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크 | 12, 13 |
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 | 13 |
+| `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
