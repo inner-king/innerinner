@@ -384,9 +384,9 @@ git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장�
 | `results/logs/` | 설치·실행 로그 (A/B/C, 시연, auto_bg) | `${SIMFOUNDRY_LOG_DIR:-~/simfoundry_logs}` |
 | `results/model_calls/` | VLM·이미지 모델 응답 캐시. `--cache-mode`로 같은 응답을 다시 씀 | `.cache/simfoundry/` |
 | `results/scenes/<scene>.tar` | 장면별 파이프라인 산출물. 저장소 루트에서 풀면 `Data/<scene>/`가 됨(13장 장면은 `assets/scenes/<scene>/`도) | `Data/<scene>/` |
-| `checkpoints/` | 우리가 학습한 가중치. 지금은 13장의 배경 splat (splatfacto 30k·80k 반복) | `Data/put_marker_in_cup_bg/auto_bg/splat*/outputs/…/nerfstudio_models/` |
+| `checkpoints/` | 우리가 학습한 가중치. 지금은 13장의 배경 splat (splatfacto 30k·80k 반복). 학습 run 폴더를 통째로 `put_marker_in_cup_bg/splatfacto_{80k,30k}/<타임스탬프>/`에 둠(`config.yml`, `nerfstudio_models/*.ckpt` 등) | `Data/put_marker_in_cup_bg/auto_bg/{splat,splat_30k}/outputs/ns_data/splatfacto/<타임스탬프>/` |
 
-- 장면 tar에는 `*.ckpt`를 넣지 않습니다. 시뮬레이션에 쓰는 splat 결과(`auto_bg/splat/export/*.ply`, 7단계 USDZ)는 tar에 있습니다. 학습을 이어 가려면 `checkpoints/`의 파일을 원래 자리에 둡니다.
+- 장면 tar에는 `*.ckpt`를 넣지 않습니다. 시뮬레이션에 쓰는 splat 결과(`auto_bg/splat/export/*.ply`, 7단계 USDZ)는 tar에 있습니다. 학습을 이어 가려면 장면을 받은 뒤 `pull checkpoint`로 run 폴더를 제자리에 받습니다(아래 예).
 - 배경 관련 장면(`put_marker_in_cup_bg`, `put_cup_in_bowl_v2_bg`, `put_marker_in_cup_v2_bg`)에는 단계가 입력을 절대 경로로 걸어 둔 심볼릭 링크가 그대로 들어 있습니다(예: `auto_bg/splat_30k/ns_data/images/*.png -> /home/inner/real2sim/SimFoundry/Data/<scene>/…`). 링크 대상은 같은 tar에 들어 있으므로, `pull scene`이 압축을 푼 뒤 이 링크를 풀어 놓은 사본을 가리키는 상대 링크로 바꿉니다. 장면 밖을 가리키는 링크는 바꾸지 않고 목록만 보여 줍니다.
 - 밖에서 받는 사전 학습 가중치(Hunyuan3D-2.1, DA3, SAM 2.1/3, VOID, Ollama·ComfyUI 모델)는 올리지 않습니다. 원래 배포처에서 받습니다(일부는 게이트가 있음).
 - 올리고 받기는 `repro/drive_sync.sh`(rclone)로 합니다. 올릴 때는 복사만 하고 Drive에서 지우지 않습니다.
@@ -395,8 +395,9 @@ git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장�
 repro/drive_sync.sh push results                 # results/ -> Drive results/
 repro/drive_sync.sh push logs
 repro/drive_sync.sh push scene put_marker_in_cup_bg
-repro/drive_sync.sh push checkpoint <파일 또는 폴더> put_marker_in_cup_bg/splatfacto_80k
+repro/drive_sync.sh push checkpoint Data/put_marker_in_cup_bg/auto_bg/splat/outputs/ns_data/splatfacto/2026-10-12_011411 put_marker_in_cup_bg/splatfacto_80k/2026-10-12_011411
 repro/drive_sync.sh pull scene put_marker_in_cup_v2  # 받아서 저장소 루트에 풂
+repro/drive_sync.sh pull checkpoint put_marker_in_cup_bg/splatfacto_80k/2026-10-12_011411 Data/put_marker_in_cup_bg/auto_bg/splat/outputs/ns_data/splatfacto/2026-10-12_011411
 repro/drive_sync.sh ls results
 ```
 
