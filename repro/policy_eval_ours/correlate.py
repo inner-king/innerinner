@@ -13,7 +13,7 @@ the paper prints, which pins down the conventions (ties, normalisation) before t
 Our runs are read with --results ROOT:TAG (eval_results.json under ROOT/<task>/s15_eval_<policy>_<tag>/, as the
 eval stage writes them; repeatable) and --summary FILE (the list run_table_g1.sh's summarize.py writes; repeatable).
 Each task's simulation column is then ours and the real column the paper's. A task with fewer than three policies
-is listed but has no meaningful r. Task names ending in _ours are our reconstructed scenes and are compared with
+is listed but has no meaningful r. Task names containing _ours (and variants such as _ours_near) are our reconstructed scenes, compared with
 the paper's row of the same task.
 """
 import argparse
@@ -115,7 +115,7 @@ def main():
         tasks = {}
         for (task, policy), (k, n) in sorted(runs.items()):
             col = POLICY_COLUMN.get(policy, policy)
-            real, sim = TABLE_G1.get(task.removesuffix("_ours"), {}).get(col, (None, None))
+            real, sim = TABLE_G1.get(task.split("_ours")[0], {}).get(col, (None, None))
             print(f"| {task} | {col} | {k}/{n} = {100 * k / n:.0f}% | {sim} | {real} |")
             out.setdefault("runs", []).append({"task": task, "policy": col, "successes": k, "episodes": n,
                                                "paper_sim": sim, "paper_real": real})
@@ -124,7 +124,7 @@ def main():
         print(f"\n| task (our sim vs paper real) | policies | r | MMRV | paper r | paper MMRV |\n|---|---|---|---|---|---|")
         for task, pairs in tasks.items():
             r, m, n = agreement(pairs) if len(pairs) >= 2 else (float("nan"), float("nan"), len(pairs))
-            pr, pm = PAPER_R_MMRV[task.removesuffix("_ours")]
+            pr, pm = PAPER_R_MMRV[task.split("_ours")[0]]
             note = "" if n >= 3 else " (r is +-1 or undefined with fewer than 3)"
             print(f"| {task} | {', '.join(sorted(pairs))}{note} | {r:.3f} | {m:.3f} | {pr:.3f} | {pm:.3f} |")
             out.setdefault("agreement", {})[task] = {"r": r, "mmrv": m, "n": n, "paper_r": pr, "paper_mmrv": pm}
