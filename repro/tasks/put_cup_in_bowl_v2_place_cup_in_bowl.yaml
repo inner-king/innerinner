@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hand-written in the format of B_augmentation stage 7 proposals (pipeline B was not run for this scene):
+# the paper's DROID task "Cup in Bowl" - the cup must end inside the bowl.
+task_name: put_cup_in_bowl_v2_place_cup_in_bowl
+og_task_config:
+  type: PickPlaceTask
+  activity_name: put_cup_in_bowl_v2_place_cup_in_bowl
+  semantic_group_mapping:
+    cup:
+    - iter_2
+    bowl:
+    - iter_0
+  init_predicates_all: null
+  init_predicates_any: null
+  init_predicates_specific: null
+  goal_predicates_all:
+  - state: InsideAABB
+    state_kwargs:
+      volume_threshold: 0.5
+    value: true
+    group: cup
+    other_group: bowl
+  goal_predicates_any: null
+  goal_predicates_specific: null
+  robot_pose: null
+  robot_xyz_randomization: null
+  robot_z_rot_randomization: null
+  robot_joint_randomization: null
+  group_xyz_randomization: null
+  group_z_rot_randomization: null
+  termination_config:
+    max_steps: 500
+  reward_config:
+    r_potential: 1.0
+  include_obs: false

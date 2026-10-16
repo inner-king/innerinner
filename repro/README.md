@@ -3,7 +3,8 @@
 - 논문: *SimFoundry: Modular and Automated Scene Generation for Policy Learning and Evaluation* (v4, 2026-08-05)
 - 코드: [NVlabs/SimFoundry](https://github.com/NVlabs/SimFoundry) @ `9e34ebe` (2026-08-26)
 - 재현 장비: i9-12900K, RAM 31 GiB, **RTX 3060 12 GB**. 논문은 RTX 3090 24 GB를 썼고, 저장소 최소 사양은 16 GB입니다.
-- 이 폴더(`repro/`)에는 이 기록과 재현에 쓴 실행 래퍼(`run_local_pipeline.sh`, `start_ollama.sh`), 평가 스크립트(`eval_pose_fit.py`)가 있습니다. 아래 경로는 저장소 루트 기준입니다.
+- 이 폴더(`repro/`)에는 이 기록과 재현에 쓴 실행 래퍼와 스크립트가 모두 있습니다(목록은 15장). 아래 경로는 저장소 루트 기준입니다.
+- 결과 영상·이미지·로그, 장면 데이터(`Data/<scene>`), 체크포인트는 git에 넣지 않고 Google Drive `Inner-King/innerinner/`에 둡니다(14장). 이 기록의 `results_view/…`, `diagnostics/…`, `logs/…` 경로는 그 폴더의 `results/` 아래입니다.
 
 ## 1. 재현 범위
 
@@ -13,9 +14,9 @@
 | Digital cousin·태스크 생성 (Pipeline B) | 재현 (로컬 모델로 대체) | 코드 공개 |
 | OmniGibson 로딩·물리 스모크 테스트 (Pipeline C) | 재현 | 코드 공개 |
 | 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정 |
-| 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 | 데이터 생성·학습 코드 미공개(README "Not yet released"), 실제 DROID/YAM 로봇 필요 |
+| 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽(공개 π0/π0.5-DROID를 저자 공개 장면 5개에서 평가)은 원칙적으로 재현 가능하나 미수행 (12장 참고) |
 | 기하 정확도 Chamfer/F1 (Table L.2) | 불가 | YCB 장면의 준정답(quasi-GT) 스캔 미공개 |
-| 자동 배경 복원 (Gaussian splat) | 생략 | 선택 기능이고 VOID 가중치가 게이트, 41 GB |
+| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 재현 (PutMarkerInCup) | 저장소 auto_bg 7단계 그대로. 12 GB용 수정과 로컬 VLM 보완은 13장 |
 
 ## 2. 원본과 다른 점 (대체·조정)
 
@@ -87,7 +88,7 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 
 이 값은 정합에 사용한 관측과 비교한 단방향 잔차이므로, 논문 Table L.2(준정답 스캔 대비 양방향 Chamfer 4.2 mm / F1 0.92, Easy)와 직접 비교할 수는 없습니다. 메시 형상과 메트릭 스케일·포즈가 관측과 일관된다는 것만 보여 줍니다.
 
-저자가 공개한 `droid_desk_put_marker_in_cup` 장면과의 비교: 저자 장면은 손잡이 있는 `cream_mug`(9.4×7.3×8.8 cm)와 마커(11.4 cm) 두 개뿐이고 두 물체 거리가 0.463 m입니다. 예제 동영상에는 종이컵·마커·가위가 있고 우리 복원의 컵-마커 거리는 0.238 m입니다. 물체 구성과 배치가 달라서 같은 촬영본이 아닌 것으로 판단했고, 정답으로 쓰지 않았습니다. 저장소 문서에 따르면 공개 장면은 B와 C 사이에 사람이 편집합니다.
+저자가 공개한 `droid_desk_put_marker_in_cup` 장면과의 비교 (`repro/compare_scenes.py`): 저자 장면은 손잡이 있는 `cream_mug`(9.4×7.3×8.8 cm)와 마커(11.4 cm) 두 개뿐이고 두 물체 거리가 0.463 m입니다. 예제 동영상에는 종이컵·마커·가위가 있고 우리 복원의 컵-마커 거리는 0.238 m입니다. 물체 구성과 배치가 달라서 같은 촬영본이 아닌 것으로 판단했고, 정답으로 쓰지 않았습니다. 저장소 문서에 따르면 공개 장면은 B와 C 사이에 사람이 편집합니다.
 
 ## 4. 결과: Pipeline C (OmniGibson 스모크 테스트)
 
@@ -176,7 +177,7 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 
 ## 10. 추가 실험: 이미지 백엔드 비교 (2026-10-10)
 
-Qwen-Image-2.1은 텍스트→이미지 전용이 아니라 생성·편집 통합 모델입니다. 칠한 표시·마스크로 국소 편집을 지정할 수 있고 RGBA를 직접 생성합니다. 그래서 파이프라인이 실제로 보내는 입력·프롬프트 6개로 세 모델을 비교했습니다 (비교 스크립트와 비교 이미지는 이 포크에 넣지 않았습니다).
+Qwen-Image-2.1은 텍스트→이미지 전용이 아니라 생성·편집 통합 모델입니다. 칠한 표시·마스크로 국소 편집을 지정할 수 있고 RGBA를 직접 생성합니다. 그래서 파이프라인이 실제로 보내는 입력·프롬프트 6개로 세 모델을 비교했습니다 (`repro/q21/compare_image_backends.py`, 비교 이미지 `diagnostics/q21/sheet_all.jpg`).
 
 | 항목 | Qwen-Image-Edit-2511 (Q3_K_M, Lightning 4스텝) | Qwen-Image-2.1-Turbo (Q8_0, 8스텝) | Qwen-Image-2.1 기본 (Q8_0, 25스텝) |
 |---|---|---|---|
@@ -193,7 +194,7 @@ Qwen-Image-2.1은 텍스트→이미지 전용이 아니라 생성·편집 통�
 
 ## 11. v2 재실행: 원본에 가장 가까운 구성 (2026-10-10)
 
-구성: 이미지 모델 **Qwen-Image-2.1-Turbo** (`SIMFOUNDRY_IMAGE_BACKEND=qwen21`), 물체 제거는 **원본 기본 순서 `[mask, outline, bbox]`**(오버라이드 없음), **원본 `facebook/sam3`**. 12 GB에 맞추려고 남긴 조정은 `depth_pro` PDA 백엔드, Hunyuan `low_vram`, 순차 실행입니다. 응답 캐시는 별도 폴더를 썼습니다(캐시 키에 백엔드가 없어 v1 이미지가 재사용될 수 있음). 출력: `Data/put_marker_in_cup_v2`, `Data/put_cup_in_bowl_v2`. 실행 명령은 이 장 끝에 있습니다.
+구성: 이미지 모델 **Qwen-Image-2.1-Turbo** (`SIMFOUNDRY_IMAGE_BACKEND=qwen21`), 물체 제거는 **원본 기본 순서 `[mask, outline, bbox]`**(오버라이드 없음), **원본 `facebook/sam3`**. 12 GB에 맞추려고 남긴 조정은 `depth_pro` PDA 백엔드, Hunyuan `low_vram`, 순차 실행입니다. 응답 캐시는 별도 폴더를 썼습니다(캐시 키에 백엔드가 없어 v1 이미지가 재사용될 수 있음). 출력: `Data/put_marker_in_cup_v2`, `Data/put_cup_in_bowl_v2`. 실행: `repro/rerun_v2.sh` (두 장면에 A와 C, 이어서 PutMarkerInCup에 B. 단계별 로그는 `${SIMFOUNDRY_LOG_DIR:-~/simfoundry_logs}/v2_*.log`).
 
 | | PutMarkerInCup v1 → **v2** | PutCupInBowl v1 → **v2** |
 |---|---|---|
@@ -219,21 +220,181 @@ Qwen-Image-2.1은 텍스트→이미지 전용이 아니라 생성·편집 통�
 
 **결론**: 2.1-Turbo와 원본 기본 설정으로 두 장면 모두 사람 개입 없이 한 번에 끝났습니다. 품질은 v1과 같거나 나았습니다(펜 정합 크게 개선, 가위 크기가 실물에 더 가까움). 다만 VLM이 추정하는 질량은 여전히 실행마다 흔들립니다(종이컵 70 g ↔ 150 g).
 
-실행 명령 (저장소 루트에서):
+## 12. 조작 시연: 복원 장면에서 로봇이 실제로 물체를 옮김 (2026-10-11)
+
+복원한 장면이 실제로 조작 가능한지 보여 주려고, 학습된 정책 없이 스크립트 동작으로 Franka가 물체를 집어 옮기게 했습니다(`repro/scripted_pick_place.py`).
+- **성공 판정**: 사람 눈이 아니라 SimFoundry의 `PickPlaceTask` 목표 조건(`InsideAABB`, volume_threshold 0.5)으로 했습니다.
+- **로봇 설정**: 장면 파일 그대로 썼습니다. IK 컨트롤러(`pose_delta_ori`)와 assisted grasping입니다.
+
+| 장면 (v2) | 태스크 | 동작 | 결과 |
+|---|---|---|---|
+| PutMarkerInCup | B 단계가 제안한 `pick_marker_and_place_in_cup` | 마커 가운데를 위에서 잡기 → 들기 → 긴 축을 옆으로 돌리기 → 세우기(손바닥 옆) → 컵 위에서 놓기 | **성공**. 마커가 컵 안에 기대어 섬(최종 z 8.2 cm, 컵 높이 11.3 cm). 950스텝, 63 s |
+| PutCupInBowl | 직접 작성(B 형식, `InsideAABB(cup, bowl)`, `repro/tasks/put_cup_in_bowl_v2_place_cup_in_bowl.yaml`). 이 장면은 B를 돌리지 않음 | 컵 가장자리 벽 집기(윗지름 9.4 cm > 그리퍼 폭 8 cm) → 들기 → 그릇 위 → 안으로 내려놓기 | **성공**. 컵이 그릇 안에 똑바로 섬. 704스텝, 46 s |
+
+영상: `results_view/demo_marker_in_cup.mp4`, `results_view/demo_cup_in_bowl.mp4`.
+
+다시 실행 (simfoundry 환경, 저장소 루트에서). 경로 인자(`--task`, `--out`, `--background`, `--scene-file`)는 절대 경로로 줍니다. 스크립트가 `scripts/cfg`로 옮겨 간 뒤 읽기 때문입니다.
 
 ```bash
-export SIMFOUNDRY_IMAGE_BACKEND=qwen21
-# 응답 캐시를 v1과 분리합니다(캐시 키에 백엔드가 들어가지 않음).
-CACHE=(--cache-mode --model-cache-dir .cache/simfoundry/model_calls_qwen21)
-V="$PWD/docs/assets/example_videos"
-for pair in "put_marker_in_cup_v2:PutMarkerInCup" "put_cup_in_bowl_v2:PutCupInBowl"; do
-  scene=${pair%%:*}; video=${pair##*:}
-  repro/run_local_pipeline.sh A_reconstruction --scene-name "$scene" --video-fpath "$V/$video.mp4" \
-    --env-da3 simfoundry --no-stream "${CACHE[@]}" -- \
-    s7_mesh.low_vram=true s5_scene.pda_geometric_backend=depth_pro
-  repro/run_local_pipeline.sh C_application --scene-name "$scene" --mode smoke-random
-done
-repro/run_local_pipeline.sh B_augmentation --scene-name put_marker_in_cup_v2 "${CACHE[@]}" -- \
-  prompt_cousin_structured.max_objects=2 prompt_cousin_structured.max_generated_images_per_object=1 \
-  cousin_generation.low_vram=true
+python repro/scripted_pick_place.py --scene put_marker_in_cup_v2 \
+  --task "$PWD/Data/put_marker_in_cup_v2/proposed_tasks/put_marker_in_cup_v2_pick_marker_and_place_in_cup.yaml" \
+  --pick iter_2 --place iter_1 --mode insert_vertical --out "$PWD/results/results_view/demo_marker_in_cup.mp4"
+python repro/scripted_pick_place.py --scene put_cup_in_bowl_v2 \
+  --task "$PWD/repro/tasks/put_cup_in_bowl_v2_place_cup_in_bowl.yaml" \
+  --pick iter_2 --place iter_0 --mode rim_pinch --out "$PWD/results/results_view/demo_cup_in_bowl.mp4"
 ```
+
+2026-10-16에 이 두 명령을 다시 돌려 기록과 같은 결과를 확인했습니다. 컵은 704스텝 성공으로 물체 최종 위치까지 같았고, 마커는 950스텝 성공에 최종 위치가 6 mm 달랐습니다(물리 시뮬레이션이 실행마다 조금씩 다른 것으로 보임).
+
+아래 변형은 같은 명령에 옵션을 더한 것입니다. 배경 `--background "$PWD/assets/backgrounds/mesh_backgrounds/droid_v1.background.json"`, 원본 시점 `--real-view`(렌즈를 넓히려면 `--real-view-hfov 90`), 7단계 장면 파일 `--scene-file`(13.3).
+
+**배경 추가**: 저자들이 공개한 DROID 작업대 배경 메시(`assets/backgrounds/mesh_backgrounds/droid_v1`)를 붙여 다시 찍었습니다.
+- **배치 방법**: 배경 메타데이터(`droid_v1.background.json`)에 등록된 기준을 그대로 썼습니다. 로봇과 방의 상대 위치는 `default_robot` 기준, 책상 면 높이는 `support_surface.canonical_height_m = 0` 기준입니다. 책상 면이 우리 물체가 놓인 z = 0과 일치하므로 로봇 베이스는 기준대로 z = -0.04에 둡니다.
+- **카메라**: 실제 DROID 배치(로봇 좌우 2대, `nv_franka_droid_high_res`)를 썼습니다.
+- **결과**: 두 태스크 모두 다시 **성공**했습니다(마커 942스텝, 컵 681스텝). 영상은 `results_view/demo_marker_in_cup_bg.mp4`, `results_view/demo_cup_in_bowl_bg.mp4`입니다.
+- **주의**: 이 배경은 동영상에서 복원한 것이 아니라 저자들이 미리 스캔해 공개한 것입니다. 예제 동영상의 책상·화이트보드·로봇 거치대가 같은 작업대로 보여 함께 썼습니다. 동영상에서 배경을 자동 복원하는 기능(VOID 인페인팅 + Gaussian splat)은 나중에 따로 실행했습니다(13장).
+
+**확인된 것**
+- 복원 물체의 충돌 형상이 조작에 쓸 만합니다. 컵·그릇은 안이 빈 용기로 만들어져 마커와 컵이 그 안에 들어갔습니다.
+- 크기·질량·마찰로 잡기와 운반이 됐습니다.
+- B 단계가 제안한 태스크의 판정 조건이 그대로 동작했습니다.
+
+**조정한 점**
+- **로봇 위치**: 이 동영상들은 로봇 없이 촬영돼, 파이프라인이 로봇을 물체에서 0.87 m(PutMarkerInCup) 떨어진 곳에 임의로 두었습니다. Franka 팔이 닿지 않는 거리입니다. 저장소가 B와 C 사이에 두는 수동 장면 편집처럼, 장면 JSON의 `robot0.root_link.pos`를 물체 앞 0.55 m로 옮겼습니다.
+
+**한계**
+- 사람이 설계한 웨이포인트 동작이라 정책 성능과는 무관합니다.
+- 장면당 1회 시연이므로 성공률이 아닙니다.
+- 논문 Table G.1(공개 π0/π0.5 정책의 시뮬 성공률) 재현은 별도 작업입니다. 저장소에 평가 코드(`C_application/stages/1_eval_policy_og_scene.py`, `simfoundry/policies/openpi.py`)가 있어 시도는 가능합니다.
+
+**디버깅 메모** (진단 스크립트: `repro/diag/diag_*.py`)
+- 리셋 자세의 그리퍼는 수직에서 25° 기울어 있습니다. 접근 축은 반드시 hand→eef 방향(eef 로컬 +z)으로 잡아야 합니다.
+- 대칭 그리퍼의 닫힘 축 부호(±)는 손목 회전이 작은 쪽을 골라야 합니다.
+- 물체를 세울 때 손바닥이 앞을 향하면 손목이 베이스 쪽으로 접혀 관절 한계에 걸립니다. 옆을 향하게 해야 합니다.
+
+**원본 영상과 같은 시점의 비교** (`repro/compose_real_vs_sim.py`, `repro/scripted_pick_place.py --real-view`)
+- **카메라 배치**: SimFoundry는 3단계에서 고른 입력 프레임의 카메라를 월드 기준으로 삼습니다(4단계 `s4_frame/image_<i>_cam2world.npy`). 그래서 이 카메라를 그대로 시뮬레이터에 두었습니다. OpenCV 축을 USD 카메라 축으로 바꿨고, 화각은 DA3 내부 파라미터(PutMarkerInCup 63.6°, PutCupInBowl 60.0°)로 맞췄습니다.
+- **정렬**: 같은 시점의 렌더와 실제 프레임을 겹치면 물체 위치·크기가 거의 그대로 포개집니다(`diagnostics/realview_alignment.jpg`). 복원 결과가 실제 장면과 기하적으로 일치한다는 직접적인 확인입니다.
+- **영상 구성** (3분할, 1920×360): `results_view/real_vs_sim_marker_in_cup.mp4`(79 s), `results_view/real_vs_sim_cup_in_bowl.mp4`(63 s).
+  - 왼쪽: 원본 입력 영상 전체, 이후 기준 프레임(117 / 241)에서 고정.
+  - 가운데: 복원 물체 하나씩 360° 턴테이블(`repro/turntable.py`). 시뮬레이터와 같은 Isaac 렌더러, 고도 30°, 물체당 96프레임이고 물체 이름과 복원 크기를 표시합니다.
+  - 오른쪽: 같은 시점의 복원 장면, 이후 로봇 시연.
+  - 이 시점에서도 두 태스크 모두 판정 성공했습니다.
+  - 턴테이블에서 보이는 점: 텍스처가 뒷면까지 이어집니다(컵의 잎 무늬와 QR, 마커 뚜껑). 다만 글자는 뭉개진 가짜 글자이고, 컵·그릇 안쪽은 비어 있어 용기로 쓸 수 있습니다.
+- **배경**: 이 영상에는 넣지 않았습니다. 공개 배경은 저자들이 로봇까지 함께 스캔한 DROID 작업대 메시(Station 1·4, YAM 작업대)뿐이고, Gaussian splat 배경은 공개 데이터셋에 없습니다. 입력 동영상으로 로봇 없는 splat 배경을 만드는 저장소 경로(auto_bg)는 13장에서 실행했습니다.
+
+## 13. 자동 3DGS 배경: 논문 파이프라인으로 로봇 없는 배경 만들기 (2026-10-12)
+
+논문 App. E.5.1의 자동 배경 기능입니다. 저장소 경로는 `scripts/pipeline/A_reconstruction/stages/auto_bg_reconstruction/`의 7단계(`run_auto_align.sh`)입니다. 입력 동영상에서 책상 위 물체를 지운 영상을 만들고, 그 영상으로 Gaussian splat 배경을 학습해 OmniGibson 장면에 넣습니다. 같은 단계 스크립트를 같은 순서로 `repro/run_auto_bg.sh`가 호출합니다.
+
+- **장면**: PutMarkerInCup. auto_bg 입력을 만드는 splat-prep 모드로 1–14단계를 다시 돌린 `put_marker_in_cup_bg`(160프레임, 672×384)입니다.
+- **프레임 수**: 저장소 기본값은 400프레임입니다. VOID가 이 GPU에서 프레임당 약 25초 걸려, 400프레임이면 VOID만 약 3시간이 걸립니다.
+
+### 13.1 단계별 결과
+
+| 단계 | 하는 일 | 시간 | 결과 |
+|---|---|---|---|
+| 1 quadmask | 지울 물체 목록 → SAM3 키프레임 마스크 → SAM2 영상 전파 | 1.9분 | 마커·컵·가위. 프레임당 마스크 비율 3–11% |
+| 2 VOID pass1 | CogVideoX-Fun 5B 영상 인페인팅(void_pass1), 160프레임 한 덩어리 | 26.5분 | 앞 절반은 깨끗함. 근접 촬영 후반에 가위 테·마커 뚜껑 잔상 |
+| 3 VOID pass2 | pass1에서 만든 warped noise로 85프레임 창 2개(0–84, 75–159)를 다시 생성 | 43분 | 잔상 대부분 제거. 100–159프레임에 가위 날 일부 남음 |
+| void DA3 | 지운 프레임의 깊이·카메라 | 1.3분 | 앵커 잔차 평균 2.6 mm, 회전 0.59° |
+| 4 seed | void DA3를 원본 DA3에 강체 정렬 후 점 20만 개 | 4초 | 카메라 중심 잔차 4.6 mm(최대 12 mm), 축척 차 1% |
+| 5 splat | splatfacto-big, 깊이 손실 0.5, SO3xR3 카메라 보정, **80k 반복(저장소 기본값)** | 43분 | 가우시안 388k. 지운 프레임 대비 PSNR 23.2 dB(20프레임 평균). 렌더 깊이는 원본 DA3보다 1% 깊음 |
+| 6 bridge | DA3 → OG 월드 강체 변환(사이드카) | 3초 | 축척 1.000 |
+| 7 assets | 3dgrut로 NuRec USDZ 변환, 장면 JSON에 `gs_background` 추가 | 9초 | `assets/scenes/put_marker_in_cup_bg/put_marker_in_cup_bg_scene_state_auto_bg.json` |
+
+30k 반복으로 먼저 학습한 결과(PSNR 23.3 dB, 가우시안 468k)와 80k 결과는 학습 시점에서 거의 같았습니다. 최종 결과는 80k입니다.
+
+### 13.2 12 GB와 로컬 VLM에 맞춰 바꾼 점
+
+- **void 환경**: 저장소 설치 스크립트(`install_void.sh`)는 numpy를 1.26.4로 고정하지만 pyarrow는 고정하지 않습니다. 그래서 numpy 2 전용인 pyarrow 26이 깔려 transformers → sklearn import에서 실패했습니다. pyarrow 20.0.0으로 고정했습니다(이제 `install_void.sh`가 고정함).
+- **1단계 물체 목록**: Gemini 대신 쓴 Qwen3-VL 8B가 키프레임 0에서 컵 옆 마커를 놓쳤습니다. 그대로 두면 "빈 책상" 배경에 마커가 남습니다.
+  - 1단계에 선택 설정 `s1_quadmask.objects`를 추가했습니다(기본 null이면 원래 동작).
+  - 드라이버가 이 값에 정규 재구성 5단계의 물체 목록을 넣습니다. 같은 프롬프트와 같은 VLM으로 분해용 프레임에서 찾은 목록입니다.
+  - 로컬 VLM은 seed가 고정돼 재시도해도 같은 답을 냅니다.
+- **VOID를 12 GB에서 돌리기** (`VOID_LOW_VRAM=1`일 때만, `patches/void-model-low-vram.patch`. `install_void.sh`가 `void-model.patch` 다음에 적용):
+  - pass1은 확산 단계는 들어가지만 마지막 VAE 디코딩에서 메모리가 부족했습니다(11.2 GB 사용 중). VAE를 타일로 나눠 디코딩합니다.
+  - pass2 스크립트는 5B transformer와 T5를 GPU에 통째로 올린 뒤 모델 단위로 오프로딩합니다. 이를 pass1처럼 층 단위 CPU 오프로딩과 타일 디코딩으로 바꿨습니다.
+- **pass1 한 덩어리 꼬리 문제**: 160프레임은 한 덩어리로 처리됩니다. 그런데 CogVideoX는 4k+1 길이만 남겨 157프레임을 돌려주고, pass2의 두 번째 창(75–159)이 범위를 벗어나 실패했습니다.
+  - `2_run_void_pass1.py`가 마지막 프레임을 반복해 프레임 수를 맞춥니다. 그 프레임들은 pass2가 입력 영상에서 다시 생성합니다.
+  - 저장소 기본값(400프레임, 덩어리 173 = 4k+1)에서는 생기지 않는 경우입니다.
+- **pass2 재개**: `s3_pass2.reuse_chunks`를 추가했습니다(기본 false). 끝난 창을 다시 계산하지 않고 이어서 돌립니다.
+- **void DA3**: 저장소의 2b(220프레임 덩어리 연쇄, 24 GB)는 12 GB에서 16프레임 덩어리가 되어 20° 이상 틀어졌습니다. 그래서 정규 2단계와 같은 `repro/da3_anchored_stage.py`(기준 호출 + 앵커 정렬)를 썼습니다.
+
+### 13.3 시뮬레이션에 넣기
+
+- **불러오기**: `repro/scripted_pick_place.py --scene-file <..._auto_bg.json>`로 7단계 장면을 그대로 씁니다.
+  - splat은 보이기만 하는(visual-only) 물체라서 바닥 평면은 충돌용으로만 남기고 숨깁니다.
+  - 7단계가 물체를 `USDObject`로 다시 등록해 `native_bbox`가 없습니다. 그래서 물체 기준 바운딩 박스로 대신했습니다.
+- **책상 높이**: 렌더링한 splat 깊이는 원본 DA3보다 약 1% 깊습니다. 앵커 시점에서 물체가 놓인 z = 0보다 1 cm 안쪽으로 아래라서 바닥 평면을 따로 고치지 않았습니다.
+  - 가우시안 중심만 보면 −2.5 cm로 나오지만, 평평하고 큰 가우시안이 표면 아래에 걸쳐 있어서 생기는 착시입니다.
+- **톤매퍼**: Isaac Sim 기본 톤매퍼 ACES(op 6)가 NuRec splat을 복사광처럼 처리해 밝기와 채도를 올렸습니다. 실제 앵커 프레임과 배경 화소를 비교했습니다.
+
+  | 톤매퍼 | 평균 절대 오차 | 평균 색 (실제 159/130/108) |
+  |---|---|---|
+  | ACES (기본) | 0.126 | 183/158/131 |
+  | **linear (op 1)** | **0.032** | 154/124/103 |
+  | clamp (op 0) | 0.170 | 134/98/75 |
+
+  - 배경이 있으면 시연에서 linear로 바꿉니다. 조명을 받는 복원 물체도 자연스럽게 보입니다.
+  - OmniGibson과 SimFoundry는 톤매퍼를 설정하지 않습니다. 7단계가 참조하는 nv_desk 장면의 조명 설정(`lighting_state`)은 공개 자산에 없습니다.
+- **결과**: 같은 B 단계 태스크(`InsideAABB(marker, cup)`)가 이 배경 장면에서도 **성공**했습니다(864스텝, 30k·80k 배경 모두). 원본 카메라 시점에서 책상 모서리·벽·거치대·물체 위치가 실제 프레임과 겹칩니다.
+- **영상**: `results_view/real_vs_sim_gsbg_marker_in_cup.mp4`(74초, 3분할)와 정지 화면 `.jpg`입니다.
+  - 왼쪽: 원본 영상 → 앵커 프레임 127.
+  - 가운데: 이 재구성의 물체 360° 턴테이블.
+  - 오른쪽: 자동 3DGS 배경 위 시뮬레이션. 90° 렌즈이고, 노란 상자가 실제 카메라 시야입니다.
+
+### 13.4 한계
+
+- **가위 날 잔상**: VOID가 100–159프레임에 남긴 가위 날 일부가 splat에도 그 자리에 들어갔습니다. 시뮬레이션에서는 같은 자리에 놓인 복원 가위가 대부분 가립니다.
+- **촬영되지 않은 영역**: 90° 렌즈는 휴대폰이 찍지 않은 영역(왼쪽 가장자리, 위쪽)까지 보여서 그곳에는 뿌연 가우시안(floater)이 보입니다. 노란 상자 안(실제 카메라 시야)은 깨끗합니다.
+- **책상 밖 물체**: 배경에는 책상 위 물체만 빠지고 방의 나머지는 남습니다. 왼쪽의 로봇 거치대도 남는데, 방의 일부라서 그렇습니다.
+- **두 번째 장면 미수행**: PutMarkerInCup만 했습니다. PutCupInBowl은 splat-prep 정규 재구성(약 1시간)과 VOID(약 1.5시간)가 더 필요합니다.
+- **디스크**: void 환경 8.1 GB, nerfstudio 환경 15 GB, 3dgrut 환경 14 GB, VOID 가중치 41 GB(`deps/void-model`, 게이트 없음), 장면 데이터 2.9 GB입니다.
+
+### 13.5 수정·추가한 파일
+
+| 파일 | 변경 |
+|---|---|
+| `auto_bg_reconstruction/1_generate_quadmask_for_void.py`, `scripts/cfg/auto_bg.yaml` | 선택 설정 `s1_quadmask.objects` (주어지면 VLM 물체 제안 대신 사용. 이때는 gcloud 프로젝트도 조회하지 않음) |
+| `auto_bg_reconstruction/2_run_void_pass1.py` | 한 덩어리 출력이 짧으면 마지막 프레임으로 채움 |
+| `auto_bg_reconstruction/3_run_void_pass2.py`, `scripts/cfg/auto_bg.yaml` | 선택 설정 `s3_pass2.reuse_chunks` |
+| `patches/void-model-low-vram.patch` (신규), `scripts/installation/install_void.sh` | `VOID_LOW_VRAM=1`: VAE 타일 디코딩, pass2 층 단위 CPU 오프로딩. 설치 스크립트가 적용 |
+| `scripts/installation/install_void.sh` | pyarrow 20.0.0 고정 (26.0.0이 깔리면 numpy 1.26.4에서 import 실패) |
+| `repro/run_auto_bg.sh` (신규) | 7단계 드라이버 (환경 변수, 1단계 물체 목록, 앵커 DA3) |
+| `repro/da3_anchored_stage.py` (신규) | void DA3: 덩어리 연쇄(2b) 대신 기준 호출 + 앵커 정렬 |
+| `repro/scripted_pick_place.py` | `--scene-file`, splat 배경일 때 바닥 숨김과 linear 톤매퍼, `USDObject` 바운딩 박스 |
+| `repro/compose_real_vs_sim.py` | 프레임 폴더를 DA3 프레임 수로 선택, 시뮬레이션 패널 메모 |
+| `repro/tasks/put_marker_in_cup_bg_pick_marker_and_place_in_cup.yaml` | v2에서 B 단계가 만든 태스크를 같은 물체 이름으로 재사용 |
+
+다시 실행:
+
+```bash
+repro/run_auto_bg.sh put_marker_in_cup_bg "desk, table, or counter"
+```
+
+## 15. `repro/` 파일과 그 밖의 실험 기록
+
+| 파일 | 용도 | 장 |
+|---|---|---|
+| `run_local_pipeline.sh`, `start_ollama.sh` | 로컬 백엔드로 A/B/C 실행 | 8 |
+| `eval_pose_fit.py` | 포즈 정합 잔차 | 3.2, 6, 11 |
+| `compare_scenes.py` | 저자 공개 장면과 크기·거리 비교 | 3.2 |
+| `q21/compare_image_backends.py` | 이미지 백엔드 비교 | 10 |
+| `rerun_v2.sh` | v2 재실행 | 11 |
+| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크 | 12, 13 |
+| `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
+| `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 | 13 |
+| `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
+| `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
+| `masked_bg/` | 중단한 배경 시도 (아래) | |
+| `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래) | |
+
+**중단한 시도: 물체를 마스크로 가리고 배경 splat 학습 (2026-10-11)**. 13장 전에, VOID로 물체를 지우는 대신 물체 픽셀을 SAM3 마스크로 가려 splat의 광도·깊이 손실과 seed 점구름에서 빼는 방식을 먼저 준비했습니다.
+- 스크립트: `masked_bg/make_object_masks.py`(프레임별 물체 마스크), `masked_bg/dense_da3_anchored.py`(조밀 DA3를 OmniGibson 월드에 앵커 정렬), `masked_bg/align_da3_to_og.py`(조밀 DA3 → OG 월드 Sim(3)과 책상 높이 점검).
+- 산출물: `Data/put_marker_in_cup_v2_bg`, `Data/put_cup_in_bowl_v2_bg`. 프레임, 마스크, DA3(PutMarkerInCup은 Sim(3) 정렬까지)만 있고 splat 학습 결과는 남아 있지 않습니다. 그 뒤 저장소의 auto_bg 경로(13장)로 진행했습니다.
+
+**진행 중: 과일 자르기 장면 (2026-10-15)**. `fruit_slicing/make_slicing_scene.py`는 저자 공개 장면 `droid_desk_serve_fruits`로 과일 자르기 장면을 만드는 스크립트입니다(3dgrut 환경).
+- 과일 4개를 평면으로 잘라 반쪽 메시를 만듭니다. 단면 캡과 충돌용 볼록 껍질이 포함됩니다.
+- 칼과 칼꽂이를 넣고, 장면 JSON과 자르기 계획(`cut_plan.json`)을 씁니다.
+- 아직 미완성입니다. 이 장면을 쓰는 시연 스크립트(`slice_fruits_demo.py`)는 없고, 출력 장면(`assets/scenes/DROID/droid_desk_fruit_slicing`)을 만든 흔적도 없습니다.
