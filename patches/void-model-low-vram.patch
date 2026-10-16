@@ -1,0 +1,55 @@
+diff --git a/inference/cogvideox_fun/inference_with_pass1_warped_noise.py b/inference/cogvideox_fun/inference_with_pass1_warped_noise.py
+index 8c03f9b..de7b76b 100644
+--- a/inference/cogvideox_fun/inference_with_pass1_warped_noise.py
++++ b/inference/cogvideox_fun/inference_with_pass1_warped_noise.py
+@@ -316,15 +316,19 @@ def main():
+             state_dict[param_name] = new_weight
+ 
+     m, u = transformer.load_state_dict(state_dict, strict=False)
+-    transformer = transformer.to(device)
++    # 12 GB cards: keep weights on the CPU and stream them layer by layer (the 5B transformer
++    # alone does not fit), and decode the VAE in tiles.
++    low_vram = os.environ.get("VOID_LOW_VRAM") == "1"
++    load_device = "cpu" if low_vram else device
++    transformer = transformer.to(load_device)
+ 
+     vae = AutoencoderKLCogVideoX.from_pretrained(
+         args.model_name, subfolder="vae"
+-    ).to(weight_dtype).to(device)
++    ).to(weight_dtype).to(load_device)
+ 
+     text_encoder = T5EncoderModel.from_pretrained(
+         args.model_name, subfolder="text_encoder", torch_dtype=weight_dtype
+-    ).to(device)
++    ).to(load_device)
+ 
+     tokenizer = T5Tokenizer.from_pretrained(args.model_name, subfolder="tokenizer")
+     scheduler = CogVideoXDDIMScheduler.from_pretrained(args.model_name, subfolder="scheduler")
+@@ -333,7 +337,11 @@ def main():
+         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer,
+         transformer=transformer, scheduler=scheduler,
+     )
+-    pipeline.enable_model_cpu_offload(device=device)
++    if low_vram:
++        pipeline.enable_sequential_cpu_offload(device=device)
++        vae.enable_tiling()
++    else:
++        pipeline.enable_model_cpu_offload(device=device)
+     logger.info("✓ Model loaded successfully")
+ 
+     # Calculate latent dimensions (same for all videos)
+diff --git a/inference/cogvideox_fun/predict_v2v.py b/inference/cogvideox_fun/predict_v2v.py
+index 84e19d1..7873322 100644
+--- a/inference/cogvideox_fun/predict_v2v.py
++++ b/inference/cogvideox_fun/predict_v2v.py
+@@ -157,6 +157,10 @@ def load_pipeline(config):
+     else:
+         pipeline.to(device=device)
+ 
++    if os.environ.get("VOID_LOW_VRAM") == "1":
++        # 12 GB cards: the full-resolution VAE decode of a 160-frame chunk does not fit untiled.
++        vae.enable_tiling()
++
+     generator = torch.Generator(device=device).manual_seed(config.system.seed)
+ 
+     if config.video_model.lora_path:

@@ -12,8 +12,9 @@
 #     "cannot import name 'T5EncoderModel'" via torchvision)
 #   - numpy==1.26.4, rp (required by make_warped_noise.py)
 # It also clones deps/void-model (code) and re-applies patches/void-model.patch
-# (the rp.save_video_mp4 libx264-overflow fix). Model WEIGHTS come from
-# download_checkpoints.sh, not here.
+# (the rp.save_video_mp4 libx264-overflow fix) and patches/void-model-low-vram.patch
+# (VOID_LOW_VRAM=1: tiled VAE decode and layer-wise CPU offload, for 12 GB GPUs).
+# Model WEIGHTS come from download_checkpoints.sh, not here.
 
 set -euo pipefail
 
@@ -69,20 +70,24 @@ if [[ ! -f "${VOID_DIR}/requirements.txt" ]]; then
   exit 1
 fi
 
-PATCH="${PROJECT_ROOT}/patches/void-model.patch"
-if [ -f "${PATCH}" ]; then
-  if git -C "${VOID_DIR}" apply --check --reverse "${PATCH}" 2>/dev/null; then
-    echo "patches/void-model.patch already applied"
-  elif git -C "${VOID_DIR}" apply --check "${PATCH}"; then
-    git -C "${VOID_DIR}" apply "${PATCH}"
-    echo "Applied patches/void-model.patch (rp.save_video_mp4 libx264-overflow fix)"
+apply_void_patch() {  # apply_void_patch <file under patches/> <what it fixes>
+  local patch="${PROJECT_ROOT}/patches/$1"
+  if [ -f "${patch}" ]; then
+    if git -C "${VOID_DIR}" apply --check --reverse "${patch}" 2>/dev/null; then
+      echo "patches/$1 already applied"
+    elif git -C "${VOID_DIR}" apply --check "${patch}"; then
+      git -C "${VOID_DIR}" apply "${patch}"
+      echo "Applied patches/$1 ($2)"
+    else
+      echo "ERROR: patches/$1 cannot be applied cleanly." >&2
+      exit 1
+    fi
   else
-    echo "ERROR: patches/void-model.patch cannot be applied cleanly." >&2
-    exit 1
+    echo "WARNING: ${patch} not found; $2 will be missing."
   fi
-else
-  echo "WARNING: ${PATCH} not found; the VOID Pass 2 libx264-overflow fix will be missing."
-fi
+}
+apply_void_patch void-model.patch "the VOID Pass 2 libx264-overflow fix"
+apply_void_patch void-model-low-vram.patch "the VOID_LOW_VRAM=1 path for 12 GB GPUs"
 
 # ------------------------------------------------------------------------------
 # Step 2: create the env + install deps with the sm_120 / av fixes

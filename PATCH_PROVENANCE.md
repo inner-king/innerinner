@@ -1,6 +1,6 @@
 # Patch Provenance
 
-SimFoundry distributes nine patch files under [`patches/`](patches/). Each is a
+SimFoundry distributes ten patch files under [`patches/`](patches/). Each is a
 unified diff that an installation script applies to a third-party project after it
 is fetched into the ignored local `deps/` directory.
 
@@ -11,7 +11,7 @@ project it targets. That code remains under its upstream license — it is **not
 covered by SimFoundry's Apache 2.0 license, and a patch is not Apache-2.0 merely
 because NVIDIA authored the diff.
 
-Three of the nine carry fragments of source that is **not open source**. Delivered only for academic/research purposes:
+Three of the ten carry fragments of source that is **not open source**. Delivered only for academic/research purposes:
 
 | Patch | Upstream license of the carried source |
 |---|---|
@@ -39,6 +39,7 @@ each patch is recorded against the source it is actually applied to.
 | `PriorDepthAnything.patch` | [SpatialVision/Prior-Depth-Anything](https://github.com/SpatialVision/Prior-Depth-Anything) | `8c029cbca669443fe0bbf8dcefb5f91ad531084d` | Apache-2.0 | SimFoundry team | `install_simfoundry.sh` | ✅ clean |
 | `splatfacto_depth_loss.patch` | [nerfstudio-project/nerfstudio](https://github.com/nerfstudio-project/nerfstudio) | `6b60855003011b2ca23c2fe3f8e2ca6314c69924` (tag `v1.1.5`) | Apache-2.0 | SimFoundry team | `install_nerfstudio.sh` | ✅ clean |
 | `void-model.patch` | [netflix/void-model](https://github.com/netflix/void-model) | `e3914f8f551dd4b880661991fd6b28cd1699a97a` | Apache-2.0 | SimFoundry team | `install_void.sh` | ✅ clean |
+| `void-model-low-vram.patch` | [netflix/void-model](https://github.com/netflix/void-model) | `e3914f8f551dd4b880661991fd6b28cd1699a97a` | Apache-2.0 | this fork | `install_void.sh`, after `void-model.patch` | ✅ clean |
 
 Validation was performed on 2026-07-27 by fetching each upstream at the base commit
 above and running:
@@ -50,6 +51,8 @@ git -C <upstream-checkout> apply --check patches/<patch>
 All patches applied cleanly. Eight were validated on 2026-07-27 (nine including
 `lerobot.patch`, which has since been removed); `3dgrut_nounset.patch` was added
 later and validated the same way on 2026-08-13 against the same base commit.
+`void-model-low-vram.patch` was added in this fork and validated on 2026-10-16 against
+the same base commit with `void-model.patch` applied first, the order `install_void.sh` uses.
 Re-run this whenever a base commit is bumped.
 
 ## Upstream source carried per patch
@@ -62,6 +65,7 @@ present in the patch file. "Added" lines are NVIDIA-authored.
 | `Any6D.patch` | 112 | 96 | **208** | 130 | 4 |
 | `FoundationPose.patch` | 43 | 68 | **111** | 68 | 3 |
 | `PriorDepthAnything.patch` | 32 | 27 | **59** | 28 | 5 |
+| `void-model-low-vram.patch` | 24 | 4 | **28** | 16 (this fork) | 2 |
 | `Hunyuan3D-2.1.patch` | 22 | 3 | **25** | 10 | 3 |
 | `splatfacto_depth_loss.patch` | 13 | 0 | **13** | 46 | 1 |
 | `ml-depth-pro.patch` | 9 | 2 | **11** | 2 | 1 |
@@ -152,4 +156,15 @@ present in the patch file. "Added" lines are NVIDIA-authored.
 - **Purpose**: Prevents the `rp` dependency from invoking `sudo pip` for its
   auto-installs, which would otherwise raise an interactive password prompt in the
   middle of an unattended VOID pass.
+- **Upstream NOTICE**: none at base commit.
+
+### `void-model-low-vram.patch`
+- **Targets**: `inference/cogvideox_fun/predict_v2v.py` (pass 1),
+  `inference/cogvideox_fun/inference_with_pass1_warped_noise.py` (pass 2)
+- **Purpose**: Added by this fork to run VOID on a 12 GB GPU; active only with
+  `VOID_LOW_VRAM=1`. Pass 1 decodes the VAE in tiles (the untiled decode of a
+  160-frame chunk ran out of memory). Pass 2 keeps the transformer, VAE and T5 on the
+  CPU and streams them layer by layer (`enable_sequential_cpu_offload`), with tiled VAE
+  decoding, instead of moving whole models onto the GPU. Unset, both scripts behave as
+  upstream.
 - **Upstream NOTICE**: none at base commit.
