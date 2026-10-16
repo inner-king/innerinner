@@ -54,12 +54,30 @@ local/link_data.sh /home/inner/real2sim/SimFoundry
 
 `repro/`의 래퍼는 이 체크아웃의 [`env.sh`](env.sh)를 먼저 읽습니다. 그래서 아래 경로들을 따로 export하지 않아도 됩니다.
 
-- **conda** (`~/miniforge3`): `simfoundry`, `hunyuan`, `void`, `nerfstudio_simfoundry`, `3dgrut`.
-- **Ollama 0.40.1**: 실행 파일은 `/home/inner/real2sim/tools/ollama/bin/ollama`(따로 받은 설치본, 876 MB)이고 모델은 `/data/models/ollama`(`qwen3-vl:8b-instruct`)입니다. `/home/inner/real2sim/tools`를 지우면 Ollama도 함께 지워집니다.
-- **ComfyUI: 지금 이 머신에 없습니다.** 2026-10-16에 확인했을 때 설치 폴더와 Qwen-Image 모델 파일이 없었고 8189 포트도 비어 있었습니다. 재현 때는 127.0.0.1:8189에서 돌던 ComfyUI를 썼습니다. 이미지 모델을 부르는 단계(A 5·6단계, B 1단계)를 다시 돌리려면 다시 설치해야 합니다. `repro/run_local_pipeline.sh`는 시작할 때 ComfyUI 연결부터 확인하므로, 지금은 이 래퍼로 실행하면 바로 멈춥니다. 필요한 것은 `simfoundry/models/local_backends.py`의 기본값과 같습니다.
-  - ComfyUI와 ComfyUI-GGUF(`UnetLoaderGGUF`) 노드
-  - Edit-2511(기본): `qwen-image-edit-2511-Q3_K_M.gguf`, `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors`, `qwen_2.5_vl_7b_fp8_scaled.safetensors`, `qwen_image_vae.safetensors`
-  - 2.1-Turbo(`SIMFOUNDRY_IMAGE_BACKEND=qwen21`): `qwen-image-2.1-turbo-Q8_0.gguf`, `qwen3vl_8b_int8_convrot.safetensors`, `qwen_image_2.1_vae_bf16.safetensors`
+- **conda** (`~/miniforge3`): `simfoundry`, `hunyuan`, `void`, `nerfstudio_simfoundry`, `3dgrut`, `comfyui`.
+- **Ollama 0.40.1**: 실행 파일은 `/home/inner/real2sim/tools/ollama/bin/ollama`(따로 받은 설치본, 876 MB)이고 모델은 `/data/models/ollama`(`qwen3-vl:8b-instruct`, `qwen3.5:9b`)입니다. `/home/inner/real2sim/tools`를 지우면 Ollama도 함께 지워집니다.
+- **ComfyUI 0.41.0** (2026-10-16에 다시 설치): 이미지 모델을 부르는 단계(A 5·6단계, B 1단계)가 127.0.0.1:8189에서 씁니다. `repro/run_local_pipeline.sh`는 시작할 때 연결만 확인하고 직접 띄우지는 않으므로 먼저 띄워 둡니다. 다시 설치하려면 [`install_comfyui.sh`](install_comfyui.sh)를 실행합니다. 이미 있는 것은 건너뜁니다.
+
+  ```bash
+  nohup local/start_comfyui.sh >> ~/simfoundry_logs/comfyui.log 2>&1 &
+  ```
+
+  - 코드: `/home/inner/real2sim/tools/ComfyUI`(태그 `v0.41.0`)와 `custom_nodes/ComfyUI-GGUF`(`6ea2651`, `UnetLoaderGGUF`). 2.1 그래프가 쓰는 `TextEncodeQwenImage21`·`QwenImage21Cache`는 ComfyUI 본체의 노드라서 이 판 이상이 필요합니다.
+  - 환경: conda `comfyui`(Python 3.13, torch 2.14.1+cu130, 7.1 GB).
+  - 가중치: `/data/models/comfyui/{diffusion_models,text_encoders,vae}`. [`comfyui_models.yaml`](comfyui_models.yaml)이 이 폴더를 ComfyUI에 알려 줍니다. 받은 리비전과 SHA-256은 `install_comfyui.sh`와 `/data/models/comfyui/SOURCES.txt`에 있습니다.
+  - 지금은 2.1-Turbo 세트(`SIMFOUNDRY_IMAGE_BACKEND=qwen21`, 합계 17.7 GB)만 받았습니다.
+
+    | 파일 | Hugging Face | 크기 |
+    |---|---|---|
+    | `diffusion_models/qwen-image-2.1-turbo-Q8_0.gguf` | `unsloth/Qwen-Image-2.1-Turbo-GGUF` | 7.6 GB |
+    | `text_encoders/qwen3vl_8b_int8_convrot.safetensors` | `Comfy-Org/Qwen-Image-2.1` | 9.4 GB |
+    | `vae/qwen_image_2.1_vae_bf16.safetensors` | `Comfy-Org/Qwen-Image-2.1` | 0.7 GB |
+
+  - 래퍼의 기본값인 Edit-2511 세트는 받지 않았습니다. 그래서 `SIMFOUNDRY_IMAGE_BACKEND=qwen21` 없이 돌리면 첫 이미지 호출에서 ComfyUI가 그래프를 거부합니다. 필요하면 같은 폴더에 받습니다(약 20 GB).
+    - `diffusion_models/qwen-image-edit-2511-Q3_K_M.gguf`: `unsloth/Qwen-Image-Edit-2511-GGUF`, 9.9 GB
+    - `loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors`: `lightx2v/Qwen-Image-Edit-2511-Lightning`, 0.85 GB
+    - `text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors`(9.4 GB), `vae/qwen_image_vae.safetensors`(0.25 GB): `Comfy-Org/Qwen-Image_ComfyUI`의 `split_files/`
+  - 확인(2026-10-16): 파이프라인과 같은 그래프로 편집 1회에 50 s가 걸렸습니다(v2 평균 50.4 s). ComfyUI는 VRAM을 최대 약 10.3 GB 쓰고, `/free` 뒤에는 200 MiB 아래로 내려갑니다.
 - **Isaac Sim 5.1**: simfoundry 환경에 wheel로 설치했습니다. 이 회선은 큰 파일을 받다가 끊길 때가 있어서 [`fetch_isaac_wheels.sh`](fetch_isaac_wheels.sh)로 이어받기하며 받았습니다.
 - **GitHub**: `gh` 2.102.0(`~/.local/bin/gh`)에 hanbin5로 로그인돼 있고(2026-10-16, scope `repo`·`read:org`·`gist`), git은 HTTPS로 이 인증을 씁니다(`gh auth setup-git`). 토큰은 `~/.config/gh/hosts.yml`에 평문으로 있습니다.
 - **git**: `git clone`이 TLS 도중에 끊길 때가 있습니다. [`bin/git`](bin/git)이 clone만 다시 시도하고, `env.sh`가 이것을 PATH 앞에 넣습니다. 실행 중에 `rp.git_import`가 clone을 합니다.

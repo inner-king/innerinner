@@ -1,0 +1,8 @@
+# Model folders for this machine's ComfyUI (local/start_comfyui.sh); the weights live on /data.
+# Sources and SHA-256 of each file: /data/models/comfyui/SOURCES.txt.
+simfoundry:
+  base_path: /data/models/comfyui
+  diffusion_models: diffusion_models
+  text_encoders: text_encoders
+  vae: vae
+  loras: loras
