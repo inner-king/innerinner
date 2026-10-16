@@ -44,6 +44,34 @@ tasks:
         - {name: orange_bowl_sfufgv_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
         - {name: black_pen_wpmeam_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
 
+  cup_in_bowl_ours_near:
+    # Sensitivity check for the layout: the repository's Cup in Bowl config places the bowl right next to the
+    # cup (group_predicate_placement, 1-5 cm gaps) and the cup near the robot's centre line, where the main
+    # task above keeps them 29 cm or more apart. Here their grid centres are 20 cm apart across the centre line,
+    # so neighbouring cells overlap and the sampler's perturbations and swaps keep the starts collision-free.
+    scene: scenes/DROID/droid_desk_put_cup_in_bowl_ours_near/droid_desk_put_cup_in_bowl_ours_near_scene_state_latest.json
+    task: ours_cup_in_bowl
+    prompt: "pick up the cup, and put the cup inside the bowl"
+    timeout_s: 60
+    execute_horizon: 8
+    paper: {pi0: 56, pi05: 92, gr00t: 40}
+    paper_real: {pi0: 88, pi05: 100, gr00t: 68}
+    build:
+      source: put_cup_in_bowl_v2
+      objects:
+        white_paper_cup: {from: iter_2, xy: [0.55, -0.10]}
+        orange_bowl: {from: iter_0, xy: [0.55, 0.10]}
+        black_pen: {from: iter_1, xy: [0.78, -0.25]}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: white_paper_cup_eqmylj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: orange_bowl_sfufgv_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+        - {name: black_pen_wpmeam_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
   marker_in_cup_ours:
     scene: scenes/DROID/droid_desk_put_marker_in_cup_ours/droid_desk_put_marker_in_cup_ours_scene_state_latest.json
     task: ours_marker_in_cup
