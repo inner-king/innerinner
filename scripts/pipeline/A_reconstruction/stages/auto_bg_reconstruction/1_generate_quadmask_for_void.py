@@ -292,20 +292,25 @@ def main(cfg):
     logger.info("Loaded %d frames; keyframe = %s (%dx%d)",
                 num_frames, keyframe_path.name, out_w, out_h)
 
-    # Resolve gcloud project
-    gcloud_project = sec.gcloud_project
-    if gcloud_project is None:
-        gcloud_project = subprocess.run(
-            ["gcloud", "config", "get-value", "project"],
-            capture_output=True, text=True
-        ).stdout.strip()
-        logger.info("Resolved gcloud project: %s", gcloud_project)
-
-    # 1) Gemini propose object names
-    logger.info("Running Gemini object proposal on keyframe...")
-    primary_names, full_names, detections = _gemini_propose(
-        keyframe_path, gcloud_project, sec.floor_category, sec.gemini_model
-    )
+    # 1) Gemini propose object names (or take a given list, e.g. the canonical stage-5 categories)
+    if sec.get("objects"):
+        full_names = list(sec.objects)
+        primary_names = [o.split(" / ")[0].strip() for o in full_names]
+        detections = []
+        logger.info("Using given object list: %s", full_names)
+    else:
+        # Only the proposal needs a gcloud project; a given list must not require the gcloud CLI.
+        gcloud_project = sec.gcloud_project
+        if gcloud_project is None:
+            gcloud_project = subprocess.run(
+                ["gcloud", "config", "get-value", "project"],
+                capture_output=True, text=True
+            ).stdout.strip()
+            logger.info("Resolved gcloud project: %s", gcloud_project)
+        logger.info("Running Gemini object proposal on keyframe...")
+        primary_names, full_names, detections = _gemini_propose(
+            keyframe_path, gcloud_project, sec.floor_category, sec.gemini_model
+        )
     skip_set = set(sec.skip)
     primary_names = [n for n in primary_names if n not in skip_set]
     logger.info("Detected %d objects: %s", len(primary_names), primary_names)

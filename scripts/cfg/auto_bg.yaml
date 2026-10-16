@@ -74,6 +74,7 @@ s1_quadmask:                                      # env: simfoundry — generate
   mp4_fps: "${void_mp4_fps}"
   bg_prompt: null                                 # Optional override prompt for the background category; null = auto
   skip: []                                        # Step labels to skip (debugging convenience)
+  objects: null                                   # Optional object list ("name / alt / alt") replacing the Gemini proposal
 
 s2_pass1:                                         # env: simfoundry — run_void_pass1.py (shells into void env)
   rerun: true
