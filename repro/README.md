@@ -177,6 +177,10 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 | `simfoundry/models/local_backends.py` (v2 추가분) | Qwen-Image-2.1(-Turbo) 백엔드 `SIMFOUNDRY_IMAGE_BACKEND=qwen21`, 불투명 RGBA 출력 → RGB |
 | `simfoundry/models/local_backends.py` (16장 추가분) | `SIMFOUNDRY_OLLAMA_THINK`: `0`이면 Ollama에 `think: false`, `1`이면 `true`. 설정하지 않으면 보내지 않음(예전과 같음) |
 | hunyuan env `basicsr/data/degradations.py` | `functional_tensor` → `functional` |
+| `simfoundry/utils/prompt_utils.py`, `11_make_objects_sim_ready.py`, `B_augmentation/stages/4_make_cousins_sim_ready.py` (20장) | 질량 프롬프트에 부피가 무엇인지 밝힘(`envelope_note`), 닫힌 얇은 껍질의 재료 부피(`mass_prompt_volumes`). 인자 없이는 원래 프롬프트와 같음 |
+| `C_application/stages/2_teleop_og_scene.py` (20장) | 장면에 기록된 질량 적용(`apply_scene_masses`, 평가 단계와 같음) |
+| `C_application/stages/1_eval_policy_og_scene.py`, `scripts/cfg/real2sim_cfg.yaml` (20장) | `s15_eval.tonemap_op`: 정책 카메라의 RTX 톤매퍼 선택. 기본 null(예전과 같음) |
+| `A_reconstruction/stages/14_create_og_scene.py`, `scripts/cfg/*.yaml` (20장) | `s14_og.robot_standoff_m`(설정 기본 0.6 m): 로봇 베이스를 물체 중심 뒤에 둠. null이면 고정 위치 |
 
 ## 10. 추가 실험: 이미지 백엔드 비교 (2026-10-10)
 
@@ -1104,3 +1108,51 @@ repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/our
 # 집계: 과제별로 우리 시뮬 대 논문 실제의 r·MMRV
 python repro/policy_eval_ours/correlate.py --check-paper --results results/policy_eval_ours/gr00t/out:main
 ```
+
+## 20. 시뮬레이션 품질 수정: 질량, 렌더, 로봇 위치 (2026-10-17)
+
+사용자 요청(메인 재현 세션이 전달)으로 시뮬레이션 자체의 품질 문제 가운데 파이프라인 쪽에서 고칠 수 있는 세 가지를 고쳤습니다. 자동 3DGS 배경의 로봇 시점 문제는 17장(fork 세션)이, B7 태스크 제안은 16장 끝(B7 세션)이 맡습니다.
+
+### 20.1 질량
+
+- **장면에 기록된 질량.** 저장 장면의 `objects_info.init_info[<name>].args.mass`는 OmniGibson이 로드할 때 읽지 않아서, 장면을 쓰는 코드가 로드한 뒤에 적용해야 합니다(AGENTS.md). 평가 단계는 18장에서 `apply_scene_masses`를 쓰게 됐고, 이번에 텔레옵 단계(`2_teleop_og_scene.py`)도 같은 함수를 씁니다. 시뮬레이터를 멈춘 상태에서 적용하고, 이어지는 리셋에서 장면의 자세를 다시 놓습니다.
+- **VLM 질량 추정의 부피.** 11단계는 메시가 닫혀 있고 바운딩 박스의 10%를 넘게 채우면 그 부피를, 아니면 박스의 65%를 VLM에 "부피"로 줍니다. 컵·그릇처럼 속이 빈 물체는 거의 후자라서 속까지 찬 부피를 받습니다. Qwen3.5는 거기에 플라스틱 밀도를 그대로 곱해 그릇을 5.51 kg으로 냈습니다(16장).
+  - 프롬프트에 그 부피가 무엇인지 적습니다. "겉면이 감싸는 부피로, 속이 빈 내부도 찬 것으로 센 값이다. 용기처럼 속이 비었다면 재료와 질량은 그중 작은 일부다"(`envelope_note`).
+  - 닫힌 얇은 껍질 메시(속까지 복원된 컵 등)는 메시 자체의 부피가 재료 부피이므로 그것도 함께 줍니다(`material_volume_cm`, `mass_prompt_volumes`). 우리 장면의 물체는 모두 열린 메시라 이 경우는 없었습니다.
+  - 인자를 주지 않으면 프롬프트는 원래와 글자 하나까지 같습니다. 16장의 재생 기록과 비교하기 위해서입니다. 11단계와 cousin 단계(B4)가 새 문구를 씁니다.
+  - 11단계의 질량 호출을 저장된 입력으로 다시 보낸 결과입니다(`repro/vlm_compare/replay_other_calls.py --only A11`, `MASS_PROMPT=hollow`, 결과 `diagnostics/vlm_compare/mass_prompt/`).
+
+    | 장면 / 물체 | qwen3-vl 원래 → 새 문구 | qwen3.5 원래 → 새 문구 | 실물(대략) |
+    |---|---|---|---|
+    | PutCupInBowl v2 / 주황 그릇 (부피 5,799 cm³) | 500 → 500 g | **5,510 → 100 g** | 수백 g |
+    | PutCupInBowl v2 / 흰 컵 | 70 → 50 g | 20 → 10 g | 약 10 g |
+    | PutCupInBowl v2 / 검은 펜 | 10 → 10 g | 12 → 3 g | 약 5–10 g |
+    | PutMarkerInCup v1 / 종이컵 | 70 → 50 g | 30 → 25 g | 약 10 g |
+    | PutMarkerInCup v1 / 빨간 마커 | 36 → 20 g | 40 → 18 g | 약 15–20 g |
+    | PutMarkerInCup v1 / 가위 | 50 → 50 g | 50 → 45 g | 약 50–80 g |
+    | PutMarkerInCup v2 / 녹색 무늬 컵 | 150 → 80 g | 25 → 15 g | 약 10 g |
+    | PutMarkerInCup v2 / 빨간 마커 | 38 → 15 g | 35 → 18 g | 약 15–20 g |
+    | PutMarkerInCup v2 / 가위 | 50 → 50 g | 45 → 35 g | 약 50–80 g |
+
+  - 두 모델 모두 실물 쪽으로 움직였고, Qwen3.5의 그릇 오류(5.51 kg)는 사라졌습니다. 종이컵은 qwen3-vl에서 여전히 실물의 5–8배입니다.
+- **재생 스크립트의 GPU 유휴 판정**: `bench_common`이 큐가 빈 ComfyUI를 다른 작업으로 세어, Pipeline B가 ComfyUI를 띄워 둔 동안에는 재생이 영원히 기다렸습니다. B7 세션이 `replay_b7_seeds.py`에만 넣었던 수정을 `bench_common.other_gpu_jobs`로 옮겼습니다.
+
+### 20.2 렌더: 톤매퍼
+
+- OmniGibson도 평가 단계도 렌더 설정을 바꾸지 않아서, 정책이 보는 카메라는 Isaac Sim 기본 톤매퍼 ACES(op 6)로 그려집니다. DROID 배경은 사진으로 텍스처를 입힌 스캔 메시인데, ACES는 그 대비와 채도를 올리고 linear(op 1)는 사진의 색을 그대로 둡니다(13.3의 splat 배경 비교에서 실제 프레임 대비 평균 절대 오차 ACES 0.126, linear 0.032). 저자 평가 스크립트 머리말에는 "렌더 후처리 색 보정 튜닝"이라는 메모가 있지만 그 설정은 공개되지 않았습니다.
+- 평가 단계에 `s15_eval.tonemap_op`을 넣었고(기본 null = 예전과 같음), 두 드라이버는 `TONEMAP_OP`으로 받습니다. 설정은 몇 프레임을 렌더한 뒤에야 센서 출력에 반영되므로(3프레임에서는 그대로, 20프레임에서 바뀜) 첫 에피소드 전에 20프레임을 렌더합니다. 화면 비교는 `diagnostics/policy_eval_ours/tonemap/marker_authors_aces_vs_linear.jpg`에 있습니다.
+- 같은 시작 상태로 linear와 ACES를 비교했습니다(저자 장면, 25회씩. π0·π0.5는 따로 빌린 L4, GR00T는 이 머신).
+
+  | 과제 / 정책 | ACES (18·19장) | linear | 논문 시뮬 |
+  |---|---|---|---|
+  | Marker in Cup / π0.5 | 13/25 = 52% | **13/25 = 52%** | 88% |
+  | Serve Fruits / π0.5 | 22/25 = 88% | **23/25 = 92%** | 80% |
+  | Marker in Cup / GR00T N1.6 | 5/25 = 20% | **3/25 = 12%** | 28% |
+
+- 톤매퍼는 성공률을 바꾸지 않습니다. 저자 장면 Marker in Cup에서 π0.5가 논문보다 낮은 원인은 렌더 색감이 아닙니다(18장이 질량·카메라·지시문도 배제함). 그래서 평가의 기본값은 그대로 두고, splat 배경처럼 색이 크게 달라지는 경우에 쓸 선택 설정으로 남깁니다.
+
+### 20.3 로봇 위치
+
+- 14단계는 로봇 베이스를 `s14_og.robot_config.position = [-1.0, 0, 0]`에 고정해서, 원점 주변에 복원된 책상 물체에 Franka 팔(약 0.85 m)이 닿지 않습니다(PutMarkerInCup 0.87 m. 12장의 시연은 장면 JSON을 손으로 고쳤음).
+- `s14_og.robot_standoff_m`를 넣었습니다. 값을 주면 물체들 중심에서 −x 방향으로 그만큼 떨어진 곳에 베이스를 둡니다(로봇은 +x를 봄). 장면 설정의 기본값은 저자 DROID 장면이 물체를 두는 거리인 0.6 m이고, null이면 예전의 고정 위치입니다. 저장소 원래 코드에도 테이블 기준 0.55 m 앞에 두는 줄이 주석으로 남아 있습니다.
+- `put_cup_in_bowl_v2`에서 14단계를 다른 폴더(`s14_og_standoff`)로 다시 돌리니, 베이스가 (−0.46, 0.02, 0)에 놓였고 물체까지 거리는 그릇 0.44 m, 컵 0.67 m, 펜 0.71 m였습니다. 셋 다 팔이 닿는 범위 안입니다.
