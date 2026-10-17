@@ -48,6 +48,8 @@ from simfoundry.utils.python_utils import assert_valid_key
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.pipeline.support_graph import support_levels
+from simfoundry.pipeline.removal_ghosts import GHOST_SKIP_REASON, RemovedRegion, find_ghosts, grow_region, \
+    load_removed_regions
 from simfoundry.utils.python_utils import atomic_output_path
 import hydra
 import logging
@@ -555,6 +557,43 @@ def load_rerun_feedback(out_dir: str) -> dict:
         return {}
 
 
+def last_recorded_iteration(out_dir: str) -> int | None:
+    """Highest iteration index holding a manifest, a skip record or a post-removal image.
+
+    Not obj_cat_list alone: an iteration that removed a removal ghost edits the image chain
+    without a manifest, and a later run must not resume on top of a stale one.
+    """
+    indices = []
+    for dir_name in ("obj_cat_list", "skipped_iterations", "post_object_removal"):
+        for fpath in glob.glob(os.path.join(out_dir, dir_name, "iter_*")):
+            stem = os.path.basename(fpath).split("_")[1].split(".")[0]
+            if stem.isdigit():
+                indices.append(int(stem))
+    return max(indices, default=None)
+
+
+def load_iteration_record(out_dir: str, iter_idx: int) -> dict | None:
+    """An iteration's obj_cat_list manifest, else its skip record; None if it has neither."""
+    for dir_name in ("obj_cat_list", "skipped_iterations"):
+        fpath = os.path.join(out_dir, dir_name, f"iter_{iter_idx}.json")
+        if not os.path.exists(fpath):
+            continue
+        try:
+            with open(fpath, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load the record of iteration {iter_idx} from {fpath}: {e}")
+            return None
+    return None
+
+
+def write_skipped_iteration(out_dir: str, record: dict) -> None:
+    """Publish skipped_iterations/iter_N.json for an iteration that emitted no object."""
+    fpath = f"{out_dir}/skipped_iterations/iter_{record['iteration']}.json"
+    with atomic_output_path(fpath) as tmp_fpath, open(tmp_fpath, "w+") as f:
+        json.dump(record, f, indent=4)
+
+
 def delete_iteration_data(out_dir: str, start_iter: int, end_iter: int = None):
     """
     Delete iteration data for specified iterations.
@@ -574,17 +613,8 @@ def delete_iteration_data(out_dir: str, start_iter: int, end_iter: int = None):
     
     # Find all iteration files if end_iter not specified
     if end_iter is None:
-        # Find the maximum iteration
-        obj_cat_dir = os.path.join(out_dir, "obj_cat_list")
-        if os.path.exists(obj_cat_dir):
-            iter_files = glob.glob(os.path.join(obj_cat_dir, "iter_*.json"))
-            if iter_files:
-                max_iter = max(int(os.path.basename(f).split("_")[1].split(".")[0]) for f in iter_files)
-                end_iter = max_iter
-            else:
-                end_iter = start_iter
-        else:
-            end_iter = start_iter
+        max_iter = last_recorded_iteration(out_dir)
+        end_iter = start_iter if max_iter is None else max_iter
     
     deleted_count = 0
     for iter_idx in range(start_iter, end_iter + 1):
@@ -662,6 +692,11 @@ def infer_resume_state(out_dir: str) -> tuple:
     - metric_depth/iter_{i}.npy
     - obj_cat_list/iter_{i}.json
 
+    An iteration spent on a removal ghost has a skip record instead of a manifest. It is
+    complete with its image and depth when the ghost was erased, and by the record alone when
+    no prompt type erased it: the record is that iteration's last write. Other skip records
+    never complete an iteration.
+
     Returns:
         Tuple of (resume_iteration, stale_iterations, last_iter_metadata)
     """
@@ -672,10 +707,7 @@ def infer_resume_state(out_dir: str) -> tuple:
     }
     iter_pattern = re.compile(r"iter_(\d+)$")
 
-    existing_iterations = set()
-    complete_iteration_sets = []
-
-    for dir_name, ext in required_outputs.items():
+    def _iteration_indices(dir_name, ext):
         dir_path = os.path.join(out_dir, dir_name)
         iter_indices = set()
         if os.path.exists(dir_path):
@@ -686,6 +718,13 @@ def infer_resume_state(out_dir: str) -> tuple:
                 match = iter_pattern.match(stem)
                 if match:
                     iter_indices.add(int(match.group(1)))
+        return iter_indices
+
+    existing_iterations = set()
+    complete_iteration_sets = []
+
+    for dir_name, ext in required_outputs.items():
+        iter_indices = _iteration_indices(dir_name, ext)
         complete_iteration_sets.append(iter_indices)
         existing_iterations |= iter_indices
 
@@ -703,6 +742,17 @@ def infer_resume_state(out_dir: str) -> tuple:
                 existing_iterations.add(int(match.group(1)))
 
     complete_iterations = set.intersection(*complete_iteration_sets) if complete_iteration_sets else set()
+    post_and_depth = complete_iteration_sets[0] & complete_iteration_sets[1]
+    for iter_idx in _iteration_indices("skipped_iterations", ".json"):
+        fpath = os.path.join(out_dir, "skipped_iterations", f"iter_{iter_idx}.json")
+        try:
+            with open(fpath, "r") as f:
+                record = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read skip record {fpath}: {e}")
+            continue
+        if record.get("reason") == GHOST_SKIP_REASON and (not record.get("removed") or iter_idx in post_and_depth):
+            complete_iterations.add(iter_idx)
     last_complete_iter = max(complete_iterations) if complete_iterations else None
     resume_iteration = 0 if last_complete_iter is None else last_complete_iter + 1
     stale_iterations = sorted(
@@ -712,12 +762,7 @@ def infer_resume_state(out_dir: str) -> tuple:
 
     last_iter_metadata = None
     if last_complete_iter is not None:
-        metadata_path = os.path.join(out_dir, "obj_cat_list", f"iter_{last_complete_iter}.json")
-        try:
-            with open(metadata_path, "r") as f:
-                last_iter_metadata = json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load metadata for completed iteration {last_complete_iter}: {e}")
+        last_iter_metadata = load_iteration_record(out_dir, last_complete_iter)
 
     return resume_iteration, stale_iterations, last_iter_metadata
 
@@ -765,14 +810,10 @@ def process_feedback_requests(rerun_requests: dict, out_dir: str) -> tuple:
         if req.get("rerun", False):
             if req.get("rerun_downstream", False):
                 # Delete this iteration and all subsequent ones
-                # We'll need to find max iteration
-                obj_cat_dir = os.path.join(out_dir, "obj_cat_list")
-                if os.path.exists(obj_cat_dir):
-                    iter_files = glob.glob(os.path.join(obj_cat_dir, "iter_*.json"))
-                    if iter_files:
-                        max_iter = max(int(os.path.basename(f).split("_")[1].split(".")[0]) for f in iter_files)
-                        for i in range(iter_idx, max_iter + 1):
-                            iterations_to_delete.add(i)
+                max_iter = last_recorded_iteration(out_dir)
+                if max_iter is not None:
+                    for i in range(iter_idx, max_iter + 1):
+                        iterations_to_delete.add(i)
             else:
                 # Just delete this single iteration
                 iterations_to_delete.add(iter_idx)
@@ -1138,18 +1179,20 @@ def main(cfg):
     obj_removal_prompt_order = cfg.s5_scene.obj_removal_prompt_order
     min_valid_pixel_prop = cfg.s5_scene.min_valid_pixel_prop
     force_categories = cfg.s5_scene.force_categories
+    # Earlier removals, to recognise their ghosts (simfoundry/pipeline/removal_ghosts.py) by the
+    # within-detection duplicate threshold. Read back from disk so that a resumed run knows
+    # which prompt types each object has already had.
+    ghost_overlap_threshold = cfg.s5_scene.duplicate_mask_intersect_area_threshold
+    removed_regions = load_removed_regions(
+        out_dir, before_iter=current_iteration, default_prompt_type=obj_removal_prompt_order[0],
+    )
     obj_cat_list = None
     if current_iteration > 0:
         # The preceding index may have been a skipped iteration with no manifest, so
         # resume category state from the last kept iteration, not current_iteration - 1.
+        # That iteration may itself have removed a ghost, so its record can be a skip record.
         if resumed_obj_metadata is None and last_kept_iteration is not None:
-            prior_metadata_fpath = f"{out_dir}/obj_cat_list/iter_{last_kept_iteration}.json"
-            if os.path.exists(prior_metadata_fpath):
-                try:
-                    with open(prior_metadata_fpath, "r") as f:
-                        resumed_obj_metadata = json.load(f)
-                except Exception as e:
-                    logger.warning(f"Failed to load previous iteration metadata from {prior_metadata_fpath}: {e}")
+            resumed_obj_metadata = load_iteration_record(out_dir, last_kept_iteration)
         if resumed_obj_metadata is not None:
             obj_cat_list = list(
                 resumed_obj_metadata.get(
@@ -1558,15 +1601,12 @@ def main(cfg):
             # A rerun can skip an index a previous run kept; drop any stale kept
             # artifacts so they never coexist with the skip record.
             delete_iteration_data(out_dir, current_iteration, current_iteration)
-            # Record json for skipped iterations
-            _skip_fpath = f"{out_dir}/skipped_iterations/iter_{current_iteration}.json"
-            with atomic_output_path(_skip_fpath) as _tmp_skip, open(_tmp_skip, "w+") as f:
-                json.dump({
-                    "iteration": current_iteration,
-                    "reason": "no_masks_detected",
-                    "detection_iteration": detection_iteration,
-                    "base_iter": last_kept_iteration,
-                }, f, indent=4)
+            write_skipped_iteration(out_dir, {
+                "iteration": current_iteration,
+                "reason": "no_masks_detected",
+                "detection_iteration": detection_iteration,
+                "base_iter": last_kept_iteration,
+            })
             current_iteration += 1
             continue
 
@@ -1618,6 +1658,57 @@ def main(cfg):
             verbose=True,
         )
 
+        # 3b. Recognise removal ghosts (simfoundry/pipeline/removal_ghosts.py): a mask lying inside
+        # the region an earlier iteration removed is what that removal painted back, not a new
+        # object. The first ghost whose object still has an untried prompt type is removed again
+        # with those types, before anything else: it stands where its object stood, on top of
+        # whatever that rested on. A ghost with no type left is dropped. An iteration that 5b
+        # feedback pinned to a category or a point is taken as the reviewer gave it.
+        ghosts = []
+        if current_iteration not in category_overrides and current_iteration not in point_prompts:
+            ghosts = find_ghosts(
+                pruned_masks, removed_regions,
+                prompt_order=obj_removal_prompt_order, threshold=ghost_overlap_threshold,
+            )
+        for ghost in ghosts:
+            logger.warning(
+                f"'{pruned_phrases[ghost.index]}' lies {ghost.overlap:.1%} inside the region iteration "
+                f"{ghost.origin_iter} removed: a ghost of that removal, not a new object "
+                f"(prompt types left to try: {ghost.untried_prompt_types})"
+            )
+        ghost_to_remove = next((ghost for ghost in ghosts if ghost.untried_prompt_types), None)
+        ghost_skipped_objects = []
+        if ghost_to_remove is None and ghosts:
+            ghost_skipped_objects = [
+                {"phrase": pruned_phrases[ghost.index], "reason": GHOST_SKIP_REASON,
+                 "ghost_of_iter": ghost.origin_iter, "overlap": ghost.overlap}
+                for ghost in ghosts
+            ]
+            keep = np.ones(len(pruned_masks), dtype=bool)
+            keep[[ghost.index for ghost in ghosts]] = False
+            pruned_masks = [mask for mask, kept in zip(pruned_masks, keep) if kept]
+            pruned_boxes_xyxy = pruned_boxes_xyxy[keep]
+            pruned_logits = pruned_logits[keep]
+            pruned_phrases = [phrase for phrase, kept in zip(pruned_phrases, keep) if kept]
+            if len(pruned_masks) == 0:
+                # Only ghosts no prompt type could remove: the same as detecting nothing.
+                if detection_iteration >= cfg.s5_scene.min_detection_iterations:
+                    break
+                delete_iteration_data(out_dir, current_iteration, current_iteration)
+                write_skipped_iteration(out_dir, {
+                    "iteration": current_iteration,
+                    "reason": "only_removal_ghosts_detected",
+                    "ghosts": ghost_skipped_objects,
+                    "detection_iteration": detection_iteration,
+                    "base_iter": last_kept_iteration,
+                })
+                current_iteration += 1
+                continue
+
+        # This index is about to be written as an object or as a ghost removal. A rerun (from
+        # start_iter, or 5b feedback) can reach an index a previous run already used: clear it
+        # first, so that no stale record or image ever pairs with this run's partial output.
+        delete_iteration_data(out_dir, current_iteration, current_iteration)
 
         pruned_phrases_unique_ids = [f"{phrase}_{i}" for i, phrase in enumerate(pruned_phrases)]
 
@@ -1626,74 +1717,79 @@ def main(cfg):
         annotated_img = annotate(np_img, pruned_boxes_xyxy, pruned_phrases, pruned_logits)[:,:,::-1]
         Image.fromarray(annotated_img).save(annotated_img_fpath)
 
-        # 4. Use analytical heuristics using each objects' convex hull to determine which object should be removed (prioritize foreground + objects with nothing beneath them)
-        # TODO: Need to handle special case when there is only 1 obj left (so nothing to choose between)
-        obj_chs = dict()
-        skipped_objects = []
-        for mask, phrase in zip(pruned_masks, pruned_phrases_unique_ids):
-            if not np.any(mask):
-                logger.warning(f"Skipping object '{phrase}' because mask is empty after disentangling.")
-                skipped_objects.append({"phrase": phrase, "reason": "empty_mask_after_disentangle"})
-                continue
+        if ghost_to_remove is not None:
+            obj_idx_to_remove = ghost_to_remove.index
+            removal_prompt_types = ghost_to_remove.untried_prompt_types
+        else:
+            removal_prompt_types = obj_removal_prompt_order
+            # 4. Use analytical heuristics using each objects' convex hull to determine which object should be removed (prioritize foreground + objects with nothing beneath them)
+            # TODO: Need to handle special case when there is only 1 obj left (so nothing to choose between)
+            obj_chs = dict()
+            skipped_objects = ghost_skipped_objects
+            for mask, phrase in zip(pruned_masks, pruned_phrases_unique_ids):
+                if not np.any(mask):
+                    logger.warning(f"Skipping object '{phrase}' because mask is empty after disentangling.")
+                    skipped_objects.append({"phrase": phrase, "reason": "empty_mask_after_disentangle"})
+                    continue
 
-            mask_eroded_255 = erode_mask((mask * 255).astype(np.uint8), kernel_size=3)
+                mask_eroded_255 = erode_mask((mask * 255).astype(np.uint8), kernel_size=3)
 
-            # Depth is a different shape so need to resize RGB and mask now
-            rgb_resized = cv2.resize(current_rgb, (padded_W, padded_H))
-            rgb_resized_unpadded = unpad_image(rgb_resized, delta_w, delta_h)
-            mask_eroded_resized_255 = cv2.resize(mask_eroded_255, (padded_W, padded_H))
-            mask_eroded_resized_unpadded = unpad_image(mask_eroded_resized_255, delta_w, delta_h).astype(bool)
-            if not np.any(mask_eroded_resized_unpadded):
-                logger.warning(f"Skipping object '{phrase}' because eroded mask has no valid pixels.")
-                skipped_objects.append({"phrase": phrase, "reason": "empty_eroded_mask"})
-                continue
+                # Depth is a different shape so need to resize RGB and mask now
+                rgb_resized = cv2.resize(current_rgb, (padded_W, padded_H))
+                rgb_resized_unpadded = unpad_image(rgb_resized, delta_w, delta_h)
+                mask_eroded_resized_255 = cv2.resize(mask_eroded_255, (padded_W, padded_H))
+                mask_eroded_resized_unpadded = unpad_image(mask_eroded_resized_255, delta_w, delta_h).astype(bool)
+                if not np.any(mask_eroded_resized_unpadded):
+                    logger.warning(f"Skipping object '{phrase}' because eroded mask has no valid pixels.")
+                    skipped_objects.append({"phrase": phrase, "reason": "empty_eroded_mask"})
+                    continue
 
-            obj_pc = current_pc[mask_eroded_resized_unpadded]
-            obj_rgb = rgb_resized_unpadded[mask_eroded_resized_unpadded] / 255
-            obj_pcd = o3d.geometry.PointCloud()
-            obj_pcd.points = o3d.utility.Vector3dVector(obj_pc)
-            obj_pcd.colors = o3d.utility.Vector3dVector(obj_rgb)
+                obj_pc = current_pc[mask_eroded_resized_unpadded]
+                obj_rgb = rgb_resized_unpadded[mask_eroded_resized_unpadded] / 255
+                obj_pcd = o3d.geometry.PointCloud()
+                obj_pcd.points = o3d.utility.Vector3dVector(obj_pc)
+                obj_pcd.colors = o3d.utility.Vector3dVector(obj_rgb)
 
 
-            obj_pcd_pruned, indices = denoise_obj_point_cloud_v2(
-                pcd_obj=obj_pcd,
-                visualize_process=False,
-                visualize_result=False,
-                target_density_cm2=5.0,
-                outlier_removal_n_neighbors=None,
-                outlier_removal_std_ratio=1.0, #0.75,
-                dbscan_eps=0.005, #None, #0.01,
-                dbscan_min_pts=None, #3, #None, #None, #10, #None,
-                cluster_proportion_threshold=0.06,
+                obj_pcd_pruned, indices = denoise_obj_point_cloud_v2(
+                    pcd_obj=obj_pcd,
+                    visualize_process=False,
+                    visualize_result=False,
+                    target_density_cm2=5.0,
+                    outlier_removal_n_neighbors=None,
+                    outlier_removal_std_ratio=1.0, #0.75,
+                    dbscan_eps=0.005, #None, #0.01,
+                    dbscan_min_pts=None, #3, #None, #None, #10, #None,
+                    cluster_proportion_threshold=0.06,
+                )
+
+                obj_pc = np.asarray(obj_pcd_pruned.points)
+                if len(obj_pc) < 4:
+                    logger.warning(f"Skipping object '{phrase}' because point cloud has only {len(obj_pc)} points after pruning.")
+                    skipped_objects.append({"phrase": phrase, "reason": "insufficient_point_cloud", "n_points": int(len(obj_pc))})
+                    continue
+
+                # Compute convex hull via trimesh
+                obj_ch = trimesh.convex.convex_hull(obj_pc)
+
+                # Erode the convex hull slightly to avoid slight overlaps
+                obj_ch = trimesh.convex.convex_hull(np.asarray(obj_ch.vertices) - 0.0025 * np.asarray(obj_ch.vertex_normals))
+
+                obj_chs[phrase] = obj_ch
+
+            if not obj_chs:
+                logger.warning("No valid object hulls remain after mask/point-cloud pruning; ending decomposition early.")
+                break
+
+            # With these convex hulls, determine which object to remove using prioritized heuristics:
+            #   1. Prefer non-occluded objects (visible from camera)
+            #   2. Prefer objects on top of / inside other objects (topmost first)
+            #   3. Prefer objects closer to camera (foreground first)
+            obj_phrase_unique_id_to_remove = compute_object_removal_order(
+                obj_chs=obj_chs,
+                cam2world_tf=cam2world_tf,
             )
-
-            obj_pc = np.asarray(obj_pcd_pruned.points)
-            if len(obj_pc) < 4:
-                logger.warning(f"Skipping object '{phrase}' because point cloud has only {len(obj_pc)} points after pruning.")
-                skipped_objects.append({"phrase": phrase, "reason": "insufficient_point_cloud", "n_points": int(len(obj_pc))})
-                continue
-
-            # Compute convex hull via trimesh
-            obj_ch = trimesh.convex.convex_hull(obj_pc)
-
-            # Erode the convex hull slightly to avoid slight overlaps
-            obj_ch = trimesh.convex.convex_hull(np.asarray(obj_ch.vertices) - 0.0025 * np.asarray(obj_ch.vertex_normals))
-
-            obj_chs[phrase] = obj_ch
-
-        if not obj_chs:
-            logger.warning("No valid object hulls remain after mask/point-cloud pruning; ending decomposition early.")
-            break
-
-        # With these convex hulls, determine which object to remove using prioritized heuristics:
-        #   1. Prefer non-occluded objects (visible from camera)
-        #   2. Prefer objects on top of / inside other objects (topmost first)
-        #   3. Prefer objects closer to camera (foreground first)
-        obj_phrase_unique_id_to_remove = compute_object_removal_order(
-            obj_chs=obj_chs,
-            cam2world_tf=cam2world_tf,
-        )
-        obj_idx_to_remove = pruned_phrases_unique_ids.index(obj_phrase_unique_id_to_remove)
+            obj_idx_to_remove = pruned_phrases_unique_ids.index(obj_phrase_unique_id_to_remove)
         obj_phrase_to_remove = pruned_phrases[obj_idx_to_remove]
         logger.info(f"\n ({obj_phrase_to_remove})\n")
 
@@ -1732,10 +1828,12 @@ def main(cfg):
             masked_images[f"no_background{suffix}"] = np.concatenate([masked_images[f"no_background{suffix}"], masked_images[f"resized_removal_mask{suffix}"][..., np.newaxis]], axis=-1)
 
 
-        Image.fromarray(masked_images["no_background"]).save(f"{out_dir}/masked_object/iter_{current_iteration}.png")
-        Image.fromarray(masked_images["no_background_focus"]).save(f"{out_dir}/masked_object_focus/iter_{current_iteration}.png")
-        Image.fromarray(masked_images["with_background"]).save(f"{out_dir}/masked_object_background/iter_{current_iteration}.png")
-        Image.fromarray(masked_images["resized_removal_mask"]).save(f"{out_dir}/removal_mask_resized/iter_{current_iteration}.png")
+        # Stage 6 builds a mesh from every masked_object crop, so a ghost gets none.
+        if ghost_to_remove is None:
+            Image.fromarray(masked_images["no_background"]).save(f"{out_dir}/masked_object/iter_{current_iteration}.png")
+            Image.fromarray(masked_images["no_background_focus"]).save(f"{out_dir}/masked_object_focus/iter_{current_iteration}.png")
+            Image.fromarray(masked_images["with_background"]).save(f"{out_dir}/masked_object_background/iter_{current_iteration}.png")
+            Image.fromarray(masked_images["resized_removal_mask"]).save(f"{out_dir}/removal_mask_resized/iter_{current_iteration}.png")
 
 
         if crop_removal_images:
@@ -1752,7 +1850,8 @@ def main(cfg):
 
         # 5b. Annotate the object and remove it with the image model
         success = False
-        for obj_removal_prompt_type in obj_removal_prompt_order:
+        removal_prompt_types_tried = []
+        for obj_removal_prompt_type in removal_prompt_types:
             annotated_removal_image = deepcopy(annotated_removal_image_raw)
             if obj_removal_prompt_type == "bbox":
                 draw_bounding_box(
@@ -1796,6 +1895,7 @@ def main(cfg):
             n_attempts = 3
             start_seed = 0
             prompt = prompt_fcn(obj_phrase=obj_phrase_to_remove)
+            produced_image = False
             for i in range(n_attempts):
                 logger.info(f"Attempt {i + 1} / {n_attempts}...")
                 removal_seed = start_seed + i
@@ -1842,7 +1942,8 @@ def main(cfg):
                     raise NotImplementedError
                 # Resize to expected resolution (FLUX/Gemini may return slightly different dimensions)
                 removed_obj_img_raw = cv2.resize(removed_obj_img_raw, resolution)
-                
+                produced_image = True
+
                 # Check if any residual highlights
                 if get_num_pixels_with_color(
                     removed_obj_img_raw, REMOVAL_OUTLINE_COLOR, tolerance=50, mask=annotation_check_mask
@@ -1856,8 +1957,40 @@ def main(cfg):
                 success = True
                 break
 
+            # A type counts as tried once the model returned an image for it: an outage says
+            # nothing about whether the type works on this object.
+            if produced_image:
+                removal_prompt_types_tried.append(obj_removal_prompt_type)
             if success:
                 break
+
+        if not success and ghost_to_remove is not None and removal_prompt_types_tried:
+            # Every type that produced an image still left the marking, so the image stays as
+            # it was. The record keeps the ghost from being retried with those types. (If the
+            # model returned nothing at all, this falls through to the resumable failure.)
+            logger.warning(
+                f"No prompt type in {removal_prompt_types_tried} removed the ghost of iteration "
+                f"{ghost_to_remove.origin_iter}; it will not be retried with them."
+            )
+            write_skipped_iteration(out_dir, {
+                "iteration": current_iteration,
+                "reason": GHOST_SKIP_REASON,
+                "ghost_of_iter": ghost_to_remove.origin_iter,
+                "ghost_phrase": obj_phrase_to_remove,
+                "ghost_overlap": ghost_to_remove.overlap,
+                "removed": False,
+                "removal_prompt_type": None,
+                "removal_prompt_types_tried": removal_prompt_types_tried,
+                "detection_iteration": detection_iteration,
+                "base_iter": last_kept_iteration,
+                "vlm_categories_full": obj_cat_list,
+            })
+            removed_regions.append(RemovedRegion(
+                iteration=current_iteration, origin_iter=ghost_to_remove.origin_iter,
+                region=grow_region(removal_mask), prompt_types_tried=removal_prompt_types_tried,
+            ))
+            current_iteration += 1
+            continue
 
         if not success:
             logger.error(
@@ -1992,11 +2125,31 @@ def main(cfg):
             world_to_cam_tf=cam2world_tf,
         )
 
-        # A rerun can detect an object at an index a previous run skipped; drop the
-        # stale skip record so the two never coexist for the same iteration.
-        _stale_skip_fpath = f"{out_dir}/skipped_iterations/iter_{current_iteration}.json"
-        if os.path.exists(_stale_skip_fpath):
-            os.remove(_stale_skip_fpath)
+        if ghost_to_remove is not None:
+            # The image chain moves on from this edit, but no object came out of it: no
+            # manifest, so stage 6 onward never see it, and the categories stay unchanged so
+            # that the next detection looks for the ghost again.
+            write_skipped_iteration(out_dir, {
+                "iteration": current_iteration,
+                "reason": GHOST_SKIP_REASON,
+                "ghost_of_iter": ghost_to_remove.origin_iter,
+                "ghost_phrase": obj_phrase_to_remove,
+                "ghost_overlap": ghost_to_remove.overlap,
+                "removed": True,
+                "removal_prompt_type": obj_removal_prompt_type,
+                "removal_prompt_types_tried": removal_prompt_types_tried,
+                "valid_pixel_proportion": valid_pixel_proportion,
+                "detection_iteration": detection_iteration,
+                "base_iter": last_kept_iteration,
+                "vlm_categories_full": obj_cat_list,
+            })
+            removed_regions.append(RemovedRegion(
+                iteration=current_iteration, origin_iter=ghost_to_remove.origin_iter,
+                region=grow_region(removal_mask), prompt_types_tried=removal_prompt_types_tried,
+            ))
+            last_kept_iteration = current_iteration
+            current_iteration += 1
+            continue
 
         # Published atomically: this file is what the stage-6 listener watches for, so a
         # consumer must never see it half-written.
@@ -2020,6 +2173,10 @@ def main(cfg):
                 # against (null = the original source frame). Iteration numbers can have
                 # gaps, so consumers (stage 8/8b) must use this rather than idx - 1.
                 "base_iter": last_kept_iteration,
+                # If this removal leaves a ghost, it is removed again with the types not
+                # tried here (removal_ghosts.py).
+                "removal_prompt_type": obj_removal_prompt_type,
+                "removal_prompt_types_tried": removal_prompt_types_tried,
             }, f, indent=4)
 
         # Only remove the category from the list if this was the sole instance detected.
@@ -2031,6 +2188,11 @@ def main(cfg):
         elif instances_of_removed_category > 1:
             logger.info(f"Keeping category '{obj_phrase_to_remove}' in list — "
                         f"{instances_of_removed_category - 1} other instance(s) of the same category remain")
+
+        removed_regions.append(RemovedRegion(
+            iteration=current_iteration, origin_iter=current_iteration,
+            region=grow_region(removal_mask), prompt_types_tried=removal_prompt_types_tried,
+        ))
 
         if cfg.debug:
             inp = input(f"Press ENTER to continue, or b to breakpoint...")
