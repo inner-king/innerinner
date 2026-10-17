@@ -1,6 +1,6 @@
 # Patch Provenance
 
-SimFoundry distributes ten patch files under [`patches/`](patches/). Each is a
+SimFoundry distributes eleven patch files under [`patches/`](patches/). Each is a
 unified diff that an installation script applies to a third-party project after it
 is fetched into the ignored local `deps/` directory.
 
@@ -11,7 +11,7 @@ project it targets. That code remains under its upstream license — it is **not
 covered by SimFoundry's Apache 2.0 license, and a patch is not Apache-2.0 merely
 because NVIDIA authored the diff.
 
-Three of the ten carry fragments of source that is **not open source**. Delivered only for academic/research purposes:
+Three of the eleven carry fragments of source that is **not open source**. Delivered only for academic/research purposes:
 
 | Patch | Upstream license of the carried source |
 |---|---|
@@ -32,6 +32,7 @@ each patch is recorded against the source it is actually applied to.
 |---|---|---|---|---|---|---|
 | `3dgrut.patch` | [nv-tlabs/3dgrut](https://github.com/nv-tlabs/3dgrut) | `a37ef721012dea0f29c0fcfff2d525023b4e854a` | Apache-2.0 | SimFoundry team | `install_3dgrut.sh` | ✅ clean |
 | `3dgrut_nounset.patch` | [nv-tlabs/3dgrut](https://github.com/nv-tlabs/3dgrut) | `a37ef721012dea0f29c0fcfff2d525023b4e854a` | Apache-2.0 | SimFoundry team | `install_3dgrut.sh` | ✅ clean |
+| `BEHAVIOR-1K-link-physics-materials.patch` | [StanfordVL/BEHAVIOR-1K](https://github.com/StanfordVL/BEHAVIOR-1K) | `d89aae4e0e9a1de3cf8285cb9669c11d8c8bb864` | MIT | this fork | `install_simfoundry.sh` (`git_safe_checkout_patched`) | ✅ clean |
 | `Any6D.patch` | [taeyeopl/Any6D](https://github.com/taeyeopl/Any6D) | `80eb4866a1c96ecb18be18836aba4f4bd6e80e9e` | **Non-commercial / academic-only** | SimFoundry team | `install_any6d.sh` | ✅ clean |
 | `FoundationPose.patch` | [NVlabs/FoundationPose](https://github.com/NVlabs/FoundationPose) | `e3d597b8c6b851d053094ebd6fa240191c5238f8` | **NVIDIA Source Code License (non-commercial)** | SimFoundry team | `install_simfoundry.sh` | ✅ clean |
 | `Hunyuan3D-2.1.patch` | [Tencent-Hunyuan/Hunyuan3D-2.1](https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1) | `82920d643c0dc2f7bfd7255f45f62d386edfe60c` | **Tencent Hunyuan 3D 2.1 Community License (non-OSS)** | SimFoundry team | `install_hunyuan.sh` | ✅ clean |
@@ -53,6 +54,8 @@ All patches applied cleanly. Eight were validated on 2026-07-27 (nine including
 later and validated the same way on 2026-08-13 against the same base commit.
 `void-model-low-vram.patch` was added in this fork and validated on 2026-10-16 against
 the same base commit with `void-model.patch` applied first, the order `install_void.sh` uses.
+`BEHAVIOR-1K-link-physics-materials.patch` was added in this fork and validated on 2026-10-17
+against its base commit.
 Re-run this whenever a base commit is bumped.
 
 ## Upstream source carried per patch
@@ -70,6 +73,7 @@ present in the patch file. "Added" lines are NVIDIA-authored.
 | `splatfacto_depth_loss.patch` | 13 | 0 | **13** | 46 | 1 |
 | `ml-depth-pro.patch` | 9 | 2 | **11** | 2 | 1 |
 | `3dgrut.patch` | 6 | 1 | **7** | 4 | 1 |
+| `BEHAVIOR-1K-link-physics-materials.patch` | 6 | 1 | **7** | 8 (this fork) | 1 |
 | `void-model.patch` | 6 | 0 | **6** | 13 | 1 |
 | `3dgrut_nounset.patch` | 6 | 0 | **6** | 5 | 1 |
 
@@ -89,6 +93,30 @@ present in the patch file. "Added" lines are NVIDIA-authored.
   3DGRUT's environment-creation script. The script's `conda()` wrapper reactivates
   the env after every `conda install`, sourcing deactivate.d hooks that can
   reference unset `CONDA_BACKUP_*` variables and abort the script under `set -u`.
+- **Upstream NOTICE**: none at base commit.
+
+### `BEHAVIOR-1K-link-physics-materials.patch`
+- **Target**: `OmniGibson/omnigibson/objects/object_base.py`
+- **Purpose**: Added by this fork. `BaseObject.__init__` keeps the caller's
+  `link_physics_materials` dict, and `_post_load` replaces each of its entries with the
+  `PhysicsMaterial` it creates and binds. That dict is also the object's init info
+  (`save_init_info` records the argument as given), and for a scene loaded from JSON it is the
+  JSON's own dict. So an object built with the kwarg, which is how a saved scene carries a
+  friction (`objects_info.init_info[<name>].args.link_physics_materials`), loads with the
+  friction bound, but every later save raises
+  `TypeError: Object of type PhysicsMaterial is not JSON serializable`: `og.sim.save()`,
+  `scene.save()`, and the `HDF5CollectionWrapper` that teleop and policy evaluation record
+  through. The patch copies the dict down to each link's kwargs, so the materials it creates go
+  into the object's own copy. Nothing else in OmniGibson reads the attribute, and `ManipulationRobot`'s
+  finger frictions are added to the copy as before. Upstream `main` still has the same code,
+  moved into `usd_object.py`.
+- **Applied by**: `git_safe_checkout_patched` (`scripts/installation/git_safe.sh`), which takes the
+  patch out before moving `deps/BEHAVIOR-1K` to a new pin and puts it back after. An applied patch
+  leaves the tree modified, which the plain pinned checkout reads as local work and would never
+  move off.
+- **Upstream license text**: MIT; the text is reproduced in
+  [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) §7, where it already covers the OmniGibson
+  code vendored in `simfoundry/utils/asset_conversion_utils.py`.
 - **Upstream NOTICE**: none at base commit.
 
 ### `Any6D.patch`

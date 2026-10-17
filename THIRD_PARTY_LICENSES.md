@@ -10,7 +10,7 @@ license does not apply to those materials**.
 the ignored local `deps/` directory during installation, or installed from PyPI, and
 remain governed by their upstream terms.
 
-Two exceptions: the nine patch files under [`patches/`](patches/) carry fragments of
+Two exceptions: the eleven patch files under [`patches/`](patches/) carry fragments of
 upstream source in their context and removed lines — three under non-OSS or
 non-commercial terms (see [PATCH_PROVENANCE.md](PATCH_PROVENANCE.md)) — and the
 three.js modules vendored under `scripts/interactive/light_editor/web/vendor/`

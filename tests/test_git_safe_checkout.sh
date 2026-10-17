@@ -148,6 +148,49 @@ check "force cannot clobber a conflicting local edit (git refuses)" 1 "${rc}"
 check "the conflicting edit survives" 1 "$(grep -c uncommitted "${D}/pinned.txt")"
 
 echo
+echo "=== git_safe_checkout_patched: our own patch must not hold the dependency on its old pin ==="
+# An applied patch leaves the tree dirty, which git_safe_checkout_detached reads as local work:
+# without taking the patch out first, a pin bump would be skipped for good.
+make_patch() {  # make_patch <clone> <pin> <file> <out>: append a line to <file> at <pin>
+  ( cd "$1" && git checkout -q --detach "$2" && echo patched >> "$3" && git diff > "$4" \
+      && git checkout -q -- "$3" && git checkout -q main )
+}
+read -r D PIN <<< "$(make_clone patched)"
+NEWPIN="$(git -C "${D}" rev-parse origin/main)"
+PATCH="${WORK}/shared.patch"   # shared.txt is the same at both pins, so this applies to either
+make_patch "${D}" "${PIN}" shared.txt "${PATCH}"
+git_safe_checkout_patched "${D}" "${PIN}" "${PATCH}" "deps/patched" >/dev/null 2>&1
+check "fresh clone is moved onto the pin" yes "$(head_is_pin "${D}" "${PIN}")"
+check "fresh clone gets the patch" 1 "$(grep -c patched "${D}/shared.txt")"
+git_safe_checkout_patched "${D}" "${PIN}" "${PATCH}" "deps/patched" >/dev/null 2>&1
+check "the same pin again applies it once" 1 "$(grep -c patched "${D}/shared.txt")"
+git_safe_checkout_patched "${D}" "${NEWPIN}" "${PATCH}" "deps/patched" >/dev/null 2>&1
+check "a pin bump moves a patched tree" yes "$(head_is_pin "${D}" "${NEWPIN}")"
+check "the new pin gets the patch" 1 "$(grep -c patched "${D}/shared.txt")"
+
+read -r D PIN <<< "$(make_clone patchedlocal)"
+NEWPIN="$(git -C "${D}" rev-parse origin/main)"
+git_safe_checkout_patched "${D}" "${PIN}" "${PATCH}" "deps/patchedlocal" >/dev/null 2>&1
+echo "uncommitted" >> "${D}/pinned.txt"
+git_safe_checkout_patched "${D}" "${NEWPIN}" "${PATCH}" "deps/patchedlocal" >/dev/null 2>&1
+check "a local edit still blocks the bump" yes "$(head_is_pin "${D}" "${PIN}")"
+check "the local edit survives" 1 "$(grep -c uncommitted "${D}/pinned.txt")"
+check "the patch is back on the old pin" 1 "$(grep -c patched "${D}/shared.txt")"
+
+read -r D PIN <<< "$(make_clone patchstale)"
+NEWPIN="$(git -C "${D}" rev-parse origin/main)"
+STALE="${WORK}/pinned.patch"   # pinned.txt changes between the pins, so the new one rejects it
+make_patch "${D}" "${PIN}" pinned.txt "${STALE}"
+git_safe_checkout_patched "${D}" "${PIN}" "${STALE}" "deps/patchstale" >/dev/null 2>&1
+git_safe_checkout_patched "${D}" "${NEWPIN}" "${STALE}" "deps/patchstale" >/dev/null 2>&1
+check "a patch the new pin does not take fails" 1 "$?"
+git_safe_checkout_patched "${D}" "0123456789abcdef0123456789abcdef01234567" "${STALE}" \
+  "deps/patchstale" >/dev/null 2>&1
+check "an unknown pin fails" 1 "$?"
+git_safe_checkout_patched "${D}" "${NEWPIN}" "${WORK}/missing.patch" "deps/patchstale" >/dev/null 2>&1
+check "a missing patch file fails" 1 "$?"
+
+echo
 echo "=== git_safe_sync_branch: the force flag IS destructive here (documented, not a bug) ==="
 # Unlike git_safe_checkout_detached, this path runs `checkout -B` + `reset --hard`. Pinned so
 # the asymmetry between the two functions stays deliberate and documented.

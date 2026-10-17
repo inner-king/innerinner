@@ -622,8 +622,13 @@ contact materials come from its rig) and not for the room.
 
 **The two are not symmetric, and the panel says so.** Friction is a real
 OmniGibson constructor argument (`link_physics_materials`), applied to the
-link's collision meshes at load, so a number typed here works everywhere with no
-change to any consumer. **Mass is recorded only.** OmniGibson has no load-time
+link's collision meshes at load, so a number typed here reaches PhysX in every
+consumer that builds from the scene. Saving that scene again through OmniGibson,
+as `settle.py`, teleop and policy evaluation do, needs the OmniGibson patch that
+`install_simfoundry.sh` applies (`patches/BEHAVIOR-1K-link-physics-materials.patch`).
+Without it the save fails with "Object of type PhysicsMaterial is not JSON
+serializable". Policy evaluation then binds 0.5 on every object anyway, by design.
+**Mass is recorded only.** OmniGibson has no load-time
 mass argument, and PhysX reads `physics:mass` out of the USD — which is shared
 by every scene using that model, so rewriting it there would change all of them.
 A consumer that wants to honour a scene's mass applies it after load with one

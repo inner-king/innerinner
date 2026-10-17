@@ -86,7 +86,16 @@ limits     objects_info.init_info[name].args.joint_limits
 `friction` and `mass` are written by the light editor's physics panel and are
 **not symmetric**. `link_physics_materials` is a real OmniGibson constructor kwarg
 (`object_base.py`) and is applied to the link's collision meshes at load, so a
-friction written here works everywhere with no consumer change. `mass` is
+friction written here reaches PhysX in every consumer that builds from the JSON.
+**Saving such a scene again needs `patches/BEHAVIOR-1K-link-physics-materials.patch`**,
+which `install_simfoundry.sh` applies. Unpatched OmniGibson replaces the dict's entries with
+the `PhysicsMaterial` objects it binds, and that dict is the object's init info, so
+`og.sim.save()`, `scene.save()` and the `HDF5CollectionWrapper` that teleop and policy
+evaluation record through raise "not JSON serializable" (`repro/README.md` §20.4). The stages that call
+`set_obj_materials` (14, B6, teleop) record the stage 11 estimates here, and only once
+they find the patch. A consumer that binds its own materials after load replaces the
+scene's: policy evaluation does on purpose (0.5 on every object, 2.0 on the fingers),
+and the scenes it saves still state the recorded values. `mass` is
 recorded only: OmniGibson has no load-time mass kwarg — `RigidPrim` reads one
 from its load_config, but `EntityPrim` builds each link's load_config from a
 fixed whitelist that mass is not on, and `BaseObject.mass` raises on assignment.

@@ -89,6 +89,53 @@ git_safe_checkout_detached() {
   git -C "${repo_dir}" checkout --detach "${target}"
 }
 
+# Check out a pinned commit and keep one of our patches/ files applied on top of it.
+#   git_safe_checkout_patched <repo_dir> <commit-ish> <patch_file> [label]
+#
+# An applied patch leaves tracked files modified, which git_safe_checkout_detached takes for
+# local work: once the pin changes it would never move off the old one. So the patch comes out
+# before a move and goes back on after. Fails when the patch applies neither way, i.e. the new
+# pin no longer takes it or a local edit overlaps it.
+git_safe_checkout_patched() {
+  local repo_dir="${1:?repo dir is required}"
+  local target="${2:?commit-ish is required}"
+  local patch="${3:?patch file is required}"
+  local label="${4:-${repo_dir}}"
+  local name
+  name="$(basename "${patch}")"
+  if [[ ! -f "${patch}" ]]; then
+    echo "ERROR: ${patch} not found." >&2
+    return 1
+  fi
+
+  local head_sha target_sha
+  head_sha="$(git -C "${repo_dir}" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+  target_sha="$(git -C "${repo_dir}" rev-parse --verify --quiet "${target}^{commit}" 2>/dev/null || true)"
+  # Fail here, not below: with the patch on, the tree looks dirty, and the checkout below would
+  # skip an unknown target as if it were protecting local work.
+  if [[ -z "${target_sha}" ]]; then
+    echo "ERROR: ${target} is not a commit in ${label}; fetch it first." >&2
+    return 1
+  fi
+  if [[ "${head_sha}" != "${target_sha}" ]] \
+      && git -C "${repo_dir}" apply --check --reverse "${patch}" 2>/dev/null; then
+    git -C "${repo_dir}" apply --reverse "${patch}"
+  fi
+
+  git_safe_checkout_detached "${repo_dir}" "${target}" "${label}"
+
+  if git -C "${repo_dir}" apply --check --reverse "${patch}" 2>/dev/null; then
+    echo "patches/${name} already applied to ${label}"
+  elif git -C "${repo_dir}" apply --check "${patch}" 2>/dev/null; then
+    git -C "${repo_dir}" apply "${patch}"
+    echo "Applied patches/${name} to ${label}"
+  else
+    echo "ERROR: patches/${name} cannot be applied to ${label} at $(git -C "${repo_dir}" rev-parse --short HEAD)." >&2
+    echo "       Update the patch for this commit, or undo the local edits it overlaps." >&2
+    return 1
+  fi
+}
+
 # Fast-forward a repo to a remote branch, never rewriting local history.
 #   git_safe_sync_branch <repo_dir> <remote> <branch> [label]
 git_safe_sync_branch() {

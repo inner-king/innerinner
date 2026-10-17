@@ -182,6 +182,8 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 | `C_application/stages/1_eval_policy_og_scene.py`, `scripts/cfg/real2sim_cfg.yaml` (20장) | `s15_eval.tonemap_op`: 정책 카메라의 RTX 톤매퍼 선택. 기본 null(예전과 같음) |
 | `A_reconstruction/stages/14_create_og_scene.py`, `scripts/cfg/*.yaml` (20장) | `s14_og.robot_standoff_m`(설정 기본 0.6 m): 로봇 베이스를 물체 중심 뒤에 둠. null이면 고정 위치 |
 | `simfoundry/utils/og_utils.py` (`set_obj_materials`), `14_create_og_scene.py`, `B_augmentation/stages/6_sample_reconstructed_scene.py` (20.4) | 마찰 재질을 충돌 메시에 실제로 붙이고 운동 마찰도 같은 값으로 정함. 14단계와 B6은 stopped 블록 안에서 붙임 |
+| `patches/BEHAVIOR-1K-link-physics-materials.patch` (신규), `scripts/installation/git_safe.sh`, `install_simfoundry.sh` (20.4 후속) | OmniGibson이 `link_physics_materials` 인자를 복사해서 쓰게 하는 패치와, 그 패치를 고정 커밋 위에 붙이는 설치 단계(`git_safe_checkout_patched`) |
+| `simfoundry/utils/og_utils.py` (`set_obj_materials`, 20.4 후속) | 붙인 마찰을 init info의 `link_physics_materials`에도 기록. 패치된 OmniGibson일 때만 |
 
 ## 10. 추가 실험: 이미지 백엔드 비교 (2026-10-10)
 
@@ -433,6 +435,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
 | `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기, 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV | 19 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
+| `friction/check_saved_scene.py`, `friction/check_finger_friction.py` | 마찰을 기록한 장면을 텔레옵처럼 로드해 PhysX 재질과 다시 저장을 점검, 로봇 손가락 마찰 점검 | 20.4 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
 | `g4/setup_g4.sh`, `g4/constraints_simfoundry.txt` | Colab G4 런타임 설치(Vulkan·libGLU 보완, 버전 고정) | 17 |
@@ -1202,10 +1205,33 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
   - 저장된 세 물체는 속도 0이고 잠든 상태입니다. 검사 스크립트에서도 추정값이 들어간 뒤 100스텝 동안 0.05 mm 넘게 움직인 물체가 없습니다.
 - 텔레옵(대화형)과 B6은 돌리지 않았습니다. 두 단계도 같은 함수를 `og.sim.stopped()` 안에서 부르므로 첫 표의 "지금" 열과 같은 경우입니다.
 
-**저장 장면에는 기록하지 않았습니다**
+**저장 장면에는 기록하지 않았습니다** (아래 "후속"에서 고침)
 - AGENTS.md("The saved-scene contract")는 `objects_info.init_info[<name>].args.link_physics_materials`에 마찰을 적으면 OmniGibson이 로드할 때 붙이므로, 소비자를 고치지 않아도 어디서나 쓰인다고 적고 있습니다. 로드할 때 붙는 것은 맞습니다. 이 인자로 만든 물체는 PhysX에서 0.7/0.7로 읽혔습니다.
 - 하지만 OmniGibson 3.8.0은 재질을 붙인 뒤 그 dict의 값을 자기가 만든 `PhysicsMaterial` 객체로 바꿔 넣습니다(`object_base.py`의 `_post_load`). 그 dict는 복사본이 아닙니다. 객체의 init info가 같은 dict를 가리키고(`save_init_info`가 인자를 그대로 기록), 장면을 JSON에서 읽었다면 그 JSON 안의 dict도 같은 것입니다.
 - 그래서 이 키가 있는 장면을 로드한 뒤 저장하면 `TypeError: Object of type PhysicsMaterial is not JSON serializable`가 납니다. `og.sim.save()`와 `scene.save()` 모두 확인했습니다. 텔레옵과 평가가 쓰는 DataCollectionWrapper도 시작할 때 `env.scene.save()`를 부릅니다.
 - 14단계나 B6 출력에 이 키를 넣으면, 그 장면을 읽는 텔레옵(2, 2b), `scene_json: null`로 돌린 평가, 라이트 에디터의 `settle.py`가 저장하는 순간 멈춥니다. 그래서 넣지 않았습니다. 14단계 JSON은 예전처럼 마찰을 담지 않고, 텔레옵과 B6은 `scene_objects_info.json`에서 마찰을 읽어 붙입니다.
 - 라이트 에디터의 마찰 칸이 쓰는 키도 이것이라, 그 칸으로 고친 장면은 같은 문제를 겪습니다. 지금 이 머신의 장면 중 이 키를 가진 것은 없습니다.
 - 고치려면 OmniGibson이 받은 dict를 복사해서 써야 합니다. `deps/`는 고칠 수 없으므로 `patches/`의 패치나 업스트림 PR로 해야 하고, 따로 할 일로 남깁니다.
+
+**후속: OmniGibson 패치, 저장 장면에 마찰 기록**
+- **패치.** `patches/BEHAVIOR-1K-link-physics-materials.patch`는 `BaseObject.__init__`이 받은 `link_physics_materials`를 링크별로 복사해 두게 합니다(`object_base.py` 한 곳). 만든 `PhysicsMaterial`은 복사본에만 들어가고, init info와 장면 JSON의 dict는 받은 그대로 남습니다. 로봇의 손가락 마찰도 복사본에 들어갑니다.
+- **설치.** `deps/`는 직접 고치지 않습니다. `install_simfoundry.sh`가 BEHAVIOR-1K를 고정 커밋에 맞춘 뒤 패치를 붙입니다(`git_safe.sh`의 `git_safe_checkout_patched`, `PATCH_PROVENANCE.md`). 붙은 패치 때문에 작업 트리가 "수정됨"으로 보여서 예전 방식으로는 고정 커밋을 옮기지 못하므로, 옮길 때만 패치를 뗐다가 다시 붙입니다(`tests/test_git_safe_checkout.sh`).
+- **이 머신.** 사용자 확인을 받고 `/home/inner/real2sim/SimFoundry/deps/BEHAVIOR-1K`에 붙였습니다. simfoundry env가 쓰는 OmniGibson은 이것 하나라서, 이후 시작하는 모든 작업이 패치된 코드를 씁니다. 업스트림 `main`에도 같은 코드가 `usd_object.py`에 남아 있지만, PR은 올리지 않았습니다(사용자 결정).
+- **기록.** `set_obj_materials`는 붙인 마찰을 물체의 init info에도 `{<링크>: {static_friction, dynamic_friction}}`로 적습니다. 링크 이름은 로드한 물체에서 읽습니다(이 장면은 `link_textured_mesh`). 패치가 없는 OmniGibson이면 적지 않고 경고만 남깁니다(생성자 소스에서 패치의 복사를 찾음).
+  - 그래서 14단계, B6, 텔레옵이 저장하는 장면에 11단계 추정값이 들어가고, 그 장면을 읽는 쪽은 로드할 때 같은 마찰을 받습니다.
+  - 평가 단계는 예전처럼 0.5/2.0을 덮어씁니다.
+- **문서.** AGENTS.md와 `docs/INSTRUCTIONS_SCENE_EDITOR.md`의 "소비자를 고치지 않아도 어디서나 쓰인다"를, 다시 저장하려면 이 패치가 있어야 한다고 고쳤습니다. 위에서 `DataCollectionWrapper`라 적은 래퍼의 실제 클래스는 `HDF5CollectionWrapper`입니다.
+
+**확인** (결과 `diagnostics/friction/`, 로그 `logs/friction/`. 값은 정지/운동 마찰)
+
+| 점검 | 패치 전 | 패치 후 |
+|---|---|---|
+| `check_friction.py` contract: 인자 0.7로 만든 물체의 PhysX 재질 | 0.7 / 0.7 | 0.7 / 0.7 |
+| 그 물체 init info의 값, `scene.save()`와 `og.sim.save()` | `PhysicsMaterial`, 둘 다 TypeError | `dict`, 둘 다 ok |
+| 14단계 재실행(`s14_og_friction_record`)의 저장 JSON | 마찰 없음(`s14_og_friction`) | 세 물체 모두 `link_physics_materials`: 그릇 0.5, 펜 0.4, 컵 0.5 |
+| 그 JSON을 텔레옵처럼 `scene_file`로 로드한 PhysX 재질(`check_saved_scene.py`) | 그릇 0.5, 펜 0.4, 컵 0.5 | 그릇 0.5, 펜 0.4, 컵 0.5 |
+| 이어서 `scene.save()`, `og.sim.save()`, `HDF5CollectionWrapper` | 셋 다 TypeError | 셋 다 ok, 다시 저장한 JSON의 마찰도 같음 |
+| Franka 손가락 마찰 1.5/1.2, 왼손가락 반발 0.3을 인자로(`check_finger_friction.py`) | PhysX 1.5/1.2(왼쪽 반발 0.3). init info가 `PhysicsMaterial`로 바뀌고 저장 TypeError | PhysX 같음. init info는 준 그대로, 저장 ok |
+
+- 패치 뒤에도 `check_friction.py`의 나머지 항목(붙이는 시점별 재질, 미끄럼 시험, 가라앉힘)은 위 두 표와 같습니다.
+- 14단계 재실행의 JSON은 새 키를 빼면 `s14_og_friction`과 같고, 가라앉은 자세도 비트 단위로 같습니다. 이 재실행은 deps에 패치를 붙이기 전에, 같은 커밋의 사본에 같은 패치를 붙여 `PYTHONPATH`로 앞세워 돌렸습니다. 나머지 "패치 후" 값은 패치한 deps에서 얻었습니다.

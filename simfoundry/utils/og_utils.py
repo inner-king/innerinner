@@ -14,12 +14,15 @@ from omnigibson.macros import gm
 import omnigibson.lazy as lazy
 from omnigibson.scenes import Scene
 from omnigibson.robots import BaseRobot
+from omnigibson.objects.object_base import BaseObject
 from omnigibson.prims import VisualGeomPrim
 from omnigibson.prims.material_prim import OmniPBRMaterialPrim
 from omnigibson.utils.usd_utils import create_primitive_mesh, absolute_prim_path_to_scene_relative
 from omnigibson.utils import transform_utils as T
 import torch as th
 import numpy as np
+import functools
+import inspect
 import logging
 from typing import Tuple
 
@@ -72,8 +75,26 @@ VIS_GEOM_COLORS = {
 }
 
 
+@functools.lru_cache(maxsize=None)
+def og_copies_link_physics_materials() -> bool:
+    """Whether this OmniGibson keeps an object's ``link_physics_materials`` kwarg as it was given.
+
+    Unpatched, OmniGibson 3.8.0 keeps the caller's dict, which is also the object's init info, and
+    replaces its entries with the PhysicsMaterial objects it binds at load. A scene recording a friction
+    there loads with it bound, but cannot be saved again: ``og.sim.save()``, ``scene.save()`` and the
+    HDF5CollectionWrapper raise "Object of type PhysicsMaterial is not JSON serializable".
+    ``patches/BEHAVIOR-1K-link-physics-materials.patch`` copies the dict; this looks for that copy in the
+    constructor's source. An OmniGibson fixed some other way reads as unpatched, so the failure is a
+    friction left unrecorded, never a scene that its consumers cannot save.
+    """
+    try:
+        return "dict(material_info)" in inspect.getsource(inspect.unwrap(BaseObject.__init__))
+    except (OSError, TypeError):
+        return False
+
+
 def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
-    """Bind each object's estimated friction to every collision mesh it has.
+    """Bind each object's estimated friction to every collision mesh it has, and record it for saving.
 
     Stage 11 asks the VLM for a single unitless friction per object (``scene_objects_info.json``), so it is
     used as both the static and the dynamic coefficient. Both must be authored: ``UsdPhysics.MaterialAPI``
@@ -86,6 +107,14 @@ def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
     play; one made while it plays shows in USD but reaches PhysX only at the next stop and play
     (repro/friction/check_friction.py reads the shapes' materials back from PhysX).
 
+    The friction is also written to the object's init info as ``link_physics_materials``, so a scene
+    saved afterwards carries it, and OmniGibson binds it again wherever that scene is loaded (AGENTS.md,
+    "The saved-scene contract"). Each link read out of the loaded asset gets an entry: OmniGibson raises
+    on a link name the asset lacks. An entry the object was built with is replaced, not merged: the
+    material bound here, which carries no restitution, is the one PhysX now uses. Only with the patched
+    OmniGibson (``og_copies_link_physics_materials``): without it, the scene could not be saved again
+    after loading.
+
     Args:
         objs (dict): object name -> object; robots are skipped
         obj_frictions (dict): object name -> friction coefficient
@@ -96,6 +125,11 @@ def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
     if og.sim.is_playing():
         log.warning("set_obj_materials called while the simulator plays: PhysX keeps the old materials "
                     "until the next stop and play")
+    record = og_copies_link_physics_materials()
+    if not record:
+        log.warning("OmniGibson lacks patches/BEHAVIOR-1K-link-physics-materials.patch: frictions are bound but "
+                    "not recorded in the objects' init info, since a scene carrying them could not be saved "
+                    "again after loading")
     obj_materials = dict()
     for obj_name, obj in objs.items():
         if isinstance(obj, BaseRobot):
@@ -115,6 +149,10 @@ def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
             for msh in link.collision_meshes.values():
                 msh.apply_physics_material(obj_mat)
         obj_materials[obj_name] = obj_mat
+        if record:
+            obj.get_init_info()["args"]["link_physics_materials"] = {
+                link_name: {"static_friction": friction, "dynamic_friction": friction} for link_name in obj.links
+            }
 
     return obj_materials
 

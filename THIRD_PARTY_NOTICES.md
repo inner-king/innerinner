@@ -27,7 +27,7 @@ listed individually. Full details — license links and copyright holders — ar
 the ignored local `deps/` directory during installation, or installed from PyPI, and
 remain governed by their upstream terms.
 
-The one exception is [`patches/`](patches/): nine unified diffs applied to third-party
+The one exception is [`patches/`](patches/): eleven unified diffs applied to third-party
 projects at install time, each carrying fragments of upstream source in its context
 and removed lines. Those fragments remain under their upstream licenses. See
 [PATCH_PROVENANCE.md](PATCH_PROVENANCE.md).

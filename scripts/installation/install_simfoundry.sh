@@ -350,7 +350,11 @@ if [ ! -d "BEHAVIOR-1K" ]; then
   git clone https://github.com/StanfordVL/BEHAVIOR-1K.git
 fi
 cd BEHAVIOR-1K
-git_safe_checkout_detached "." "${BEHAVIOR1K_COMMIT}" "deps/BEHAVIOR-1K"
+# OmniGibson stores an object's link_physics_materials kwarg, which is also its init info, and fills
+# it with PhysicsMaterial objects at load; the patch copies it, so a scene that records friction can
+# be saved again after loading (PATCH_PROVENANCE.md).
+git_safe_checkout_patched "." "${BEHAVIOR1K_COMMIT}" \
+  "${PROJECT_ROOT}/patches/BEHAVIOR-1K-link-physics-materials.patch" "deps/BEHAVIOR-1K"
 # Detect OS architecture to choose correct gcc/g++ packages.
 # kernel-headers pin: see the toolchain install above (evdev scan/compile header mismatch).
 ARCH=$(uname -m)

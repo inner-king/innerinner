@@ -1,0 +1,20 @@
+diff --git a/OmniGibson/omnigibson/objects/object_base.py b/OmniGibson/omnigibson/objects/object_base.py
+index eac5bd531..908cd613f 100644
+--- a/OmniGibson/omnigibson/objects/object_base.py
++++ b/OmniGibson/omnigibson/objects/object_base.py
+@@ -87,7 +87,14 @@ class BaseObject(EntityPrim, Registerable, metaclass=ABCMeta):
+         self._uuid = get_uuid(name, deterministic=True)
+         self.category = category
+         self.fixed_base = fixed_base
+-        self._link_physics_materials = dict() if link_physics_materials is None else link_physics_materials
++        # Copy down to each link's kwargs: _post_load swaps every entry for the PhysicsMaterial it creates (and
++        # ManipulationRobot adds its finger frictions), while the caller's dict is itself this object's init info,
++        # which has to stay JSON-serializable for the scene to be saved
++        self._link_physics_materials = (
++            dict()
++            if link_physics_materials is None
++            else {link_name: dict(material_info) for link_name, material_info in link_physics_materials.items()}
++        )
+
+         # Values to be created at runtime
+         self._highlighted = False
