@@ -138,7 +138,7 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | Digital cousin (형상·위상·외관 변형) | Gemini 텍스트 + 이미지 | 변형 제안과 이미지·메시 생성 성공(더 긴 컵, 손잡이가 바뀐 가위). 장면 변형 2/2 유효 | 재현됨 (로컬 모델) |
 | 태스크 제안 | | 2개 PickPlaceTask 생성 | 재현됨 |
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
-| Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문을 바꿔도 같음) |
+| Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문, 톤매퍼, 배경 스캔의 로봇을 바꿔도 같음: 18, 20.2, 23장) |
 | 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장). 우리가 복원한 Serve Fruits: 0.824, MMRV 0 (22장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차는 원인이 아님(21장). 우리 Serve Fruits는 순위가 맞고 GR00T만 높음 |
 | 정책 학습·성공률 개선 (+17/21/40%), 미세조정 과제의 상관 | | 학습 코드·미세조정 체크포인트 미공개, 실제 로봇 필요 | 재현 불가 |
 
@@ -433,7 +433,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
-| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간 | 19, 21 |
+| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`) | 19, 21, 22, 23 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
 | `friction/check_saved_scene.py`, `friction/check_finger_friction.py` | 마찰을 기록한 장면을 텔레옵처럼 로드해 PhysX 재질과 다시 저장을 점검, 로봇 손가락 마찰 점검 | 20.4 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
@@ -1367,4 +1367,60 @@ python repro/policy_eval/sample_init_states.py --spec repro/policy_eval_ours/our
   --task-yaml repro/policy_eval_ours/tasks/ours_serve_fruits.yaml --out results/policy_eval_ours/gr00t/init_states/serve_fruits_ours.json
 EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/ours.yaml:serve_fruits_ours
 SPEC=repro/policy_eval_ours/ours.yaml repro/policy_eval/run_table_g1.sh eval pi05 serve_fruits_ours 25 main   # Colab L4
+```
+
+## 23. 배경 스캔에 찍힌 로봇 (2026-10-17)
+
+사용자가 원래 장면의 로봇과 시뮬레이션의 로봇이 겹치지 않느냐고 물었습니다. 확인해 보니 겹칩니다.
+
+### 23.1 무엇이 겹치나
+
+- 저자 메시 배경 `droid_v1`("DROID Station 1")은 Scaniverse로 찍은 실험실 스캔이고, 그 안에 실제 Franka가 들어 있습니다. 장면은 이 스캔을 로봇 좌표계에 맞춰 두어서, 시뮬 로봇의 베이스가 스캔 로봇의 베이스 위에 놓입니다.
+  - 스캔 점을 로봇 기준 좌표로 옮겨 보면, 베이스에서 0.76 m까지 솟았다가 앞으로 꺾이는 팔이 있습니다(`diagnostics/policy_eval_ours/norobot/seg_views.png`의 빨간 점).
+  - 그 자세는 배경 파일이 시뮬 로봇에 주는 기본 관절값(`[0, −1.3, 0, −2.87, 0, 2.0, 0]`, 최고 0.58 m)과 다릅니다. 그래서 시작할 때도 완전히 포개지지 않습니다.
+- **정책 입력에 들어갑니다.** 시뮬 로봇이 움직이면, 사진 텍스처를 입은 스캔 팔이 정지한 채 외부 카메라 영상에 남습니다(`ghost_frames.jpg`: 시뮬 로봇이 컵을 옮기는 동안 오른쪽 위에 스캔 팔이 그대로 있음). 실제 카메라에는 없는 두 번째 로봇입니다.
+- **물리에는 영향이 없습니다.** 배경 메시에는 충돌 설정이 없어 로봇과 물체가 부딪히지 않고, 물체는 따로 둔 바닥면(z = −0.02) 위에 놓입니다.
+- 저자 DROID 장면 5개 중 4개(Marker in Cup, Serve Fruits, Store Marker, Throw Away Trash)와 우리 장면 전부가 이 배경을 씁니다. 18–22장의 평가는 모두 이 상태에서 돌았습니다. Stack Dishware가 쓰는 `droid_v2`(Station 4)는 팔 자리에 점이 235개뿐입니다(`droid_v1`은 1,525개).
+
+### 23.2 스캔 로봇 가리기
+
+- `repro/policy_eval_ours/mask_scanned_robot.py`는 같은 USDZ를 참조하는 덧씌움 레이어 `droid_v1_norobot.usd`를 씁니다. 스캔 팔에 해당하는 면을 메시의 `holeIndices`에 넣는 방식이라 원본 스캔은 그대로입니다(AGENTS.md 규칙 1).
+  - 팔 찾기: 로봇 베이스 위 상자 안에서, 베이스보다 3 cm 넘게 높은 스캔 꼭짓점들을 2.5 cm 안이면 이어 묶고, 베이스 바로 위 꼭짓점이 든 덩어리를 팔로 봅니다.
+  - 스캔 메시는 텍스처 조각마다 끊겨 있어서 메시 연결로는 팔이 이어지지 않았습니다(109개). 기본 관절값으로 계산한 운동학 체인도 위의 자세 차이 때문에 맞지 않았습니다.
+  - 결과: 꼭짓점 2,387개, 면 3,552개(전체 135,443개)를 가렸습니다. 로봇 기준으로 x −0.19..0.41, y −0.12..0.13, z 0.03..0.76 m 범위입니다.
+- `use_background.py`는 장면 옆에 배경만 바꾼 사본 `<scene>_scene_state_norobot.json`을 씁니다(`_latest`는 그대로).
+- **렌더 확인**(`check_scene.py --hide-robot`, `background_compare.jpg`): 시뮬 로봇을 숨기고 저자 Marker in Cup을 렌더했습니다. 원래 배경에서는 두 외부 카메라 모두에 스캔 로봇이 보이고, 가린 레이어에서는 사라지며 그 뒤의 창과 벽이 보입니다. Isaac Sim의 RTX 렌더러가 `holeIndices`를 지킵니다.
+
+### 23.3 정책에 주는 영향
+
+같은 저자 Marker in Cup 장면을 배경만 바꿔 같은 시작 상태 25개로 다시 돌렸습니다. π0·π0.5는 Colab L4에서 18장과 같은 드라이버로(`SCENE_JSON=...norobot.json`), GR00T N1.6은 이 머신에서 돌렸습니다.
+
+| 정책 | `droid_v1` (스캔 로봇 있음, 18·19장) | `droid_v1_norobot` | 차이 (Fisher p) | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|---|---|
+| π0 | 4/25 = 16% | **6/25 = 24%** | 0.73 | 40% | 40% |
+| π0.5 | 13/25 = 52% | **10/25 = 40%** | 0.57 | 88% | 92% |
+| GR00T N1.6 | 5/25 = 20% | **9/25 = 36%** | 0.35 | 28% | 28% |
+
+| 배경 | r | r 95% 구간 | MMRV |
+|---|---|---|---|
+| `droid_v1` | 0.961 | +0.51..+1.00 | 0.080 |
+| `droid_v1_norobot` | 0.555 | −0.94..+1.00 | 0.080 |
+
+- **스캔 로봇을 가려도 성공률이 유의하게 바뀐 정책은 없습니다.** 실패 양상도 같습니다. 대부분 마커를 집은 채 90 s 안에 컵에 넣지 못합니다(π0.5 15번, GR00T 15번).
+- **π0.5가 논문보다 낮은 원인은 유령 팔이 아닙니다.** 가린 배경에서도 40%로, 논문 88%에 한참 못 미칩니다. 18장이 배제한 질량·카메라·지시문, 20.2의 톤매퍼에 이어 후보가 하나 더 빠졌습니다.
+- r은 0.961에서 0.555로 내려갔습니다. 하지만 π0.5와 GR00T가 오차 범위 안에서 서로 가까워진 결과이고, 두 구간은 크게 겹칩니다. 순위 뒤집힘(MMRV)은 같습니다. 두 경우 모두 실제로는 π0(40%)가 GR00T(28%)보다 높은데, 시뮬에서는 GR00T가 더 높습니다.
+- **기본값은 바꾸지 않습니다.** 가린 레이어가 실제 카메라에 보이는 것과 더 가깝지만, 논문 수치는 저자가 공개한 `droid_v1` 장면에서 나왔을 것이고, 이 A/B에서 차이도 없었습니다. `droid_v1_norobot`은 선택지로 남깁니다.
+- 결과는 Drive `results/policy_eval_ours/norobot_colab/`(π0·π0.5)와 `results/policy_eval_ours/gr00t/out/marker_in_cup/s15_eval_gr00t_norobot/`(GR00T)에 있습니다. 판정표는 `diagnostics/policy_eval_ours/norobot/correlate_norobot.json`, 가림 레이어 사본은 같은 폴더의 `droid_v1_norobot.usd`, 로그는 `logs/policy_eval_norobot/`에 있습니다.
+- Colab의 첫 π0 실행은 서버의 예열 호출 단계에서 실패해 평가로 넘어가지 못했습니다. 같은 런타임에서 다시 돌려 위 값을 얻었습니다.
+
+```bash
+python repro/policy_eval_ours/mask_scanned_robot.py --background assets/backgrounds/mesh_backgrounds/droid_v1.usd \
+  --scene assets/scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json   # usd-core 환경
+python repro/policy_eval_ours/use_background.py --tag norobot --background assets/backgrounds/mesh_backgrounds/droid_v1_norobot.usd \
+  assets/scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json
+python repro/policy_eval_ours/check_scene.py --spec repro/policy_eval/table_g1.yaml --task marker_in_cup --hide-robot \
+  --task-yaml repro/policy_eval/tasks/table_g1_marker_in_cup.yaml \
+  --scene scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_norobot.json --out <dir>
+SCENE_JSON=scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_norobot.json \
+  repro/policy_eval_ours/run_local_gr00t.sh all 25 norobot repro/policy_eval/table_g1.yaml:marker_in_cup
 ```
