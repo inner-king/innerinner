@@ -1106,7 +1106,6 @@ python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <res
     - 할당: 이 계정은 G4를 동시에 3대까지만 받는데, 10-17에는 다른 작업의 G4 3대가 떠 있었습니다.
   - 서버를 띄울 때 확인할 것입니다. 코드를 읽고 찾았고, 실행해 보지는 않았습니다.
     - 체크포인트의 `config.json`에 `skip_component_loading`이 없습니다. 그러면 모델을 만들 때 Wan2.1-I2V-14B 원본(DiT와 T5·CLIP·VAE)을 Hugging Face에서 받아 RAM에 올린 뒤, 체크포인트 가중치로 덮어씁니다. 저장소 이슈 #48의 RAM 부족이 이것으로 보이고, G4의 RAM은 176 GB입니다. 체크포인트 인덱스를 보면 DiT·T5·CLIP·VAE가 모두 들어 있으므로, 이 값을 `true`로 두면 원본 DiT는 받지 않습니다(T5·CLIP·VAE는 그래도 받음).
-    - 학습 설정에 `eval_bf16`이 없습니다. 그래서 모델이 fp32(약 92 GB)로 GPU에 올라간 뒤에야 bf16으로 바뀝니다.
     - `pyproject.toml`의 `gear`는 DreamZero가 쓰지 않는, 이름만 같은 PyPI 패키지입니다(이슈 #95). 빼고 설치합니다.
 - **비교 기준.** 실제 성공률은 논문의 값을 그대로 썼습니다. 우리가 실제 로봇으로 잰 것이 아닙니다.
 - **Clear Table**은 장면도 영상도 공개되지 않아 하지 않았습니다.
