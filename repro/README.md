@@ -139,10 +139,10 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | 태스크 제안 | | 2개 PickPlaceTask 생성 | 재현됨 |
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
 | Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문을 바꿔도 같음) |
-| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가 |
+| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차는 원인이 아님(21장) |
 | 정책 학습·성공률 개선 (+17/21/40%), 미세조정 과제의 상관 | | 학습 코드·미세조정 체크포인트 미공개, 실제 로봇 필요 | 재현 불가 |
 
-**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
+**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 물체 질량을 실물에 가깝게 고쳐도(종이컵 70→10 g 등) 성공률이 유의하게 바뀐 정책은 없었습니다. Marker in Cup은 r 0.984로 그대로 맞았고, Cup in Bowl은 0.45로 올랐지만 여전히 맞지 않았습니다(21장). 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
 
 ## 8. 다시 실행하는 법
 
@@ -433,7 +433,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
-| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기, 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV | 19 |
+| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간 | 19, 21 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
 | `friction/check_saved_scene.py`, `friction/check_finger_friction.py` | 마찰을 기록한 장면을 텔레옵처럼 로드해 PhysX 재질과 다시 저장을 점검, 로봇 손가락 마찰 점검 | 20.4 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
@@ -1096,7 +1096,7 @@ python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <res
 
 ### 19.4 한계와 다음 단계
 
-- **Cup in Bowl의 배치.** 저자 장면이 공개되지 않아, 물체를 어디에 어떤 범위로 놓았는지는 저장소 설정에서 추정했습니다. 세 정책 모두 배치에 민감했고(π0.5 100→62%, GR00T 100→75%), 어느 배치에서도 논문의 순위가 나오지 않았습니다. 저자 장면의 물체(크기·질량·입구)와 시작 범위를 모르는 한 이 과제는 직접 비교할 수 없습니다.
+- **Cup in Bowl의 배치.** 저자 장면이 공개되지 않아, 물체를 어디에 어떤 범위로 놓았는지는 저장소 설정에서 추정했습니다. 세 정책 모두 배치에 민감했고(π0.5 100→62%, GR00T 100→75%), 어느 배치에서도 논문의 순위가 나오지 않았습니다. 저자 장면의 물체(크기·질량·입구)와 시작 범위를 모르는 한 이 과제는 직접 비교할 수 없습니다. 우리 물체의 질량을 실물에 가깝게 고친 경우는 21장에 있습니다(r 0.45, 여전히 순위가 맞지 않음).
 - **정책 수.** 논문의 제로샷 열은 정책 다섯 개이고 여기는 세 개입니다. GR00T N1.7은 DROID 체크포인트를 찾지 못했고, DreamZero-DROID(14B)는 H100급 GPU가 필요합니다. 정책이 셋이면 r은 점 세 개로 정해져 흔들림이 큽니다.
 - **비교 기준.** 실제 성공률은 논문의 값을 그대로 썼습니다. 우리가 실제 로봇으로 잰 것이 아닙니다.
 - **Clear Table**은 장면도 영상도 공개되지 않아 하지 않았습니다.
@@ -1235,3 +1235,65 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
 
 - 패치 뒤에도 `check_friction.py`의 나머지 항목(붙이는 시점별 재질, 미끄럼 시험, 가라앉힘)은 위 두 표와 같습니다.
 - 14단계 재실행의 JSON은 새 키를 빼면 `s14_og_friction`과 같고, 가라앉은 자세도 비트 단위로 같습니다. 이 재실행은 deps에 패치를 붙이기 전에, 같은 커밋의 사본에 같은 패치를 붙여 `PYTHONPATH`로 앞세워 돌렸습니다. 나머지 "패치 후" 값은 패치한 deps에서 얻었습니다.
+
+## 21. 질량을 실물에 가깝게 고친 장면으로 다시 평가 (2026-10-17)
+
+20.1에서 질량 프롬프트를 고쳤지만, 19장의 우리 장면은 고치기 전의 질량으로 평가했습니다. 물체 USD에는 13단계가 예전 실행(qwen3-vl, 원래 문구)의 추정값을 박아 두었습니다. 그래서 실물이 약 10 g인 종이컵이 Cup in Bowl에서는 70 g, Marker in Cup에서는 150 g이었습니다. 이 장에서는 질량만 지금 파이프라인 A(Qwen3.5, 새 문구)가 내는 값으로 바꾸고, 나머지는 그대로 둔 채 세 정책을 다시 평가했습니다.
+
+| 물체 | 19장 (USD 값) | 21장 (장면의 `args.mass`) |
+|---|---|---|
+| Cup in Bowl / 흰 종이컵 | 70 g | 10 g |
+| Cup in Bowl / 주황 그릇 | 500 g | 100 g |
+| Cup in Bowl / 검은 펜 | 10 g | 3 g |
+| Marker in Cup / 빨간 마커 | 37.6 g | 18 g |
+| Marker in Cup / 녹색 무늬 컵 | 150 g | 15 g |
+
+### 21.1 방법
+
+- `build_droid_scene.py`가 물체별 `mass`(kg)를 받습니다. 받은 값은 장면 JSON의 `objects_info.init_info[<name>].args.mass`에 쓰고, 평가 단계가 로드한 뒤 적용합니다(18장의 `apply_scene_masses`). USD는 그대로 둡니다(AGENTS.md 규칙 1).
+- `ours.yaml`의 `cup_in_bowl_ours_mass`와 `marker_in_cup_ours_mass`는 19장의 두 과제와 질량만 다릅니다. 장면 JSON끼리 비교해도 차이는 `args.mass` 키뿐입니다. 시작 상태 25개도 19장 파일을 그대로 복사했습니다.
+- `check_scene.py`도 평가 단계처럼 장면의 질량을 적용하게 했습니다. 두 장면 모두 질량이 바뀐 것을 확인했습니다(`[mass] white_paper_cup_eqmylj_1: 0.070 -> 0.010 kg`). 2초 동안 움직인 거리는 0 mm였고, 시작할 때 마일스톤은 모두 0이었습니다.
+- 마찰은 바꾸지 않았습니다. 평가 단계가 모든 물체에 0.5, 그리퍼 손가락에 2.0을 직접 붙이기 때문입니다(20.4).
+- GR00T N1.6은 이 머신에서, π0·π0.5는 새로 빌린 Colab L4에서 돌렸습니다. Colab에서는 19장과 같은 드라이버로 두 과제를 동시에 돌렸고(`TASKS=...`, `all <policy> 2 25 mass`), π0.5 다음에 π0 순서였습니다. 런타임은 설치를 포함해 약 3시간(18장의 L4 단가로 약 5 CU) 썼고, 끝난 뒤 종료했습니다.
+
+### 21.2 결과
+
+| 과제 / 정책 | 19장 질량 | 21장 질량 | 차이 (Fisher p) | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|---|---|
+| Cup in Bowl / π0 | 20/25 = 80% | **18/25 = 72%** | 0.74 | 56% | 88% |
+| Cup in Bowl / π0.5 | 25/25 = 100% | **25/25 = 100%** | 1.00 | 92% | 100% |
+| Cup in Bowl / GR00T N1.6 | 25/25 = 100% | **21/25 = 84%** | 0.11 | 40% | 68% |
+| Marker in Cup / π0 | 7/25 = 28% | **8/25 = 32%** | 1.00 | 40% | 40% |
+| Marker in Cup / π0.5 | 20/25 = 80% | **20/25 = 80%** | 1.00 | 88% | 92% |
+| Marker in Cup / GR00T N1.6 | 5/25 = 20% | **8/25 = 32%** | 0.52 | 28% | 28% |
+
+**과제별 시뮬-실제 일치** (`correlate.py --draws 20000`. 95% 구간: 각 정책의 성공률을 Beta(k+1, 25−k+1)에서 뽑아 r을 다시 계산한 값)
+
+| 과제 (우리 복원) | 질량 | r | r 95% 구간 | MMRV | 논문 r | 논문 MMRV |
+|---|---|---|---|---|---|---|
+| Cup in Bowl | 19장 | −0.143 | −0.77..+0.58 | 0.173 | 0.907 | 0.016 |
+| Cup in Bowl | 21장 | **0.446** | −0.15..+0.98 | **0.133** | 0.907 | 0.016 |
+| Marker in Cup | 19장 | 0.999 | +0.88..+1.00 | 0.000 | 0.995 | 0.008 |
+| Marker in Cup | 21장 | **0.984** | +0.77..+1.00 | **0.040** | 0.995 | 0.008 |
+
+- **질량만 바꿨을 때 성공률이 유의하게 달라진 정책은 없습니다.** 가장 크게 바뀐 것은 GR00T의 Cup in Bowl(100→84%, p = 0.11)입니다.
+- **새로 생긴 실패는 가벼운 컵에서 나옵니다.** Cup in Bowl에서 컵을 건드리기만 하고 집지 못한 실패가 GR00T 3번, π0 5번이었습니다.
+  - 영상(GR00T 0번, π0 0번 에피소드)에서는 손가락이 다가가거나 닫힐 때 10 g 컵이 선 채로 밀려나고, 그리퍼는 빈 채로 닫힙니다. 그 뒤 로봇은 빈 그리퍼로 그릇 위를 맴돕니다.
+  - 컵이 쓰러지거나 튕겨 나간 것은 아닙니다. 밀릴 때 버티는 마찰력(μmg)이 70 g일 때의 1/7로 줄었기 때문입니다. 실제 종이컵도 이렇게 밀리므로 물리적으로 그럴듯한 실패입니다.
+- **Marker in Cup의 실패 양상은 예전과 같습니다.** 마커를 집은 채 90 s 제한을 넘깁니다(GR00T 17번 모두, π0.5 5번 모두, π0 17번 중 14번).
+- **Cup in Bowl의 r은 −0.143에서 0.446으로 올랐지만, 구간이 −0.15..+0.98로 넓습니다.** 핵심 어긋남도 그대로입니다. 실제로는 GR00T(68%)가 π0(88%)보다 낮은데, 우리 시뮬에서는 GR00T(84%)가 π0(72%)보다 높습니다. Marker in Cup은 질량을 바꿔도 논문과 맞습니다(r 0.984).
+- **결론: 질량 오차는 Cup in Bowl이 재현되지 않는 원인이 아닙니다.** 남은 후보는 19.4의 장면 배치입니다(저자 장면 미공개). 그래도 고친 질량이 실물에 가까우므로, 이후 우리 장면을 평가할 때는 `_mass` 과제를 쓰는 것이 맞습니다.
+- 결과는 Drive `results/policy_eval_ours/mass_colab/`(π0·π0.5)와 `results/policy_eval_ours/gr00t/out/*_mass/`(GR00T)에 있습니다. 판정표는 `diagnostics/policy_eval_ours/mass/correlate_mass.json`에 있고, 19장 성공 횟수는 같은 폴더의 `ch19_counts.json`에서 읽습니다. 로그는 `logs/policy_eval_mass/`와 `results/policy_eval_ours/gr00t/logs/*mass*`에 있습니다.
+
+```bash
+python repro/policy_eval_ours/build_droid_scene.py --task cup_in_bowl_ours_mass \
+  --asset-dir assets --data-dir Data --dataset-dir deps/BEHAVIOR-1K/datasets/real2sim-assets
+python repro/policy_eval_ours/check_scene.py --task cup_in_bowl_ours_mass --out results/diagnostics/policy_eval_ours/check_cup_in_bowl_ours_mass
+repro/policy_eval_ours/run_local_gr00t.sh all 25 mass \
+  repro/policy_eval_ours/ours.yaml:cup_in_bowl_ours_mass repro/policy_eval_ours/ours.yaml:marker_in_cup_ours_mass
+# Colab L4 (setup_colab.sh 뒤): 시작 상태는 <EVAL_ROOT>/init_states/<task>.json
+SPEC=repro/policy_eval_ours/ours.yaml TASKS="cup_in_bowl_ours_mass marker_in_cup_ours_mass" \
+  repro/policy_eval/run_table_g1.sh all pi05 2 25 mass
+python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_eval_ours/mass/ch19_counts.json \
+  --results results/policy_eval_ours/mass_colab/out:mass --results results/policy_eval_ours/gr00t/out:mass --draws 20000
+```

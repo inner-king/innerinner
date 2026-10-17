@@ -15,12 +15,18 @@ eval stage writes them; repeatable) and --summary FILE (the list run_table_g1.sh
 Each task's simulation column is then ours and the real column the paper's. A task with fewer than three policies
 is listed but has no meaningful r. Task names containing _ours (and variants such as _ours_near) are our reconstructed scenes, compared with
 the paper's row of the same task.
+
+`--draws N` adds a 95% interval to each of our r values: every policy's success rate is drawn N times from its
+posterior under a uniform prior, Beta(k + 1, n - k + 1), and r is recomputed against the paper's real column. Three
+policies at 25 episodes each leave r very loose. A bootstrap that resamples the observed rate would treat a 25/25
+as certain and, with two policies at 100%, report no spread at all.
 """
 import argparse
 import glob
 import json
 import math
 import os
+import random
 
 # Table G.1 (success rate %, real / sim), per task: {policy: (real, sim)}.
 TABLE_G1 = {
@@ -90,12 +96,28 @@ def agreement(pairs):
     return pearson(sim, real), mmrv(sim, real), len(pairs)
 
 
+def r_interval(counts, real, draws, seed=0):
+    """2.5th and 97.5th percentiles of r over success rates drawn from Beta(k + 1, n - k + 1).
+
+    Args:
+        counts (list): (successes, episodes) per policy
+        real (list): the paper's real-world success rate (%) per policy, in the same order
+        draws (int): number of draws
+        seed (int): seed of the draws, so a run reproduces its interval
+    """
+    rng = random.Random(seed)
+    rs = sorted(r for r in (pearson([rng.betavariate(k + 1, n - k + 1) for k, n in counts], [x / 100 for x in real])
+                            for _ in range(draws)) if not math.isnan(r))
+    return rs[int(0.025 * (len(rs) - 1))], rs[int(0.975 * (len(rs) - 1))]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check-paper", action="store_true")
     ap.add_argument("--results", action="append", default=[], help="ROOT:TAG of eval-stage outputs")
     ap.add_argument("--summary", action="append", default=[], help="summarize.py --json output")
     ap.add_argument("--json", default=None, help="write the table here")
+    ap.add_argument("--draws", type=int, default=0, help="add a 95%% interval for r from this many posterior draws")
     args = ap.parse_args()
     out = {}
     if args.check_paper:
@@ -112,7 +134,7 @@ def main():
         runs.update(collect_summary(sm))
     if runs:
         print(f"\n| task | policy | ours (sim) | paper sim | paper real |\n|---|---|---|---|---|")
-        tasks = {}
+        tasks, counts = {}, {}
         for (task, policy), (k, n) in sorted(runs.items()):
             col = POLICY_COLUMN.get(policy, policy)
             real, sim = TABLE_G1.get(task.split("_ours")[0], {}).get(col, (None, None))
@@ -121,13 +143,24 @@ def main():
                                                "paper_sim": sim, "paper_real": real})
             if real is not None:
                 tasks.setdefault(task, {})[col] = (real, 100 * k / n)
-        print(f"\n| task (our sim vs paper real) | policies | r | MMRV | paper r | paper MMRV |\n|---|---|---|---|---|---|")
+                counts.setdefault(task, {})[col] = (k, n)
+        interval = " r 95% interval |" if args.draws else ""
+        print(f"\n| task (our sim vs paper real) | policies | r |{interval} MMRV | paper r | paper MMRV |\n"
+              f"|---|---|---|{'---|' if args.draws else ''}---|---|---|")
         for task, pairs in tasks.items():
             r, m, n = agreement(pairs) if len(pairs) >= 2 else (float("nan"), float("nan"), len(pairs))
             pr, pm = PAPER_R_MMRV[task.split("_ours")[0]]
             note = "" if n >= 3 else " (r is +-1 or undefined with fewer than 3)"
-            print(f"| {task} | {', '.join(sorted(pairs))}{note} | {r:.3f} | {m:.3f} | {pr:.3f} | {pm:.3f} |")
-            out.setdefault("agreement", {})[task] = {"r": r, "mmrv": m, "n": n, "paper_r": pr, "paper_mmrv": pm}
+            row = {"r": r, "mmrv": m, "n": n, "paper_r": pr, "paper_mmrv": pm}
+            cell = ""
+            if args.draws and n >= 3:
+                row["r_interval_95"] = r_interval(list(counts[task].values()), [real for real, _ in pairs.values()],
+                                                  args.draws)
+                cell = f" {row['r_interval_95'][0]:+.2f}..{row['r_interval_95'][1]:+.2f} |"
+            elif args.draws:
+                cell = " |"
+            print(f"| {task} | {', '.join(sorted(pairs))}{note} | {r:.3f} |{cell} {m:.3f} | {pr:.3f} | {pm:.3f} |")
+            out.setdefault("agreement", {})[task] = row
     if args.json:
         json.dump(out, open(args.json, "w"), indent=2)
 
