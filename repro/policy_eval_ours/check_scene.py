@@ -46,6 +46,7 @@ def main():
     from omnigibson.utils.config_utils import parse_config
     from PIL import Image
     from simfoundry import ASSET_DIR, CFG_DIR, import_og_dependencies
+    from simfoundry.utils.og_utils import apply_scene_masses
     from simfoundry.utils.scene_utils import load_json_with_absolute_usd_paths
 
     gm.ENABLE_CCD = True  # as in the eval stage
@@ -68,6 +69,11 @@ def main():
         scene={"type": "Scene", "scene_file": resolved, "use_floor_plane": True, "floor_plane_visible": False,
                "use_skybox": True, "include_robots": True},
         task=parse_config(task_yaml)["og_task_config"]))
+    # The masses the scene records, applied as the eval stage applies them (stopped, before the first reset).
+    with og.sim.stopped():
+        with open(resolved) as f:
+            for n, (old, new) in apply_scene_masses(env, json.load(f)).items():
+                print(f"[mass] {n}: {old:.3f} -> {new:.3f} kg (from the scene)")
     env.reset()
     if args.tonemap is not None:
         import omnigibson.lazy as lazy

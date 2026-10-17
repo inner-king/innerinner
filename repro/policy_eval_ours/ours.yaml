@@ -94,6 +94,56 @@ tasks:
         - {name: red_marker_nvnysj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
         - {name: white_paper_cup_owccwy_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
 
+  # The two tasks above with the masses our stage 11 now gives these objects (Qwen3.5 with the hollow-object
+  # note, repro/README.md 20.1) in place of the ones the earlier qwen3-vl run baked into their USDs: cup 70 g,
+  # bowl 500 g, pen 10 g; marker 37.6 g, cup 150 g. Real paper cups weigh about 10 g. Everything else is the
+  # same, the starts included (a copy of the task's init-state file), so the difference is the masses alone.
+  cup_in_bowl_ours_mass:
+    scene: scenes/DROID/droid_desk_put_cup_in_bowl_ours_mass/droid_desk_put_cup_in_bowl_ours_mass_scene_state_latest.json
+    task: ours_cup_in_bowl
+    prompt: "pick up the cup, and put the cup inside the bowl"
+    timeout_s: 60
+    execute_horizon: 8
+    paper: {pi0: 56, pi05: 92, gr00t: 40}
+    paper_real: {pi0: 88, pi05: 100, gr00t: 68}
+    build:
+      source: put_cup_in_bowl_v2
+      objects:
+        white_paper_cup: {from: iter_2, xy: [0.605, -0.189], mass: 0.010}
+        orange_bowl: {from: iter_0, xy: [0.599, 0.273], mass: 0.100}
+        black_pen: {from: iter_1, xy: [0.78, 0.05], mass: 0.003}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: white_paper_cup_eqmylj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: orange_bowl_sfufgv_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+        - {name: black_pen_wpmeam_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
+  marker_in_cup_ours_mass:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup_ours_mass/droid_desk_put_marker_in_cup_ours_mass_scene_state_latest.json
+    task: ours_marker_in_cup
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88, gr00t: 28}
+    paper_real: {pi0: 40, pi05: 92, gr00t: 28}
+    build:
+      source: put_marker_in_cup_v2
+      objects:
+        red_marker: {from: iter_2, xy: [0.605, -0.189], align_to: red_marker_undupl_2, mass: 0.018}
+        white_paper_cup: {from: iter_1, xy: [0.599, 0.273], mass: 0.015}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_nvnysj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: white_paper_cup_owccwy_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
 policies:
   pi0:
     checkpoint: pi0_droid_jointpos

@@ -18,7 +18,10 @@ ground plane. Its own task objects are removed and ours are added:
     marker takes the authors' marker's heading, whichever way round is the smaller turn);
   - the object's folder is copied from the real2sim-assets dataset next to the scene JSON and loaded as a
     USDObject, as the authors' scenes carry theirs, so the scene directory is self-contained;
-  - names follow the authors' scheme, <category>_<model>_1, and `category` is what the task YAML groups by.
+  - names follow the authors' scheme, <category>_<model>_1, and `category` is what the task YAML groups by;
+  - `mass` (kg) is written to the scene as the object's args.mass, which the eval stage applies after load
+    (AGENTS.md, "The saved-scene contract"). Without it the object keeps the mass our stage 13 baked into
+    its USD, and the USD is never rewritten (rule 1).
 
 Velocities are zeroed (AGENTS.md rule 3). The output is a new scene; nothing existing is modified.
 
@@ -131,11 +134,14 @@ def main():
         init[name] = {"class_module": "omnigibson.objects.usd_object", "class_name": "USDObject",
                       "args": {"name": name, "usd_path": usd_rel, "category": category,
                                "scale": a.get("scale", [1.0, 1.0, 1.0]), "expected_file_hash": file_hash}}
+        if obj.get("mass") is not None:
+            init[name]["args"]["mass"] = float(obj["mass"])
         reg[name] = {"is_asleep": False, "non_kin": {},
                      "root_link": {"pos": pos, "ori": [float(x) for x in ori],
                                    "lin_vel": [0.0, 0.0, 0.0], "ang_vel": [0.0, 0.0, 0.0]}}
         report.append(f"  {name} <- {build['source']}:{obj['from']} ({a['category']}/{model}) "
-                      f"pos {np.round(pos, 3).tolist()} turned {np.degrees(turn):.1f} deg")
+                      f"pos {np.round(pos, 3).tolist()} turned {np.degrees(turn):.1f} deg"
+                      + (f", mass {obj['mass'] * 1000:g} g" if obj.get("mass") is not None else ""))
 
     for n in reg:  # saved states carry live velocities; nothing should move at t = 0
         for k in ("lin_vel", "ang_vel"):
