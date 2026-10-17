@@ -10,7 +10,8 @@
 #   timeout_s  the repository's eval config for the task (PutCupInBowl.yaml 60 s, PutMarkerInCup.yaml 90 s);
 #              execute_horizon likewise (8)
 #   paper      Table G.1's simulation success rate (%) on the authors' scene; paper_real the real-world one
-#              (gr00t is GR00T N1.6, run by run_local_gr00t.sh rather than the openpi servers below)
+#              (gr00t is GR00T N1.6, run by run_local_gr00t.sh rather than the openpi servers below; dreamzero is
+#              DreamZero-DROID, served by DreamZero's own server, policies.dreamzero below)
 #   init_states 25 fixed starts, a 5x5 grid per object (paper App. J.1). Grid sizes are the repository's task
 #              config ranges (group_xyz_randomization +-r -> 2r), no yaw (its group_z_rot_randomization is 0)
 #
@@ -26,8 +27,8 @@ tasks:
     prompt: "pick up the cup, and put the cup inside the bowl"
     timeout_s: 60
     execute_horizon: 8
-    paper: {pi0: 56, pi05: 92, gr00t: 40}
-    paper_real: {pi0: 88, pi05: 100, gr00t: 68}
+    paper: {pi0: 56, pi05: 92, gr00t: 40, dreamzero: 92}
+    paper_real: {pi0: 88, pi05: 100, gr00t: 68, dreamzero: 100}
     build:
       source: put_cup_in_bowl_v2
       objects:
@@ -54,8 +55,8 @@ tasks:
     prompt: "pick up the cup, and put the cup inside the bowl"
     timeout_s: 60
     execute_horizon: 8
-    paper: {pi0: 56, pi05: 92, gr00t: 40}
-    paper_real: {pi0: 88, pi05: 100, gr00t: 68}
+    paper: {pi0: 56, pi05: 92, gr00t: 40, dreamzero: 92}
+    paper_real: {pi0: 88, pi05: 100, gr00t: 68, dreamzero: 100}
     build:
       source: put_cup_in_bowl_v2
       objects:
@@ -78,8 +79,8 @@ tasks:
     prompt: "pick up the marker, and put the marker in the cup"
     timeout_s: 90
     execute_horizon: 8
-    paper: {pi0: 40, pi05: 88, gr00t: 28}
-    paper_real: {pi0: 40, pi05: 92, gr00t: 28}
+    paper: {pi0: 40, pi05: 88, gr00t: 28, dreamzero: 80}
+    paper_real: {pi0: 40, pi05: 92, gr00t: 28, dreamzero: 88}
     build:
       source: put_marker_in_cup_v2
       objects:
@@ -104,8 +105,8 @@ tasks:
     prompt: "pick up the cup, and put the cup inside the bowl"
     timeout_s: 60
     execute_horizon: 8
-    paper: {pi0: 56, pi05: 92, gr00t: 40}
-    paper_real: {pi0: 88, pi05: 100, gr00t: 68}
+    paper: {pi0: 56, pi05: 92, gr00t: 40, dreamzero: 92}
+    paper_real: {pi0: 88, pi05: 100, gr00t: 68, dreamzero: 100}
     build:
       source: put_cup_in_bowl_v2
       objects:
@@ -128,8 +129,8 @@ tasks:
     prompt: "pick up the marker, and put the marker in the cup"
     timeout_s: 90
     execute_horizon: 8
-    paper: {pi0: 40, pi05: 88, gr00t: 28}
-    paper_real: {pi0: 40, pi05: 92, gr00t: 28}
+    paper: {pi0: 40, pi05: 88, gr00t: 28, dreamzero: 80}
+    paper_real: {pi0: 40, pi05: 92, gr00t: 28, dreamzero: 88}
     build:
       source: put_marker_in_cup_v2
       objects:
@@ -153,3 +154,7 @@ policies:
     checkpoint: pi05_droid_jointpos
     config: pi05_droid_jointpos_polaris
     port: 8001
+  dreamzero:  # as in repro/policy_eval/table_g1.yaml
+    kind: dreamzero
+    checkpoint: DreamZero-DROID
+    port: 5000

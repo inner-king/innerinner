@@ -12,11 +12,14 @@
 #   openpi      openpi at the commit install_simfoundry.sh pins in its commented-out step 2.16, as its
 #               own uv project (the policy server), and its websocket client installed into simfoundry
 #               (1_eval_policy_og_scene.py imports it unconditionally; the installer leaves it out).
+#   client      that client alone, for a runtime that serves another policy (DreamZero, whose client in
+#               simfoundry/policies/ uses openpi_client's msgpack too: setup_dreamzero.sh)
+#   miniforge   the conda installation alone, for setup_dreamzero.sh to build its env in while simfoundry's builds
 #   ckpts       the public DROID joint-position checkpoints of pi0 and pi0.5 from gs://openpi-assets,
 #               fetched with openpi's own downloader into its cache, where serve_policy.py looks.
 #
 # Each step leaves a marker in /content/setup_state and is skipped on a rerun. Logs: /content/logs.
-# Usage: bash repro/policy_eval/setup_colab.sh [all|vulkan|simfoundry|openpi|ckpts]
+# Usage: bash repro/policy_eval/setup_colab.sh [all|vulkan|simfoundry|openpi|client|miniforge|ckpts]
 set -uo pipefail
 REPO="${REPO:-/content/SimFoundry}"
 LOG=/content/logs
@@ -71,9 +74,13 @@ simfoundry() {
   mamba clean -a -y > /dev/null 2>&1; rm -rf /root/.cache/pip
 }
 
-openpi_server() {
+openpi_clone() {
   preclone https://github.com/Physical-Intelligence/openpi.git "${OPENPI_DIR}" || return 1
-  git -C "${OPENPI_DIR}" checkout --detach "${OPENPI_COMMIT}" || return 1
+  git -C "${OPENPI_DIR}" checkout --detach "${OPENPI_COMMIT}"
+}
+
+openpi_server() {
+  openpi_clone || return 1
   # lerobot is a git dependency whose LFS files the server does not need.
   # --python: without it uv pip targets the first python on PATH, miniforge's base, whose Python 3.14
   # (miniforge's latest since 2026-10) has no torch 2.7.1 wheels.
@@ -81,6 +88,7 @@ openpi_server() {
 }
 
 openpi_client() {
+  openpi_clone || return 1
   "${MAMBA_ROOT_PREFIX}/envs/simfoundry/bin/python" -m pip install -e "${OPENPI_DIR}/packages/openpi-client" \
     -c "${REPO}/repro/g4/constraints_simfoundry.txt"
   "${MAMBA_ROOT_PREFIX}/envs/simfoundry/bin/python" -c "import openpi_client.websocket_client_policy"
@@ -113,6 +121,8 @@ case "${1:-all}" in
   vulkan) bash "${REPO}/repro/g4/setup_g4.sh" vulkan ;;
   simfoundry) simfoundry ;;
   openpi) openpi ;;
+  client) step openpi_client openpi_client ;;
+  miniforge) step miniforge install_miniforge ;;
   ckpts) ckpts ;;
   all)
     # The Vulkan libraries, the conda env and the uv project live in disjoint directories. The openpi
@@ -124,5 +134,5 @@ case "${1:-all}" in
     [[ ${s} -eq 0 && ${w} -eq 0 ]] && step openpi_client openpi_client
     echo "[setup] $(date +%T) all parts finished (simfoundry rc=${s}, openpi rc=${w})"
     ;;
-  *) echo "usage: $0 [all|vulkan|simfoundry|openpi|ckpts]" >&2; exit 2 ;;
+  *) echo "usage: $0 [all|vulkan|simfoundry|openpi|client|miniforge|ckpts]" >&2; exit 2 ;;
 esac

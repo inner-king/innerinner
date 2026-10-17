@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Table G.1, simulation side (repro/README.md, chapter 18): the public pi0-DROID and pi0.5-DROID joint-position
 # checkpoints on the authors' five DROID scenes, through the repository's own eval stage
-# (scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py, unmodified) and openpi's policy server.
-# Runs on the Colab runtime set up by setup_colab.sh. Per-task settings: repro/policy_eval/table_g1.yaml.
+# (scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py, unmodified) and openpi's policy server; and
+# DreamZero-DROID through DreamZero's own server (chapter 19.4).
+# Runs on the Colab runtime set up by setup_colab.sh (and setup_dreamzero.sh for DreamZero). Per-task settings:
+# repro/policy_eval/table_g1.yaml.
 #
-#   servers POLICY...              start the policies' openpi servers (ports in table_g1.yaml) and warm them up
+#   servers POLICY...              start the policies' servers (ports in table_g1.yaml) and warm them up: openpi's,
+#                                  or DreamZero's for a policy of `kind: dreamzero` (setup_dreamzero.sh)
 #   stop POLICY...                 stop them
 #   init [TASK...]                 25 fixed starts per task (sample_init_states.py), in parallel
 #   eval POLICY TASK [N] [TAG]     one run of N episodes (default 25); TAG names the run (default "main");
@@ -23,7 +26,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
-SPEC="${SPEC:-${HERE}/table_g1.yaml}"  # SPEC=<file> runs another spec of the same schema
+# SPEC=<file> runs another spec of the same schema. Made absolute: some lookups run inside a run's work directory.
+SPEC="$(readlink -f "${SPEC:-${HERE}/table_g1.yaml}")"
 EVAL_ROOT="${EVAL_ROOT:-/content/eval}"
 PY="${SIMFOUNDRY_PY:-/root/miniforge3/envs/simfoundry/bin/python}"
 OPENPI_DIR="${OPENPI_DIR:-/content/openpi}"
@@ -43,14 +47,51 @@ if [[ -n "${TASKS:-}" ]]; then TASKS=(${TASKS}); else TASKS=($(spec "' '.join(s[
 
 install_tasks() {
   # The eval stage reads the task YAML from scripts/cfg/task itself (resolve_task_config_path), not only
-  # through Hydra's search path, so the configs are copied into that tree for the run.
+  # through Hydra's search path, so the configs are copied into that tree for the run: this directory's,
+  # and those next to another SPEC (repro/policy_eval_ours/tasks/ for ours.yaml).
+  local d dirs=("${HERE}")
+  d="$(cd "$(dirname "${SPEC}")" && pwd)"
+  [[ "${d}" != "${HERE}" && -d "${d}/tasks" ]] && dirs+=("${d}")
   mkdir -p "${REPO}/scripts/cfg/task/policy_eval"
-  cp "${HERE}"/tasks/*.yaml "${REPO}/scripts/cfg/task/policy_eval/"
+  for d in "${dirs[@]}"; do cp "${d}"/tasks/*.yaml "${REPO}/scripts/cfg/task/policy_eval/"; done
+}
+
+# A policy's `kind` is the eval stage's s15_eval.policy, and says which server serves it: openpi (the default)
+# or dreamzero, DreamZero's own server (socket_test_optimized_AR.py) in the env setup_dreamzero.sh builds.
+kind() { spec "s['policies']['$1'].get('kind', 'openpi')"; }
+DZ_PY="${DZ_PY:-/root/miniforge3/envs/dreamzero/bin/python}"
+DZ_DIR="${DZ_DIR:-/content/dreamzero}"
+export HF_HOME="${HF_HOME:-/content/hf_home}"
+
+port_open() { "${PY}" -c "import socket,sys; socket.create_connection(('localhost', int(sys.argv[1])), 2)" "$1" 2> /dev/null; }
+
+dreamzero_server() {  # dreamzero_server POLICY: start DreamZero's server on the policy's port and warm it up
+  local p="$1" port ckpt
+  port=$(spec "s['policies']['${p}']['port']")
+  ckpt=$(spec "s['policies']['${p}']['checkpoint']")
+  # Its RoboArena websocket server answers no HTTP health check: an open port means the model is loaded.
+  if port_open "${port}"; then
+    echo "[servers] ${p} already up on ${port}"
+  else
+    # One process: ip_size 1 runs both classifier-free-guidance branches in turn, where the authors' two GPUs
+    # run one each. DiT caching as the DreamZero README serves it.
+    (cd "${DZ_DIR}" && setsid nohup "${DZ_PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+      socket_test_optimized_AR.py --port "${port}" --enable-dit-cache --model-path "/content/dz_ckpt/${ckpt}" \
+      > "${EVAL_ROOT}/logs/server_${p}.log" 2>&1 < /dev/null &)
+    echo "[servers] ${p}: DreamZero /content/dz_ckpt/${ckpt} on ${port}"
+    # Loading 46 GB of weights (and the Wan2.1 encoders it reads first) takes minutes.
+    for _ in $(seq 360); do port_open "${port}" && break; sleep 5; done
+    port_open "${port}" || { echo "[servers] ${p} did not come up, see ${EVAL_ROOT}/logs/server_${p}.log"; return 1; }
+  fi
+  # The first calls compile (minutes each, one per new context length); do them here rather than inside an
+  # episode, through the eval stage's own client, two episodes' worth.
+  "${PY}" "${HERE}/ping_dreamzero.py" --port "${port}" --n "${DZ_WARMUP_CALLS:-8}" --episodes 2
 }
 
 servers() {
   local p port cfg ckpt
   for p in "$@"; do
+    if [[ $(kind "${p}") == dreamzero ]]; then dreamzero_server "${p}" || return 1; continue; fi
     port=$(spec "s['policies']['${p}']['port']")
     cfg=$(spec "s['policies']['${p}']['config']")
     ckpt=$(spec "s['policies']['${p}']['checkpoint']")
@@ -61,6 +102,7 @@ servers() {
     echo "[servers] ${p}: ${cfg} ${CKPT_ROOT}/${ckpt} on ${port}"
   done
   for p in "$@"; do
+    [[ $(kind "${p}") == dreamzero ]] && continue
     port=$(spec "s['policies']['${p}']['port']")
     for _ in $(seq 180); do curl -fsS "http://localhost:${port}/healthz" > /dev/null 2>&1 && break; sleep 2; done
     # The first call compiles (about 30 s); do it here rather than inside an episode.
@@ -72,7 +114,11 @@ stop() {
   local p port
   for p in "$@"; do
     port=$(spec "s['policies']['${p}']['port']")
-    pkill -f "serve_policy.py --port ${port} " && echo "[servers] stopped ${p} (${port})"
+    if [[ $(kind "${p}") == dreamzero ]]; then
+      pkill -f "socket_test_optimized_AR.py --port ${port} " && echo "[servers] stopped ${p} (${port})"
+    else
+      pkill -f "serve_policy.py --port ${port} " && echo "[servers] stopped ${p} (${port})"
+    fi
   done
   sleep 5
 }
@@ -129,7 +175,7 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
   (cd "${work}" && "${PY}" "${REPO}/scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py" \
     --config-name=real2sim_cfg "task=policy_eval/${task}" \
     "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_${p}_${tag}" \
-    s15_eval.policy=openpi s15_eval.host=localhost "s15_eval.port=${port}" "s15_eval.checkpoint=${ckpt}" \
+    "s15_eval.policy=$(kind "${p}")" s15_eval.host=localhost "s15_eval.port=${port}" "s15_eval.checkpoint=${ckpt}" \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" "s15_eval.external_sensors_cfg=${sensors}" \
     "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
@@ -143,6 +189,8 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
 
 all() {  # all POLICY [JOBS] [N] [TAG]: every task for one policy, JOBS at a time
   local p="$1" jobs="${2:-2}" n="${3:-25}" tag="${4:-main}" t
+  # DreamZero's server keeps one episode's frames and KV cache, and a second client's session id resets them.
+  [[ $(kind "${p}") == dreamzero ]] && jobs=1
   for t in "${TASKS[@]}"; do
     # Counts every eval process on the machine, including runs started outside this loop.
     while [[ $(pgrep -fc "stages/1_eval_policy_og_scene.py") -ge ${jobs} ]]; do sleep 20; done
