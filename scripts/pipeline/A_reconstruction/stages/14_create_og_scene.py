@@ -426,7 +426,19 @@ def main(cfg):
         # joint_targets = robot.default_arm_poses["gripper_down"]
         # joint_targets = robot.default_arm_poses["home"]
         # joint_targets = th.cat([robot.reset_joint_pos[:-2], th.tensor([1.0])])
-        robot_position = th.tensor(cfg.s14_og.robot_config.position)
+        robot_position = th.tensor(cfg.s14_og.robot_config.position, dtype=th.float)
+        # The fixed robot_config.position sits 1 m behind the world origin, beyond a Franka's reach (~0.85 m) of a
+        # tabletop reconstructed around it (0.87 m in PutMarkerInCup, repro/README.md chapter 12). With
+        # s14_og.robot_standoff_m set, the base goes that far behind the objects' centroid along -x instead (the
+        # robot faces +x), keeping the configured height. 0.6 m is where the authors' DROID scenes put their
+        # objects in front of the base.
+        standoff = OmegaConf.select(cfg, "s14_og.robot_standoff_m", default=None)
+        if standoff is not None and len(objs) > 0:
+            centroid = th.stack([th.as_tensor(obj.get_position_orientation()[0], dtype=th.float)
+                                 for obj in objs.values()]).mean(dim=0)
+            robot_position = th.tensor([float(centroid[0]) - float(standoff), float(centroid[1]),
+                                        float(robot_position[2])])
+            print(f"Robot base {float(standoff):.2f} m behind the objects' centroid {centroid.tolist()}")
 
         robot.set_position_orientation(
             position=robot_position,

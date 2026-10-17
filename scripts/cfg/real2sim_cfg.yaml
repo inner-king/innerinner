@@ -396,6 +396,7 @@ s14_og:
     orientation: [0, 0, 0, 1]
   include_table: false
   include_robot: true
+  robot_standoff_m: 0.6                  # robot base this far behind the objects' centroid (-x); null = robot_config.position
   # Use the Gaussian-splat background from the auto_bg_reconstruction pipeline. Off by default
   # because stage 2c (the splat producer) is opt-in via --bg-splat: leaving this on made the
   # default pipeline consume an artifact the default pipeline never produced. It also forces

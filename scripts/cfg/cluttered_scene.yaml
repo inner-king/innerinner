@@ -189,6 +189,7 @@ s14_og:
     orientation: [0, 0, 0, 1]
   include_table: false
   include_robot: false
+  robot_standoff_m: 0.6                  # robot base this far behind the objects' centroid (-x); null = robot_config.position
   include_gs: false
   randomize_xy_range: 0.01
   randomize_z_rotation_deg: 50           # Z-axis rotation range: 360 = full [0,360°), else ±N degrees (e.g. 30 = ±30°)

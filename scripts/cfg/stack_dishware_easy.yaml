@@ -166,6 +166,7 @@ s14_og:
     orientation: [0, 0, 0, 1]
   include_table: false
   include_robot: true
+  robot_standoff_m: 0.6                  # robot base this far behind the objects' centroid (-x); null = robot_config.position
   include_gs: false
   external_sensors_cfg: nv_franka_droid    # Located in <CFG_DIR>/external_sensors
 s14_teleop:
