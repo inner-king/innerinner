@@ -391,6 +391,8 @@ git에는 코드와 이 기록만 넣습니다. 영상·이미지·로그, 장�
 | Drive 경로 | 내용 | 체크아웃 쪽 |
 |---|---|---|
 | `results/results_view/` | 최종 영상·이미지 (12·13장) | `results/results_view/` |
+| `results/results_view/policy_eval/` | Table G.1 정책 평가 요약: 실행별 표(`runs.md`), 과제·장면별 r·MMRV(`agreement.md`), 실행마다 성공·실패 영상 하나씩. 아래 두 원본 폴더를 읽어 `repro/policy_eval_ours/results_view.py`가 만듦 | `results/results_view/policy_eval/` |
+| `results/policy_eval_ours/`, `results/logs/policy_eval/` | 정책 평가 원본(평가 단계의 깊은 폴더 그대로): 앞은 19–23장, 뒤는 18장의 π0·π0.5 | `results/policy_eval_ours/`, `~/simfoundry_logs/policy_eval/` |
 | `results/diagnostics/` | 점검 이미지(`realview_alignment.jpg` 등), 이미지 백엔드 비교(`q21/`) | `results/diagnostics/` |
 | `results/logs/` | 설치·실행 로그 (A/B/C, 시연, auto_bg) | `${SIMFOUNDRY_LOG_DIR:-~/simfoundry_logs}` |
 | `results/model_calls/` | VLM·이미지 모델 응답 캐시. `--cache-mode`로 같은 응답을 다시 씀 | `.cache/simfoundry/` |
@@ -433,7 +435,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
-| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`) | 19, 21, 22, 23 |
+| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`), 평가 결과 요약 폴더(`results_view.py`) | 19, 21, 22, 23 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
 | `friction/check_saved_scene.py`, `friction/check_finger_friction.py` | 마찰을 기록한 장면을 텔레옵처럼 로드해 PhysX 재질과 다시 저장을 점검, 로봇 손가락 마찰 점검 | 20.4 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
