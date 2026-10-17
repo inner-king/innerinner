@@ -374,7 +374,32 @@ Pick the option that would reconstruct best, judging in this order of priority:
 Please think through your process first via chain-of-thought, explicitly comparing how large and how occluded the smallest object is in each option. Then provide your final answer as the option number, in the format: ANSWER: <option number between 1 and {n_candidates}>"""
 
 
-def mass_prompt_volumes(tm, obb_extent):
+def welded_volume(tm):
+    """
+    Volume of a mesh that is closed once its coincident vertices are merged, else None.
+
+    A textured mesh keeps one copy of every vertex on a UV seam per texture coordinate, so trimesh counts the
+    seams as open edges and calls a closed surface open. Every stage 8 canonical mesh in three of our scenes was
+    such a mesh: merged by position alone, 12 of 14 were closed volumes and the other two lacked one triangle each
+    (repro/README.md, chapter 20.5).
+
+    Args:
+        tm (trimesh.Trimesh): the scaled mesh
+
+    Returns:
+        float or None: the volume (m^3) the merged surface encloses, or None if it is still open
+    """
+    import trimesh
+
+    # Positions and faces only: with no texture coordinates or normals left to tell the seam copies apart,
+    # the constructor's processing merges them.
+    welded = trimesh.Trimesh(vertices=tm.vertices, faces=tm.faces, process=True)
+    if not welded.is_volume:
+        trimesh.repair.fill_holes(welded)  # single missing triangles only; a real hole leaves the mesh open
+    return float(welded.volume) if welded.is_volume else None
+
+
+def mass_prompt_volumes(tm, obb_extent, weld_seams=False):
     """
     The volumes stage 11 states in the mass prompt for a rigid mesh.
 
@@ -383,9 +408,19 @@ def mass_prompt_volumes(tm, obb_extent):
     thin shells: a cup or bowl reconstructed with its cavity. For the shell the mesh's own volume is the material
     volume, which is what a mass follows, so it is returned too.
 
+    weld_seams measures an open mesh again with its seam vertices merged (welded_volume), and states that volume
+    when the welded mesh fills at least 40% of its convex hull: a compact solid, whose own volume is the object's.
+    65% of the box is about twice the volume of an elongated, curved solid: a reconstructed 19 cm banana got
+    304.8 cm^3 against the 142.6 cm^3 its welded surface encloses, and Qwen3.5 answered 610 g (repro/README.md,
+    chapters 22.1 and 20.5). A thinner shape such as a plate, a cup or a bowl keeps the box estimate, without a
+    material volume: its reconstructed walls are far thicker than thin real ones, and stated as their material, the
+    3 mm walls of two 10 g paper cups made Qwen3.5 answer 55 and 74 g. The default keeps the original volumes,
+    which the replays in repro/vlm_compare depend on.
+
     Args:
         tm (trimesh.Trimesh): the scaled mesh
         obb_extent (array): its oriented bounding-box extents (m)
+        weld_seams (bool): measure an open mesh after merging its seam vertices
 
     Returns:
         2-tuple: volume (m^3) as stage 11 states it, and the material volume (m^3) of a closed thin shell or None
@@ -393,9 +428,15 @@ def mass_prompt_volumes(tm, obb_extent):
     import numpy as np
 
     bbox_volume = float(np.prod(obb_extent))
-    if tm.is_volume and tm.volume > bbox_volume * 0.1:
-        return float(tm.volume), None
-    return bbox_volume * 0.65, (float(tm.volume) if tm.is_volume and tm.volume > 0 else None)
+    if tm.is_volume:
+        if tm.volume > bbox_volume * 0.1:
+            return float(tm.volume), None
+        return bbox_volume * 0.65, float(tm.volume)
+    if weld_seams:
+        volume = welded_volume(tm)
+        if volume is not None and volume >= 0.4 * tm.convex_hull.volume:
+            return volume, None
+    return bbox_volume * 0.65, None
 
 
 def prompt_object_mass_friction(obj_phrase, bounding_box_cm, volume_cm, material_volume_cm=None, envelope_note=False):

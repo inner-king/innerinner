@@ -14,6 +14,7 @@ proposed task YAMLs go to <out_dir>. The Ollama model comes from the environment
 pipeline (SIMFOUNDRY_OLLAMA_MODEL, SIMFOUNDRY_OLLAMA_THINK); run with the response cache off.
 
 Usage: python repro/vlm_compare/replay_other_calls.py <out_dir> [--only A11,A8,B1,B7] [--data-root DIR]
+       [--scenes S1,S2]
 """
 import argparse
 import ast
@@ -82,9 +83,10 @@ def load_mesh_as_trimesh(mesh_path):
     return tm
 
 
-def mass_friction_inputs(scene, img_name, with_material=False):
-    """Extents (cm) and volume (cm^3) exactly as stage 11 computes them for a rigid object; with_material also
-    returns the material volume (cm^3) of a closed thin shell, as stage 11 now states it (else None)."""
+def mass_friction_inputs(scene, img_name, weld_seams=False):
+    """Extents (cm), volume (cm^3) and a closed thin shell's material volume (cm^3, else None), exactly as stage 11
+    computes them for a rigid object (mass_prompt_volumes). weld_seams measures an open mesh with its seam
+    vertices merged, as stage 11 now does; without it the volume follows the rule the recorded runs used."""
     d = bc.DATA / scene
     info = json.load(open(d / "s8_pose/info" / f"{img_name}.json"))
     tf_scale = info["z_up"]["scale"]
@@ -93,24 +95,19 @@ def mass_friction_inputs(scene, img_name, with_material=False):
     tm = load_mesh_as_trimesh(str(d / "s8_pose/canonical_mesh" / f"{img_name}.glb"))
     tm.apply_scale(tf_scale)
     _, obb_extent = trimesh.bounds.oriented_bounds(tm)
-    bbox_volume = np.prod(obb_extent)
-    if tm.is_volume and tm.volume > bbox_volume * 0.1:
-        volume_m3 = tm.volume
-    else:
-        volume_m3 = bbox_volume * 0.65
-    if with_material:
-        _, material_m3 = mass_prompt_volumes(tm, obb_extent)
-        return obb_extent * 100, volume_m3 * (100 ** 3), None if material_m3 is None else material_m3 * (100 ** 3)
-    return obb_extent * 100, volume_m3 * (100 ** 3)
+    volume_m3, material_m3 = mass_prompt_volumes(tm, obb_extent, weld_seams=weld_seams)
+    return obb_extent * 100, volume_m3 * (100 ** 3), None if material_m3 is None else material_m3 * (100 ** 3)
 
 
-# MASS_PROMPT=hollow replays stage 11's current mass prompt (the volume note and a thin shell's material
-# volume); the default replays the prompt the recorded runs used.
+# MASS_PROMPT=hollow replays chapter 20.1's mass prompt (the volume note and a thin shell's material volume);
+# MASS_PROMPT=welded adds stage 11's current volumes, measured on the mesh with its seam vertices merged
+# (chapter 20.5); the default replays the prompt the recorded runs used.
 MASS_PROMPT = __import__("os").environ.get("MASS_PROMPT", "original")
+assert MASS_PROMPT in ("original", "hollow", "welded"), MASS_PROMPT
 
 
 def run_a11(scene, idx, img_name, meta):
-    bbox_cm, volume_cm, material_cm = mass_friction_inputs(scene, img_name, with_material=True)
+    bbox_cm, volume_cm, material_cm = mass_friction_inputs(scene, img_name, weld_seams=MASS_PROMPT == "welded")
     vlm = Gemini(project="local", location="global", model=CFG.s11_sim.vlm_model)
     extra = {} if MASS_PROMPT == "original" else {"material_volume_cm": material_cm, "envelope_note": True}
     result = vlm(prompt=prompt_object_mass_friction(obj_phrase=meta["removed_obj_phrase"], bounding_box_cm=bbox_cm,
@@ -272,6 +269,7 @@ def main():
     ap.add_argument("out_dir")
     ap.add_argument("--only", default="A11,A8,B1,B7")
     ap.add_argument("--data-root", default=str(bc.DATA), help="scene outputs (default: <repo>/Data)")
+    ap.add_argument("--scenes", default=",".join(SCENES), help="scenes A11 and A8 replay")
     args = ap.parse_args()
     bc.DATA = Path(args.data_root)
     bc.check_setup()
@@ -286,14 +284,15 @@ def main():
         bc.append_jsonl(results, {"case": case, **meta, **res})
         print(bc.summary_line(case["id"], meta, res.get("error") or tail), flush=True)
 
+    scenes = args.scenes.split(",")
     if "A11" in only:
-        for scene in SCENES:
+        for scene in scenes:
             for idx, img_name, meta in objects_of(scene):
                 res, m = bc.measured(lambda: run_a11(scene, idx, img_name, meta))
                 record({"id": f"A11_{scene}_{img_name}", "stage": "A11", "scene": scene, "object": meta["removed_obj_phrase"]},
                        res, m, f"mass {res.get('mass')} friction {res.get('friction')} (bbox {res.get('bbox_cm')})")
     if "A8" in only:
-        for scene in SCENES:
+        for scene in scenes:
             for idx, img_name, meta in objects_of(scene):
                 res, m = bc.measured(lambda: run_a8(scene, idx, img_name, meta))
                 record({"id": f"A8_{scene}_{img_name}", "stage": "A8", "scene": scene, "object": meta["removed_obj_phrase"]},

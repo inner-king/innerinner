@@ -381,23 +381,19 @@ def main(cfg):
         obb_tf, obb_extent = trimesh.bounds.oriented_bounds(tm)
         logger.info(f"[DEBUG] Mesh extent after scaling: {obb_extent} m ({obb_extent*100} cm)")
         
-        # Compute volume - use mesh volume if watertight, otherwise estimate from bounding box
-        bbox_volume = np.prod(obb_extent)  # Axis-aligned bounding box volume
-        min_reasonable_volume = bbox_volume * 0.1  # At least 10% of bbox volume
-        
+        bbox_volume = np.prod(obb_extent)  # oriented bounding box volume
+
         # The volume the mass prompt states (stage 11's rule, now in mass_prompt_volumes), plus the material volume
-        # of a closed thin shell such as a cup or bowl reconstructed with its cavity.
-        volume_m3, material_volume_m3 = mass_prompt_volumes(tm, obb_extent)
-        if tm.is_volume and tm.volume > min_reasonable_volume:
-            logger.info(f"[DEBUG] Mesh is watertight, using computed volume: {volume_m3} m³ ({volume_m3 * (100**3):.2f} cm³)")
-        else:
-            # Fallback: estimate volume from bounding box (assume ellipsoid-like shape), 65% of the box
-            if not tm.is_volume:
-                logger.info(f"[DEBUG] Mesh is not watertight (is_volume={tm.is_volume}), estimating from bbox")
-            else:
-                logger.info(f"[DEBUG] Mesh volume ({tm.volume * (100**3):.2f} cm³) is too small compared to bbox ({bbox_volume * (100**3):.2f} cm³), estimating from bbox")
-            logger.info(f"[DEBUG] Bbox volume: {bbox_volume} m³ ({bbox_volume * (100**3):.2f} cm³)")
-            logger.info(f"[DEBUG] Estimated volume (65% of bbox): {volume_m3} m³ ({volume_m3 * (100**3):.2f} cm³)")
+        # of a closed thin shell such as a cup or bowl reconstructed with its cavity. A mesh trimesh calls open is
+        # measured again with its UV-seam vertices merged, which closed every stage 8 mesh we checked, and a compact
+        # one states that volume: the box estimate doubled a curved banana's volume (repro/README.md, chapter 20.5).
+        volume_m3, material_volume_m3 = mass_prompt_volumes(tm, obb_extent, weld_seams=True)
+        logger.info(f"[DEBUG] Mesh is_volume={tm.is_volume} (an open mesh is measured with its seam vertices merged), "
+                    f"bbox volume: {bbox_volume} m³ ({bbox_volume * (100**3):.2f} cm³)")
+        logger.info(f"[DEBUG] Volume stated to the VLM: {volume_m3} m³ ({volume_m3 * (100**3):.2f} cm³, "
+                    f"{volume_m3 / bbox_volume:.0%} of the bbox)")
+        if material_volume_m3 is not None:
+            logger.info(f"[DEBUG] Closed thin shell, material volume: {material_volume_m3 * (100**3):.2f} cm³")
 
         # Process rigid vs articulated objects separately
         if not is_articulated: # processing for solid objects only

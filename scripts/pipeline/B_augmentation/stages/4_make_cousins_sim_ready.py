@@ -164,7 +164,7 @@ def main(cfg):
             logger.info(f"Front canonicalization for {obj_category}: {front_info['status']} "
                         f"(yaw={front_info['applied_yaw_deg']:.0f} deg)")
         obb_tf, obb_extent = trimesh.bounds.oriented_bounds(tm)
-        mass_volumes = mass_prompt_volumes(tm, obb_extent)
+        mass_volumes = mass_prompt_volumes(tm, obb_extent, weld_seams=True)
 
         result = vlm(
             # Same volumes as stage 11 states for the originals (mass_prompt_volumes); tm.volume alone is

@@ -178,6 +178,7 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 | `simfoundry/models/local_backends.py` (16장 추가분) | `SIMFOUNDRY_OLLAMA_THINK`: `0`이면 Ollama에 `think: false`, `1`이면 `true`. 설정하지 않으면 보내지 않음(예전과 같음) |
 | hunyuan env `basicsr/data/degradations.py` | `functional_tensor` → `functional` |
 | `simfoundry/utils/prompt_utils.py`, `11_make_objects_sim_ready.py`, `B_augmentation/stages/4_make_cousins_sim_ready.py` (20장) | 질량 프롬프트에 부피가 무엇인지 밝힘(`envelope_note`), 닫힌 얇은 껍질의 재료 부피(`mass_prompt_volumes`). 인자 없이는 원래 프롬프트와 같음 |
+| `simfoundry/utils/prompt_utils.py` (`welded_volume`), `11_make_objects_sim_ready.py`, `B_augmentation/stages/4_make_cousins_sim_ready.py` (20.5) | 닫히지 않았다고 판정된 메시를 UV 이음매의 꼭짓점을 합쳐 다시 재고, 볼록 껍질의 40% 이상을 채우는 꽉 찬 물체면 그 부피를 질량 프롬프트에 줌(`weld_seams`). 인자 없이는 예전 부피 |
 | `C_application/stages/2_teleop_og_scene.py` (20장) | 장면에 기록된 질량 적용(`apply_scene_masses`, 평가 단계와 같음) |
 | `C_application/stages/1_eval_policy_og_scene.py`, `scripts/cfg/real2sim_cfg.yaml` (20장) | `s15_eval.tonemap_op`: 정책 카메라의 RTX 톤매퍼 선택. 기본 null(예전과 같음) |
 | `A_reconstruction/stages/14_create_og_scene.py`, `scripts/cfg/*.yaml` (20장) | `s14_og.robot_standoff_m`(설정 기본 0.6 m): 로봇 베이스를 물체 중심 뒤에 둠. null이면 고정 위치 |
@@ -434,7 +435,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
-| `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
+| `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험, 11단계 질량 프롬프트 변형(`MASS_PROMPT`) | 16, 20.1, 20.5 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
 | `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`), 평가 결과 요약 폴더(`results_view.py`) | 19, 21, 22, 23 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
@@ -1126,7 +1127,7 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
 - **장면에 기록된 질량.** 저장 장면의 `objects_info.init_info[<name>].args.mass`는 OmniGibson이 로드할 때 읽지 않아서, 장면을 쓰는 코드가 로드한 뒤에 적용해야 합니다(AGENTS.md). 평가 단계는 18장에서 `apply_scene_masses`를 쓰게 됐고, 이번에 텔레옵 단계(`2_teleop_og_scene.py`)도 같은 함수를 씁니다. 시뮬레이터를 멈춘 상태에서 적용하고, 이어지는 리셋에서 장면의 자세를 다시 놓습니다.
 - **VLM 질량 추정의 부피.** 11단계는 메시가 닫혀 있고 바운딩 박스의 10%를 넘게 채우면 그 부피를, 아니면 박스의 65%를 VLM에 "부피"로 줍니다. 컵·그릇처럼 속이 빈 물체는 거의 후자라서 속까지 찬 부피를 받습니다. Qwen3.5는 거기에 플라스틱 밀도를 그대로 곱해 그릇을 5.51 kg으로 냈습니다(16장).
   - 프롬프트에 그 부피가 무엇인지 적습니다. "겉면이 감싸는 부피로, 속이 빈 내부도 찬 것으로 센 값이다. 용기처럼 속이 비었다면 재료와 질량은 그중 작은 일부다"(`envelope_note`).
-  - 닫힌 얇은 껍질 메시(속까지 복원된 컵 등)는 메시 자체의 부피가 재료 부피이므로 그것도 함께 줍니다(`material_volume_cm`, `mass_prompt_volumes`). 우리 장면의 물체는 모두 열린 메시라 이 경우는 없었습니다.
+  - 닫힌 얇은 껍질 메시(속까지 복원된 컵 등)는 메시 자체의 부피가 재료 부피이므로 그것도 함께 줍니다(`material_volume_cm`, `mass_prompt_volumes`). 우리 장면의 물체는 모두 열린 메시라 이 경우는 없었습니다(20.5: 실제로는 UV 이음매 때문에 열린 것으로 판정된 닫힌 메시였습니다).
   - 인자를 주지 않으면 프롬프트는 원래와 글자 하나까지 같습니다. 16장의 재생 기록과 비교하기 위해서입니다. 11단계와 cousin 단계(B4)가 새 문구를 씁니다.
   - 11단계의 질량 호출을 저장된 입력으로 다시 보낸 결과입니다(`repro/vlm_compare/replay_other_calls.py --only A11`, `MASS_PROMPT=hollow`, 결과 `diagnostics/vlm_compare/mass_prompt/`).
 
@@ -1239,6 +1240,73 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
 - 패치 뒤에도 `check_friction.py`의 나머지 항목(붙이는 시점별 재질, 미끄럼 시험, 가라앉힘)은 위 두 표와 같습니다.
 - 14단계 재실행의 JSON은 새 키를 빼면 `s14_og_friction`과 같고, 가라앉은 자세도 비트 단위로 같습니다. 이 재실행은 deps에 패치를 붙이기 전에, 같은 커밋의 사본에 같은 패치를 붙여 `PYTHONPATH`로 앞세워 돌렸습니다. 나머지 "패치 후" 값은 패치한 deps에서 얻었습니다.
 
+### 20.5 질량: 열린 메시의 부피
+
+22.1의 바나나 610 g은 11단계가 VLM에 준 부피(304.8 cm³)가 실제의 약 두 배였던 탓도 있습니다. 11단계는 trimesh가 닫히지 않았다고 판정한 메시에 방향 상자 부피의 65%를 줍니다. 휘고 긴 물체는 상자의 대부분이 비어 있습니다.
+
+- **그 메시들은 실제로는 닫혀 있습니다.** 텍스처가 있는 메시는 UV 이음매 위의 꼭짓점을 텍스처 좌표마다 하나씩 따로 둡니다. trimesh는 그 이음매를 열린 모서리로 셉니다.
+  - 세 장면(Serve Fruits, Cup in Bowl v2, Marker in Cup v2)의 8단계 메시 14개가 모두 이랬습니다. 열린 모서리의 꼭짓점은 전부, 같은 자리에 UV만 다른 사본이 있는 꼭짓점이었습니다.
+  - 꼭짓점을 위치만으로 합치자 12개가 닫힌 부피가 됐습니다. 나머지 2개(사과, 초록 바나나 하나)는 삼각형이 하나씩 빠져 있었습니다. `Data/`의 8단계 메시 38개와 cousin 메시 8개도 모두 같은 방법으로 닫혔습니다.
+  - 20.1에서 "우리 장면의 물체는 모두 열린 메시"였던 것도 이 판정 때문입니다. 모든 물체가 상자 65% 규칙을 받았습니다.
+- **수정**: `mass_prompt_volumes(..., weld_seams=True)`. 열린 메시를 꼭짓점을 합치고 삼각형 하나짜리 구멍을 메운 뒤(`welded_volume`) 다시 잽니다.
+  - 그 메시가 볼록 껍질의 40% 이상을 채우는 꽉 찬 물체면 그 부피를 줍니다. 우리 장면에서 과일·바나나·마커·펜이 여기에 들고, 바나나가 가장 낮은 0.54입니다.
+  - 접시·컵·그릇처럼 얇은 물체(0.23 이하)와 가위(0.30–0.40)는 예전처럼 상자의 65%와 20.1의 문구를 받습니다. 진짜 구멍이 남은 메시도 마찬가지입니다.
+  - 11단계와 cousin 단계(B4)가 켭니다. 인자를 주지 않으면 예전 부피 그대로입니다. 16장과 20.1의 재생 프롬프트가 글자 하나까지 같은 것을 확인했습니다(물체 17개 × 문구 2개).
+  - 불러올 때부터 닫혀 있는 메시는 예전 규칙 그대로입니다(20.1의 얇은 껍질 재료 부피 포함). 8단계 메시는 모두 이음매가 있어서 실제로는 이 경우가 없습니다.
+- **얇은 물체는 예전 그대로 둡니다.** 처음에는 합친 메시를 닫힌 메시 규칙에 그대로 태웠습니다. 상자의 10%를 넘으면 그 부피를, 아니면 상자의 65%와 재료 부피를 주는 규칙입니다. 이 변형도 재생했습니다(아래 표의 오른쪽에서 두 번째 열).
+  - 종이컵 둘이 55 g, 74 g이 됐습니다(실물 약 10 g). 복원된 벽이 약 3 mm로, 실제 종이컵 벽(0.3 mm 안팎)보다 훨씬 두껍습니다. Qwen3.5는 종이라고 맞게 알아보고도, 받은 재료 부피에 종이 밀도를 그대로 곱했습니다.
+  - 그릇은 387 g이 됐습니다(예전 100 g, 실물 수백 g). Qwen3.5 스스로 "보통 150–300 g인데 조금 무겁다"고 적었습니다.
+  - 접시 둘은 합친 부피(264·234 cm³)가 상자의 15–17%라 그 부피를 그대로 받았습니다. 그런데 문구가 "속 빈 부분까지 센 부피"라고 하니 다시 작게 깎아 20 g, 35 g을 냈습니다(예전 90 g, 30 g). 사진의 두 접시는 성형 플라스틱으로 보입니다.
+  - 그래서 합친 부피는 꽉 찬 물체에만 씁니다. 컵은 21장에서 질량에 따라 실패 양상이 달라진 물체입니다(10 g 컵이 손가락에 밀려남). 그래서 컵을 다시 무겁게 만드는 쪽은 택하지 않았습니다.
+- **제안된 다른 두 방법보다 정확합니다.** 11단계가 이미 계산하는 볼록 분해(CoACD) 조각 부피의 합과, 메시 복셀 채우기(가장 긴 변의 1/128 간격)도 재 봤습니다.
+  - 과일처럼 둥근 물체에서는 둘 다 합친 부피와 15% 안쪽입니다.
+  - 얇은 물체에서는 크게 벗어납니다. 볼록 조각은 휜 벽 사이의 빈 공간까지 감싸고, 복셀은 얇은 벽을 한 칸 두께로 부풀립니다. 접시·컵·그릇에서 CoACD 합은 합친 부피의 1.9–2.6배, 복셀은 1.4–1.7배입니다.
+  - 게다가 CoACD는 11단계가 질량을 물은 뒤에 돕니다. 그 부피를 쓰려면 순서도 바꿔야 합니다.
+
+| 물체 (cm³) | 상자 65% (예전) | 합친 메시 | CoACD 합 | 복셀 채우기 |
+|---|---|---|---|---|
+| 바나나 | 304.8 | 142.6 | 154.6 | 162.8 |
+| 사과 | 188.7 | 161.7 | 149.0 | 167.1 |
+| 주황 접시 | 1,149.8 | 264.2 | 585.4 | 405.9 |
+| 가위 | 233.6 | 51.0 | 81.2 | 69.7 |
+| 흰 종이컵 | 597.6 | 79.3 (벽) | 154.0 | 107.6 |
+| 주황 그릇 | 5,799.4 | 430.3 (벽) | 1,121.7 | 729.7 |
+
+**질량 재생** (`replay_other_calls.py --only A11`, Qwen3.5, thinking 끔, 저장된 입력). 예전은 `MASS_PROMPT=hollow`(지금 11단계 문구, 예전 부피), 새것은 `MASS_PROMPT=welded`입니다. 예전 쪽은 파이프라인 로그(Serve Fruits 8개)와 20.1의 Qwen3.5 값(나머지 6개)을 하나도 빠짐없이 그대로 다시 냈습니다. 새 쪽도 같은 프롬프트를 받은 다른 재생과 답이 모두 같았습니다.
+
+| 장면 / 물체 | 예전 부피 (cm³) | 새 부피 (cm³) | 예전 질량 | 새 질량 | 얇은 물체도 합친 부피를 쓴 변형 | 실물 / 저자 |
+|---|---|---|---|---|---|---|
+| Serve Fruits / 배("orange tangerine") | 152.3 | **117.3** | 137 g | **113 g** | 117.3 → 113 g | 저자 240 g |
+| Serve Fruits / 바나나 | 304.8 | **142.6** | 610 g | **120 g** | 142.6 → 120 g | 저자 120 g, 실물 약 120–150 g |
+| Serve Fruits / 사과 | 188.7 | **161.7** | 123 g | **136 g** | 161.7 → 136 g | 저자 130 g |
+| Serve Fruits / 초록 바나나(유령) | 323.8 | **143.8** | 363 g | **140 g** | 143.8 → 140 g | — |
+| Serve Fruits / 주황 접시 | 1,149.8 | 1,149.8 | 90 g | 90 g | 264.2 → 20 g | 저자 400 g |
+| Serve Fruits / 오렌지 | 165.3 | **145.3** | 162 g | **131 g** | 145.3 → 131 g | 저자 140 g |
+| Serve Fruits / 초록 바나나(유령) | 248.2 | **110.3** | 253 g | **105 g** | 110.3 → 105 g | — |
+| Serve Fruits / 청록 접시 | 884.0 | 884.0 | 30 g | 30 g | 234.2 → 35 g | 저자 500 g |
+| Cup in Bowl v2 / 주황 그릇 | 5,799.4 | 5,799.4 | 100 g | 100 g | 5,799.4(재료 430.3) → 387 g | 수백 g |
+| Cup in Bowl v2 / 검은 펜 | 3.3 | **2.6** | 3 g | **2.5 g** | 2.6 → 2.5 g | 약 5–10 g |
+| Cup in Bowl v2 / 흰 종이컵 | 597.6 | 597.6 | 10 g | 10 g | 597.6(재료 79.3) → 55 g | 약 10 g |
+| Marker in Cup v2 / 가위 | 233.6 | 233.6 | 35 g | 35 g | 51.0 → 40 g | 약 50–80 g |
+| Marker in Cup v2 / 녹색 무늬 컵 | 655.5 | 655.5 | 15 g | 15 g | 655.5(재료 86.8) → 74 g | 약 10 g |
+| Marker in Cup v2 / 빨간 마커 | 37.6 | **42.0** | 18 g | **15 g** | 42.0 → 15 g | 약 15–20 g |
+
+- **바나나는 610 g에서 120 g이 됐습니다.** 저자 값과 같고, 실물 범위 안입니다. Qwen3.5는 여전히 "점토처럼 보인다"고 적었지만, 부피가 실물 크기가 되자 실제 바나나의 밀도로 계산했습니다. 유령 바나나 둘도 363·253 g에서 140·105 g이 됐습니다.
+- **둥근 과일은 부피가 12–23% 줄었습니다.** 오렌지는 162 → 131 g(저자 140 g)입니다. 사과는 밀도를 다르게 골라 오히려 123 → 136 g(저자 130 g)이 됐습니다. 배는 137 → 113 g입니다. 저자 값 240 g과 차이가 큰 것은 우리 배가 더 작게 복원됐기 때문입니다(6.2 × 6.1 × 7.7 cm, 저자 6.3 × 6.4 × 8.8 cm).
+- 마커와 펜은 부피 차이가 작아 질량도 거의 같습니다. 접시·그릇·컵·가위는 프롬프트가 예전과 같으므로 질량도 같습니다.
+- 남은 차이는 부피가 아니라 VLM의 판단입니다. 접시 둘(90·30 g, 저자 400·500 g)과 가위(35 g, 실물 약 50–80 g)가 그렇습니다.
+- 이미 만든 장면의 질량은 바꾸지 않았습니다. Serve Fruits는 22.3의 `serve_fruits_ours_authmass`가 이미 바나나 120 g(저자 값, 새 추정과 같음)으로 평가했습니다. GR00T 성공률은 우리 질량일 때와 차이가 없었습니다(p = 0.78).
+- 결과는 Drive `results/diagnostics/vlm_compare/mass_volume/`에 있습니다. `volumes.json`(물체별 부피 후보), `hollow/`, `welded/`, `welded_shell_material/`(채택하지 않은 변형), `summary.json`(위 표)입니다.
+
+```bash
+# GPU가 빈 뒤에. 11단계 질량 질문을 저장된 입력으로 다시 보냄
+export SIMFOUNDRY_LOCAL_BACKEND=1 SIMFOUNDRY_OLLAMA_MODEL=qwen3.5:9b SIMFOUNDRY_OLLAMA_THINK=0 SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0
+for v in hollow welded; do
+  MASS_PROMPT=$v python repro/vlm_compare/replay_other_calls.py results/diagnostics/vlm_compare/mass_volume/$v --only A11 \
+    --data-root Data --scenes serve_fruits,put_cup_in_bowl_v2,put_marker_in_cup_v2
+done
+```
+
 ## 21. 질량을 실물에 가깝게 고친 장면으로 다시 평가 (2026-10-17)
 
 20.1에서 질량 프롬프트를 고쳤지만, 19장의 우리 장면은 고치기 전의 질량으로 평가했습니다. 물체 USD에는 13단계가 예전 실행(qwen3-vl, 원래 문구)의 추정값을 박아 두었습니다. 그래서 실물이 약 10 g인 종이컵이 Cup in Bowl에서는 70 g, Marker in Cup에서는 150 g이었습니다. 이 장에서는 질량만 지금 파이프라인 A(Qwen3.5, 새 문구)가 내는 값으로 바꾸고, 나머지는 그대로 둔 채 세 정책을 다시 평가했습니다.
@@ -1317,7 +1385,7 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
 - **크기**는 저자 물체와 1 cm 안쪽으로 맞습니다. 주황 접시만 23.4×17.7 cm로, 저자의 20.1×21.9 cm와 비율이 다릅니다.
 - **질량**(11단계 추정)은 바나나가 610 g입니다(저자 120 g, 실물 약 120–150 g). 두 가지가 겹친 결과입니다.
   - VLM이 무광 표면을 보고 바나나를 점토(밀도 2.0)로 판단했습니다.
-  - 11단계의 부피 규칙(닫히지 않은 메시는 방향 상자 부피의 65%)이 휜 바나나에서 304.8 cm³을 내, 실제 부피의 약 두 배였습니다.
+  - 11단계의 부피 규칙(닫히지 않은 메시는 방향 상자 부피의 65%)이 휜 바나나에서 304.8 cm³을 내, 실제 부피의 약 두 배였습니다. 20.5에서 고쳤습니다. 메시가 내는 142.6 cm³을 주면 Qwen3.5는 120 g이라고 답합니다.
   - 청록 접시는 30 g으로 나왔습니다(20.1의 속 빈 물체 문구가 작동). 주황 접시는 90 g입니다. 저자(Gemini) 값은 각각 500 g, 400 g입니다.
 
 | 물체 | 우리 크기 (cm) | 저자 크기 (cm) | 우리 질량 | 저자 질량 |
