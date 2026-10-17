@@ -33,6 +33,7 @@ from omegaconf import OmegaConf
 from simfoundry import import_og_dependencies, CFG_DIR as SIMFOUNDRY_CFG_DIR, ASSET_DIR as SIMFOUNDRY_ASSET_DIR
 from simfoundry.utils.processing_utils import dump_json
 from simfoundry.utils.og_utils import (
+    apply_scene_masses,
     apply_teleop_omnigibson_macros,
     set_obj_materials,
     setup_task_status_ui,
@@ -288,6 +289,13 @@ def main(cfg):
     # Create the environment
     apply_teleop_omnigibson_macros()
     env = og.Environment(configs=og_cfg)
+
+    # Masses the scene records, if any (the light editor's physics panel writes them): OmniGibson takes no
+    # load-time mass, so a consumer applies them after load (AGENTS.md, "The saved-scene contract"), as the
+    # eval stage does. Done before the reset below, which restores the scene's poses after the stop/play.
+    with og.sim.stopped():
+        for obj_name, (old_mass, new_mass) in apply_scene_masses(env, og_scene_json).items():
+            print(f"[mass] {obj_name}: {old_mass:.3f} -> {new_mass:.3f} kg (from the scene)")
 
     # Set deterministic override for first reset
     if det_schedule is not None:
