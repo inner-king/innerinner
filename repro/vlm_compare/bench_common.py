@@ -64,15 +64,61 @@ pynvml.nvmlInit()
 _GPU = pynvml.nvmlDeviceGetHandleByIndex(0)
 
 
+def _cmdline(pid):
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").replace("\0", " ")
+    except OSError:
+        return ""
+
+
+def _running_cmdline(pid):
+    """Command line of a process that is still running and is not Ollama's; None otherwise.
+
+    Every load (keep_alive 0 loads and unloads on each call) briefly puts Ollama children on the GPU whose
+    command line reads empty while NVML still lists them: the device probes (`llama-server --list-devices`,
+    `ollama gpu-discover`) as zombies, and the runner as it exits. Their parent still names Ollama.
+    """
+    try:
+        state, ppid = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[:2]
+    except (OSError, ValueError):
+        return None  # gone
+    cmd = _cmdline(pid)
+    if state in ("Z", "X") or "ollama" in cmd or "ollama" in _cmdline(int(ppid)):
+        return None
+    return cmd
+
+
+def _comfy_idle():
+    try:
+        q = requests.get(f"{lb.COMFY_URL}/queue", timeout=2).json()
+    except Exception:
+        return False
+    return not q.get("queue_running") and not q.get("queue_pending")
+
+
 def other_gpu_jobs():
-    """PIDs computing on the GPU other than Ollama's runners."""
+    """PIDs of other jobs on the GPU (the rules replay_b7_seeds.py introduced, now shared).
+
+    Ollama and its short-lived children are not jobs (_running_cmdline). An idle ComfyUI (models unloaded,
+    empty queue) is not one either: Pipeline B leaves one running, and counting it made every replay wait
+    forever. A graphics-only client counts when it is Python or Kit, so an Isaac Sim render is caught even if
+    it holds no CUDA context.
+    """
+    import re
+
     pids = []
     for proc in pynvml.nvmlDeviceGetComputeRunningProcesses(_GPU):
-        try:
-            cmd = Path(f"/proc/{proc.pid}/cmdline").read_bytes().decode(errors="replace")
-        except OSError:
-            cmd = ""
-        if "ollama" not in cmd:
+        cmd = _running_cmdline(proc.pid)
+        if cmd is None:
+            continue
+        if "comfyui" in cmd.lower() and (proc.usedGpuMemory or 0) < 512 * 2**20 and _comfy_idle():
+            continue
+        pids.append(proc.pid)
+    for proc in pynvml.nvmlDeviceGetGraphicsRunningProcesses(_GPU):
+        cmd = _running_cmdline(proc.pid)
+        if cmd is None or proc.pid in pids or "comfyui" in cmd.lower():
+            continue
+        if "python" in cmd or re.search(r"(^|/)kit(\s|$)", cmd) or "isaac" in cmd.lower():
             pids.append(proc.pid)
     return pids
 
