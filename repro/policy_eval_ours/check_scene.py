@@ -77,6 +77,10 @@ def main():
             for n, (old, new) in apply_scene_masses(env, json.load(f)).items():
                 print(f"[mass] {n}: {old:.3f} -> {new:.3f} kg (from the scene)")
     env.reset()
+    # The arm drives the task set on reset (GAINS, arm_kp_scale): a joint trails a moving target by damping/stiffness.
+    arm = [j for j in env.robots[0].joints.values() if j.driven][:7]
+    print(f"[check] arm stiffness {[round(float(j.stiffness)) for j in arm]}, "
+          f"damping {[round(float(j.damping)) for j in arm]}")
     if args.hide_robot:
         env.robots[0].visible = False
     if args.tonemap is not None:

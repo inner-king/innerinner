@@ -149,6 +149,10 @@ class PickPlaceTask(BaseTask):
             the post-reset stability check. Default is 30 degrees.
         reset_stability_n_physics_steps (int): Number of physics steps to simulate during the stability check.
             Default is 5.
+        arm_kp_scale (None or float): If specified, multiplies the arm joints' stiffness (GAINS kp, the Franka's
+            first seven driven joints) while their damping stays as tuned. A joint drive follows a moving target
+            with a lag of damping / stiffness (0.2 s with the tuned 80 / 400), so this shortens the lag; the paper
+            tuned the gains higher in simulation to minimize the tracking error (App. I.1). None keeps GAINS.
     """
 
     def __init__(
@@ -188,6 +192,7 @@ class PickPlaceTask(BaseTask):
         reset_stability_translation_threshold=0.05,
         reset_stability_rotation_threshold_deg=30.0,
         reset_stability_n_physics_steps=5,
+        arm_kp_scale=None,
     ):
         # Make sure object states are enabled
         assert gm.ENABLE_OBJECT_STATES, f"Must set gm.ENABLE_OBJECT_STATES=True in order to use {self.__class__.__name__}!"
@@ -269,6 +274,7 @@ class PickPlaceTask(BaseTask):
         self.reset_stability_translation_threshold = reset_stability_translation_threshold
         self.reset_stability_rotation_threshold_deg = reset_stability_rotation_threshold_deg
         self.reset_stability_n_physics_steps = reset_stability_n_physics_steps
+        self.arm_kp_scale = arm_kp_scale
 
         # Deterministic pose schedule override: when set to a dict mapping group_name -> z_rot_offset,
         # _reset_scene will apply those exact z-rotation offsets (no xyz randomization) instead of
@@ -769,7 +775,10 @@ class PickPlaceTask(BaseTask):
             idx = 0
             for jnt in r.joints.values():
                 if jnt.driven:
-                    jnt.stiffness = gains["kp"][idx]
+                    kp = gains["kp"][idx]
+                    if self.arm_kp_scale is not None and r.model_name.startswith("franka") and idx < 7:
+                        kp = kp * float(self.arm_kp_scale)
+                    jnt.stiffness = kp
                     jnt.damping = gains["kv"][idx]
                     if "joint_lower_limits" in gains:
                         jnt.lower_limit = gains["joint_lower_limits"][idx]

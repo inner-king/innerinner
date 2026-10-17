@@ -280,6 +280,27 @@ tasks:
         - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
         - {name: orange_square_plate_rfnrye_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
 
+  # The authors' own Marker in Cup scene with the arm's joint stiffness x4 (arm_kp_scale; README chapter 26): the
+  # tuned gains make every joint trail its command by 0.2 s, and the paper says the simulated gains were tuned
+  # higher to minimize the tracking error. Same scene and 25 starts as table_g1.yaml's marker_in_cup (copied
+  # init-state file), so the difference is the stiffness alone.
+  marker_in_cup_kp4:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json
+    task: table_g1_marker_in_cup_kp4
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88, gr00t: 28}
+    paper_real: {pi0: 40, pi05: 92, gr00t: 28}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_undupl_2, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: cream_mug_bpupsc_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
 policies:
   pi0:
     checkpoint: pi0_droid_jointpos

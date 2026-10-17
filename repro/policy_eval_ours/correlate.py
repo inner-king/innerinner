@@ -45,6 +45,12 @@ PAPER_R_MMRV = {
 }
 
 
+def table_row(task):
+    """The Table G.1 row a run's task or scene name belongs to: the longest row name it starts with
+    (marker_in_cup_ours_mass, marker_in_cup_kp4 -> marker_in_cup)."""
+    return max((k for k in TABLE_G1 if task.startswith(k)), key=len, default=task.split("_ours")[0])
+
+
 def pearson(x, y):
     n = len(x)
     mx, my = sum(x) / n, sum(y) / n
@@ -137,7 +143,7 @@ def main():
         tasks, counts = {}, {}
         for (task, policy), (k, n) in sorted(runs.items()):
             col = POLICY_COLUMN.get(policy, policy)
-            real, sim = TABLE_G1.get(task.split("_ours")[0], {}).get(col, (None, None))
+            real, sim = TABLE_G1.get(table_row(task), {}).get(col, (None, None))
             print(f"| {task} | {col} | {k}/{n} = {100 * k / n:.0f}% | {sim} | {real} |")
             out.setdefault("runs", []).append({"task": task, "policy": col, "successes": k, "episodes": n,
                                                "paper_sim": sim, "paper_real": real})
@@ -149,7 +155,7 @@ def main():
               f"|---|---|---|{'---|' if args.draws else ''}---|---|---|")
         for task, pairs in tasks.items():
             r, m, n = agreement(pairs) if len(pairs) >= 2 else (float("nan"), float("nan"), len(pairs))
-            pr, pm = PAPER_R_MMRV[task.split("_ours")[0]]
+            pr, pm = PAPER_R_MMRV[table_row(task)]
             note = "" if n >= 3 else " (r is +-1 or undefined with fewer than 3)"
             row = {"r": r, "mmrv": m, "n": n, "paper_r": pr, "paper_mmrv": pm}
             cell = ""
