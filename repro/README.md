@@ -1141,7 +1141,7 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
 
 - OmniGibson도 평가 단계도 렌더 설정을 바꾸지 않아서, 정책이 보는 카메라는 Isaac Sim 기본 톤매퍼 ACES(op 6)로 그려집니다. DROID 배경은 사진으로 텍스처를 입힌 스캔 메시인데, ACES는 그 대비와 채도를 올리고 linear(op 1)는 사진의 색을 그대로 둡니다(13.3의 splat 배경 비교에서 실제 프레임 대비 평균 절대 오차 ACES 0.126, linear 0.032). 저자 평가 스크립트 머리말에는 "렌더 후처리 색 보정 튜닝"이라는 메모가 있지만 그 설정은 공개되지 않았습니다.
 - 평가 단계에 `s15_eval.tonemap_op`을 넣었고(기본 null = 예전과 같음), 두 드라이버는 `TONEMAP_OP`으로 받습니다. 설정은 몇 프레임을 렌더한 뒤에야 센서 출력에 반영되므로(3프레임에서는 그대로, 20프레임에서 바뀜) 첫 에피소드 전에 20프레임을 렌더합니다. 화면 비교는 `diagnostics/policy_eval_ours/tonemap/marker_authors_aces_vs_linear.jpg`에 있습니다.
-- 같은 시작 상태로 linear와 ACES를 비교했습니다(저자 장면, 25회씩. π0·π0.5는 따로 빌린 L4, GR00T는 이 머신).
+- 같은 시작 상태로 linear와 ACES를 비교했습니다(저자 장면, 25회씩. π0.5는 따로 빌린 L4, GR00T는 이 머신).
 
   | 과제 / 정책 | ACES (18·19장) | linear | 논문 시뮬 |
   |---|---|---|---|
@@ -1149,6 +1149,7 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
   | Serve Fruits / π0.5 | 22/25 = 88% | **23/25 = 92%** | 80% |
   | Marker in Cup / GR00T N1.6 | 5/25 = 20% | **3/25 = 12%** | 28% |
 
+- π0도 같은 L4에서 linear로 시작했지만, Marker in Cup 2회와 Serve Fruits 1회(모두 실패)를 마친 뒤 멈췄습니다. π0.5와 GR00T에서 차이가 없어서 L4 시간을 더 쓰지 않았습니다. 결과는 Drive `results/policy_eval_ours/render_colab/`(π0.5)와 `results/policy_eval_ours/gr00t/out/marker_in_cup/s15_eval_gr00t_linear/`(GR00T)에, 로그는 `results/logs/policy_eval_linear/`에 있습니다.
 - 톤매퍼는 성공률을 바꾸지 않습니다. 저자 장면 Marker in Cup에서 π0.5가 논문보다 낮은 원인은 렌더 색감이 아닙니다(18장이 질량·카메라·지시문도 배제함). 그래서 평가의 기본값은 그대로 두고, splat 배경처럼 색이 크게 달라지는 경우에 쓸 선택 설정으로 남깁니다.
 
 ### 20.3 로봇 위치
