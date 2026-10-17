@@ -24,6 +24,9 @@ removed and ours are added:
     (AGENTS.md, "The saved-scene contract"). Without it the object keeps the mass our stage 13 baked into
     its USD, and the USD is never rewritten (rule 1).
 
+`keep` lists template objects that stay where they are, loaded from the template's own folder: one of ours can be
+swapped for the authors' object of the same category to see which object a policy's result depends on.
+
 Velocities are zeroed (AGENTS.md rule 3). The output is a new scene; nothing existing is modified.
 
     python repro/policy_eval_ours/build_droid_scene.py --task cup_in_bowl_ours \\
@@ -92,9 +95,13 @@ def main():
     init = scene["objects_info"]["init_info"]
     reg = scene["state"]["registry"]["object_registry"]
     template_objects = {n: (init[n], reg[n]) for n in list(init) if not n.startswith(("robot", "mesh_background"))}
+    keep = set(build.get("keep", []))  # template objects that stay, e.g. to swap one of ours for the authors'
+    if keep - set(template_objects):
+        raise SystemExit(f"keep names objects the template does not have: {sorted(keep - set(template_objects))}")
     for n in template_objects:
-        del init[n]
-        reg.pop(n, None)
+        if n not in keep:
+            del init[n]
+            reg.pop(n, None)
     ground_z = float((scene.get("ground_plane_info") or {}).get("position", [0.0, 0.0, 0.0])[2])
 
     # Keep the background's relative USD path valid from the new scene directory.
@@ -155,7 +162,7 @@ def main():
     with open(out_path, "w") as f:
         json.dump(scene, f, indent=2)
     print(f"[build] {out_path}\n  template {template_rel} (ground plane z {ground_z}), "
-          f"dropped {sorted(template_objects)}")
+          f"dropped {sorted(set(template_objects) - keep)}, kept {sorted(keep)}")
     print("\n".join(report))
 
 
