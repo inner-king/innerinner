@@ -139,7 +139,7 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | 태스크 제안 | | 2개 PickPlaceTask 생성 | 재현됨 |
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
 | Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문, 톤매퍼, 배경 스캔의 로봇을 바꿔도 같음: 18, 20.2, 23장) |
-| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장). 우리가 복원한 Serve Fruits: 0.824, MMRV 0, 방해물인 주황 접시만 저자 것으로 바꾸면 **0.994** (22장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차는 원인이 아님(21장). 우리 Serve Fruits는 순위가 맞고 GR00T만 높았는데, 원인은 방해물 하나의 복원(22.4) |
+| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장). 우리가 복원한 Serve Fruits: 0.824, MMRV 0, 방해물인 주황 접시만 저자 것으로 바꾸면 **0.994** (22장). 저장소 태스크 설정의 배치로 뽑은 Cup in Bowl: 0.14 (25장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차도, 저장소 설정의 배치도 원인이 아님(21, 25장). 우리 Serve Fruits는 순위가 맞고 GR00T만 높았는데, 원인은 방해물 하나의 복원(22.4) |
 | 정책 학습·성공률 개선 (+17/21/40%), 미세조정 과제의 상관 | | 학습 코드·미세조정 체크포인트 미공개, 실제 로봇 필요 | 재현 불가 |
 
 **결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 물체 질량을 실물에 가깝게 고쳐도(종이컵 70→10 g 등) 성공률이 유의하게 바뀐 정책은 없었습니다. Marker in Cup은 r 0.984로 그대로 맞았고, Cup in Bowl은 0.45로 올랐지만 여전히 맞지 않았습니다(21장). 세 번째 예제 영상 Fruits.mp4로 복원한 Serve Fruits는 순위가 실제와 같았지만(MMRV 0), GR00T가 52%로 높아 r은 0.824였습니다. 원인은 방해물인 주황 접시였습니다. 이 접시만 저자 것으로 바꾸자 GR00T가 4/25로 떨어졌고, r은 0.994로 논문(0.960)에 맞았습니다(22장). 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
@@ -1594,4 +1594,57 @@ SIMFOUNDRY_IMAGE_BACKEND=qwen21 SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct rep
   --env-da3 simfoundry --no-stream --include 5 --test-mode --model-cache-dir .cache/simfoundry/model_calls_qwen21 \
   -- s7_mesh.low_vram=true s5_scene.pda_geometric_backend=depth_pro
 python repro/compare_s5_runs.py Data/put_cup_in_bowl_v2/s5_scene Data/put_cup_in_bowl_v2_ghostfix/s5_scene
+```
+
+## 25. Cup in Bowl을 저장소 태스크 설정의 배치로 (2026-10-18)
+
+19장과 21장의 Cup in Bowl 배치 두 가지는 우리가 추정한 것이었습니다. 저자 배치에 관해 공개된 자료는 저장소의 태스크 설정(`scripts/cfg/task/droid/droid_desk_put_cup_in_bowl.yaml`)뿐입니다. 22.4에서 작은 장면 차이 하나가 GR00T의 성공률을 바꾸는 것을 보았으므로, 이 설정을 그대로 따른 배치로 한 번 평가했습니다. 결과가 어느 쪽으로 나오든 기록하기로 하고 돌렸습니다.
+
+### 25.1 시작 상태
+
+- `repro/policy_eval_ours/sample_task_starts.py`는 태스크 설정으로 환경을 리셋해, 태스크 자신의 무작위 배치 코드(`PickPlaceTask._reset_scene`)로 시작 상태를 뽑습니다.
+  - 시드는 42이고, Python·NumPy·torch 난수를 모두 고정합니다.
+  - 30스텝 동안 정착시킨 뒤, 2 cm 넘게 움직였거나 마일스톤이 이미 참인 리셋은 버립니다. 25번 리셋이 모두 통과했습니다.
+  - 평가 단계와 같게 장면의 질량을 적용합니다.
+- 설정의 규칙: 컵은 장면 위치에서 ±12.5 cm 안, 그리고 로봇 기준 작업 영역(x 0.3–0.8 m, y ±0.05 m) 안에 놓입니다. 그릇은 컵의 앞·뒤·좌·우 중 한쪽에 1–5 cm 간격으로 놓입니다. 좌우로 놓을 때는 그릇의 x를 작업 영역 전체에서 뽑습니다.
+- 장면 `cup_in_bowl_ours_cfg`는 21장의 질량 수정 장면에서 위치만 바꿨습니다.
+  - 컵의 장면 위치를 작업 영역 가운데(로봇 기준 x 0.55, y 0)에 두었습니다. 우리 기존 위치(y −0.19 m)는 설정의 y 범위에서 멀어서, 컵이 경계에만 놓이기 때문입니다.
+  - 그릇의 장면 위치는 태스크가 덮어쓰는 자리표시입니다.
+  - 펜은 방해물로, 설정이 ±5 cm만 흔드는 물체라 그릇 길에서 비킨 오른쪽 앞(0.45, −0.25)에 두었습니다.
+- 뽑힌 시작 상태: 컵은 로봇 기준 x 0.43–0.67 m, y ±5 cm에 놓였습니다. 그릇 방향은 왼쪽 8, 오른쪽 3, 뒤 10, 앞 4입니다. 좌우 배치에서는 그릇이 대각선으로 떨어지기도 해, 중심 간격은 19–43 cm였습니다. 가장 먼 그릇은 베이스에서 0.87 m입니다.
+
+### 25.2 결과
+
+π0·π0.5는 Colab L4, GR00T N1.6은 이 머신에서 돌렸습니다.
+
+| 정책 | 저장소 설정 배치 | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|
+| π0 | **13/25 = 52%** | 56% | 88% |
+| π0.5 | **20/25 = 80%** | 92% | 100% |
+| GR00T N1.6 | **18/25 = 72%** | 40% | 68% |
+
+Cup in Bowl을 평가한 네 가지 경우를 모으면 다음과 같습니다.
+
+| 배치 | π0 | π0.5 | GR00T | r (95% 구간) | MMRV |
+|---|---|---|---|---|---|
+| 떨어뜨린 배치 (19장) | 20/25 | 25/25 | 25/25 | −0.143 (−0.78..+0.57) | 0.173 |
+| 가까운 배치 (19장) | 20/24 | 15/24 | 18/24 | −0.475 (−0.99..+0.87) | 0.253 |
+| 떨어뜨린 배치, 질량 수정 (21장) | 18/25 | 25/25 | 21/25 | 0.446 (−0.15..+0.98) | 0.133 |
+| **저장소 설정 배치, 질량 수정** | 13/25 | 20/25 | 18/25 | **0.137** (−0.80..+0.95) | 0.133 |
+| 논문 (정책 5개) | | | | 0.907 | 0.016 |
+
+- **이 배치에서도 재현되지 않습니다.** 실제로는 π0(88%)가 GR00T(68%)보다 높은데, 시뮬에서는 GR00T(72%)가 π0(52%)보다 높습니다.
+- π0와 π0.5의 성공률은 이 배치에서 논문의 시뮬 값(56%, 92%)에 가장 가까워졌습니다. GR00T는 논문의 실제 값(68%)에 가깝지만, 논문의 시뮬 값(40%)보다는 높습니다.
+- 그릇 방향별로 보면, 그릇이 뒤쪽(먼 곳)에 있을 때 성공이 줄었습니다(π0 4/10, π0.5 8/10, GR00T 6/10). π0는 그릇이 오른쪽에 있을 때 3번 모두 실패했습니다.
+- 실패 양상: π0 실패 12번 중 7번은 컵을 건드리지도 못했습니다. GR00T 실패 7번과 π0.5 실패 5번 중 4번은 컵을 집은 뒤 그릇에 넣지 못했고, π0.5의 나머지 1번은 그릇에 넣었지만 놓지 못했습니다.
+- **네 경우 모두 순위가 맞지 않았습니다**(r −0.48–0.45). 22.4의 Serve Fruits는 저자 장면의 물체를 하나씩 바꿔 끼워 원인을 찾을 수 있었지만, Cup in Bowl은 저자 장면이 없어 그렇게 할 수 없습니다. 22.4로 보아 방해물(펜)이나 그릇의 복원이 후보이지만, 저자 자산 없이는 확인할 수 없습니다.
+- 결과는 Drive `results/policy_eval_ours/cfg_colab/`(π0·π0.5)와 `results/policy_eval_ours/gr00t/out/cup_in_bowl_ours_cfg/`(GR00T)에 있습니다. 시작 상태는 `results/policy_eval_ours/gr00t/init_states/cup_in_bowl_ours_cfg.json`, 판정표는 `diagnostics/policy_eval_ours/cfg_correlate.json`, 로그는 `logs/policy_eval_cfg/`에 있습니다.
+
+```bash
+python repro/policy_eval_ours/build_droid_scene.py --task cup_in_bowl_ours_cfg \
+  --asset-dir assets --data-dir Data --dataset-dir deps/BEHAVIOR-1K/datasets/real2sim-assets
+python repro/policy_eval_ours/sample_task_starts.py --task cup_in_bowl_ours_cfg \
+  --out results/policy_eval_ours/gr00t/init_states/cup_in_bowl_ours_cfg.json
+repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/ours.yaml:cup_in_bowl_ours_cfg
+SPEC=repro/policy_eval_ours/ours.yaml repro/policy_eval/run_table_g1.sh eval pi05 cup_in_bowl_ours_cfg 25 main   # Colab L4
 ```
