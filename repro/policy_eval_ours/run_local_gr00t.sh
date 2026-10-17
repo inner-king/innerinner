@@ -74,7 +74,8 @@ stop() { pkill -f "run_gr00t_server.py .*--port ${GR00T_PORT}" && echo "[gr00t] 
 eval_one() {  # eval_one SPEC TASK [N] [TAG]
   local sp="$1" t="$2" n="${3:-25}" tag="${4:-main}"
   local scene task prompt timeout horizon init work log
-  scene=$(spec "${sp}" "s['tasks']['${t}']['scene']")
+  # SCENE_JSON (under assets/) replaces the task's scene, as in run_table_g1.sh (e.g. use_background.py's copies).
+  scene="${SCENE_JSON:-$(spec "${sp}" "s['tasks']['${t}']['scene']")}"
   task=$(spec "${sp}" "s['tasks']['${t}']['task']")
   prompt=$(spec "${sp}" "s['tasks']['${t}']['prompt']")
   timeout=$(spec "${sp}" "s['tasks']['${t}']['timeout_s']")

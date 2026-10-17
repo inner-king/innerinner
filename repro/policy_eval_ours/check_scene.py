@@ -38,6 +38,8 @@ def main():
     ap.add_argument("--settle-s", type=float, default=2.0)
     ap.add_argument("--tonemap", type=int, default=None,
                     help="RTX tone-mapping operator (/rtx/post/tonemap/op), e.g. 1 linear; default: Isaac Sim's (6, ACES)")
+    ap.add_argument("--hide-robot", action="store_true",
+                    help="render without the simulated robot, to see what the background itself shows where it stands")
     args = ap.parse_args()
 
     import omnigibson as og
@@ -75,6 +77,8 @@ def main():
             for n, (old, new) in apply_scene_masses(env, json.load(f)).items():
                 print(f"[mass] {n}: {old:.3f} -> {new:.3f} kg (from the scene)")
     env.reset()
+    if args.hide_robot:
+        env.robots[0].visible = False
     if args.tonemap is not None:
         import omnigibson.lazy as lazy
         lazy.carb.settings.get_settings().set("/rtx/post/tonemap/op", args.tonemap)
