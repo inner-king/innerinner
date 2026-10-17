@@ -89,6 +89,9 @@ SETS = [
                                          "gr00t": ("marker_in_cup_ours_mass", "mass")}),
     ("serve_fruits", "우리 복원", {"pi0": ("serve_fruits_ours", "main"), "pi05": ("serve_fruits_ours", "main"),
                                  "gr00t": ("serve_fruits_ours", "main")}),
+    ("serve_fruits", "우리 복원, 주황 접시만 저자 것", {"pi0": ("serve_fruits_ours_authplate", "main"),
+                                                "pi05": ("serve_fruits_ours_authplate", "main"),
+                                                "gr00t": ("serve_fruits_ours_authplate", "main")}),
 ]
 
 
