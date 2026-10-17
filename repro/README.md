@@ -594,3 +594,31 @@ SIMFOUNDRY_LOCAL_BACKEND=1 SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct SIMFOUND
 SIMFOUNDRY_LOCAL_BACKEND=1 SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct SIMFOUNDRY_OLLAMA_THINK=0 SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0 \
   GCLOUD_PROJECT=local python repro/vlm_compare/replay_b7_cross.py results/diagnostics/vlm_compare/b7_q35_cross --seeds 30
 ```
+
+**B7: 장면 이미지의 포즈 탓인가, 메시 탓인가 (2026-10-17)**
+
+장면 이미지는 B6(`6_sample_reconstructed_scene.py`)가 찍습니다. A의 메시를 정착시킨 뒤 물체마다 조금씩 무작위로 옮기고(xy ±1 cm, z축 ±50°, seed 고정 없음) 다시 정착시켜, 자기 `take_scene_picture`로 뷰어 카메라(`s14_og.auto_camera_pos/ori`, 초점거리 10 mm)에서 찍은 다음 그 상태를 `scene_000.json`으로 남깁니다. 두 장면의 이 상태에서 메시와 포즈를 서로 바꾸고(`repro/vlm_compare/build_b7_hybrids.py`), B6의 환경과 함수로 다시 찍어(`render_b7_scenes.py`), v2 목록과 함께 seed 0–29로 보냈습니다(`replay_b7_cross.py`). 결과는 `results/diagnostics/vlm_compare/b7_q35_image/`에 있습니다.
+
+- **포즈는 root_link 값을 그대로 맞바꾸지 않았습니다.** 두 복원은 메시의 로컬 좌표계가 달라서, 같은 쿼터니언을 주면 q35 가위는 47° 돌아가고(v2 가위와 표면 거리 14 mm) q35 마커는 뚜껑이 반대쪽에 옵니다. 그래서 q35 메시를 같은 종류의 v2 메시에 강체 정합하고(표면 거리 마커 0.6, 컵 1.6, 가위 1.8 mm. 거의 대칭인 마커의 앞뒤와 컵의 방향은 텍스처 색으로 정함), 그 변환을 상대 장면의 포즈에 합성했습니다. 바꾼 메시는 원래 물체 자리(발자국 중심 약 1 mm, 긴 축 3° 안)에 같은 바닥 높이로 놓입니다.
+- **렌더러는 같은 상태를 두 번 찍어도 픽셀이 같지 않습니다.** 차이는 물체와 로봇 표면에 있고(평균 0.4–0.6, 최대 170단계), 다시 찍은 v2·q35 상태와 B6 원본의 차이도 그만큼이며, 눈으로는 구분되지 않습니다. 그래서 v2·q35 상태를 다시 찍은 이미지(v2r, ar)도 같이 보내고, 네 상태 모두 두 번째 렌더도 보냈습니다.
+- v2와 a는 앞선 재생과 60회 모두 같은 답을 냈습니다. 다른 세션의 Qwen3.5 재생과 겹친 17회는 버리고 다시 보냈습니다.
+
+| v2 목록, seed 0–29 | 장면 이미지: 메시 / 포즈 | 마커를 컵에 (렌더 1 · 2) | 가위를 컵에 (렌더 1 · 2) |
+|---|---|---|---|
+| v2 | B6 원본: v2 / v2 | 21/30 | 9/30 |
+| a | B6 원본: q35 / q35 | 12/30 | 17/30 |
+| e | q35 / **v2** | 23/30 · 13/30 | 8/30 · 13/30 |
+| f | v2 / **q35** | 9/30 · 7/30 | 8/30 · 17/30 |
+| v2r | 다시 찍음: v2 / v2 | 2/30 · 18/30 | 15/30 · 11/30 |
+| ar | 다시 찍음: q35 / q35 | 14/30 · 5/30 | 5/30 · 15/30 |
+
+**이미지 효과는 포즈 탓도 메시 탓도 아닌, B6가 찍은 렌더 한 장의 잡음으로 보입니다.** B6 원본 두 장만 기준으로 하면 포즈 탓처럼 보입니다. q35 메시를 v2 포즈에 두면 마커를 컵에 넣는 답이 a의 12/30에서 23/30으로 늘고(p = 0.008), v2 메시를 q35 포즈에 두면 v2의 21/30에서 9/30으로 줄며(p = 0.004), 메시만 바꾼 차이는 없습니다(e 대 v2 p = 0.77, f 대 a p = 0.59). 그러나 같은 v2 상태를 다시 찍기만 해도 2/30(v2 대비 p = 5×10⁻⁷)과 18/30이 나오고, q35 상태는 14/30과 5/30, e는 23/30과 13/30입니다. 같은 seed에서 한 상태의 두 이미지가 같은 답을 낸 경우는 30번 중 0–4번입니다. 가위도 마찬가지입니다. q35 상태를 다시 찍은 이미지(ar)는 가위를 5/30에만 컵에 넣어, B6의 q35 이미지(17/30, p = 0.003)는 물론 v2 이미지(9/30)보다도 적습니다. 이미지 한 장을 한 관측으로 보고(상태마다 2–3장) 다른 요인의 수준 안에서 이미지를 섞는 순열 검정을 하면, 포즈를 v2로 바꿀 때 마커를 컵에 넣는 비율이 평균 0.22 오르지만 유의하지 않고(p = 0.16), 메시는 −0.11입니다(p = 0.56). 가위를 컵에 넣는 비율은 포즈(−0.04, p = 0.69)로도 메시(+0.02, p = 0.81)로도 움직이지 않습니다. 따라서 위에서 본 이미지 효과(q35 이미지에서 가위가 120회 중 54회, v2 이미지에서 60회 중 14회)는 장면의 내용이 아니라 B6가 그때 찍은 렌더 한 장에서 왔다고 봐야 합니다. 이미지 한 장으로 30번 재생하면 장면이 아니라 그 렌더를 재는 셈입니다. 포즈가 마커 쪽에 작은 효과를 줄 가능성은 남아 있고, 가리려면 상태마다 렌더를 여러 장 써야 합니다.
+
+```bash
+python repro/vlm_compare/build_b7_hybrids.py results/diagnostics/vlm_compare/b7_q35_image/scenes   # CPU 약 11분
+python repro/vlm_compare/render_b7_scenes.py results/diagnostics/vlm_compare/b7_q35_image/scenes \
+  results/diagnostics/vlm_compare/b7_q35_image/renders --names v2,q35,q35_meshes_v2_poses,v2_meshes_q35_poses
+SIMFOUNDRY_LOCAL_BACKEND=1 SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct SIMFOUNDRY_OLLAMA_THINK=0 SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0 \
+  GCLOUD_PROJECT=local python repro/vlm_compare/replay_b7_cross.py results/diagnostics/vlm_compare/b7_q35_image --seeds 30 \
+  --conditions v2,a,e,f,v2r,ar,e2,f2,v2r2,ar2
+```

@@ -14,6 +14,23 @@ crossed, and with the q35 list changed in one respect at a time:
   c     q35 image, q35 list with the cup named as in v2 (white_cup_with_green_pattern)
   d     q35 image, q35 list with the cup's and the scissors' ids swapped to v2's (iter_0 scissors, iter_1 cup)
 
+The q35 image puts the scissors rather than the marker in the cup more often, whatever the list. That image
+is B6's render of Pipeline A's meshes at B6's settled poses, and the scenes differ in both, so four more
+conditions send renders of build_b7_hybrids.py's scene states (render_b7_scenes.py, B6's own camera and
+take_scene_picture), all with v2's list:
+
+  e     q35's meshes at v2's poses   (<renders>/q35_meshes_v2_poses.png)
+  f     v2's meshes at q35's poses   (<renders>/v2_meshes_q35_poses.png)
+  v2r   v2's meshes at v2's poses    (<renders>/v2.png): v2's condition, its image rendered again
+  ar    q35's meshes at q35's poses  (<renders>/q35.png): a's condition, its image rendered again
+
+and e2, f2, v2r2, ar2 the same with each state's second render (<renders>/<name>.repeat.png). The renderer
+does not repeat itself to the pixel, and B7's answers turn on that noise: the same state rendered twice can
+draw the marker-into-cup task 2 and 16 times in 30. So e3..e10, f3..f10, v2r3..v2r10 and ar3..ar10 send
+eight more renders of each state (<renders>/<name>.r3.png ... r10.png, render_b7_scenes.py --takes r3,...),
+meant for fewer seeds each, and the summary compares the states image by image: each image's rate is one
+observation, and the poses and the meshes are tested by permuting images within the other factor's levels.
+
 Each condition is a scene directory under <out_dir>/inputs/ holding copies of the two files, the list
 edited in the copy, and run_b7 reads it in place of Data/<scene>; nothing under Data/ is written. v2 and
 q35 go through copies too, so their answers check the copies against replay_b7_seeds.py's calls. Every
@@ -25,8 +42,10 @@ Run with the response cache off and Pipeline B's shim settings:
   SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0 GCLOUD_PROJECT=local
 
 Usage: python repro/vlm_compare/replay_b7_cross.py <out_dir> [--seeds N] [--conditions v2,q35,a,b,c,d]
-           [--reference <replay_b7_seeds.py out_dir>/calls.jsonl] [--data-root DIR] [--summarize-only]
-A rerun with the same <out_dir> skips the (condition, seed) pairs already answered.
+           [--reference <replay_b7_seeds.py out_dir>/calls.jsonl] [--previous <an earlier out_dir>/calls.jsonl]
+           [--renders DIR] [--data-root DIR] [--summarize-only]
+A rerun with the same <out_dir> skips the (condition, seed) pairs already answered. A condition that an
+earlier run (--previous) also made is checked to answer it word for word alike, seed by seed.
 """
 import argparse
 import hashlib
@@ -36,6 +55,8 @@ import shutil
 import sys
 from collections import Counter
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import replay_b7_seeds as rbs  # noqa: E402  (importing it installs its idle-GPU check into bench_common)
@@ -68,7 +89,8 @@ def v2_ids(init_info, v2_info):
     assert all(_id_of(init_info, k) == _id_of(v2_info, k) for k in KINDS)
 
 
-# name: (scene the image is from, scene the object list is from, edit made to the list's copy)
+# name: (scene the image is from, or a render under --renders; scene the object list is from; edit made
+# to the list's copy)
 CONDITIONS = {
     "v2": (V2, V2, None),
     "q35": (Q35, Q35, None),
@@ -76,6 +98,27 @@ CONDITIONS = {
     "b": (V2, Q35, None),
     "c": (Q35, Q35, rename_cup),
     "d": (Q35, Q35, v2_ids),
+    "e": ("q35_meshes_v2_poses.png", V2, None),
+    "f": ("v2_meshes_q35_poses.png", V2, None),
+    "v2r": ("v2.png", V2, None),
+    "ar": ("q35.png", V2, None),
+    "e2": ("q35_meshes_v2_poses.repeat.png", V2, None),
+    "f2": ("v2_meshes_q35_poses.repeat.png", V2, None),
+    "v2r2": ("v2.repeat.png", V2, None),
+    "ar2": ("q35.repeat.png", V2, None),
+}
+EXTRA_TAKES = range(3, 11)
+for _base, _state in (("e", "q35_meshes_v2_poses"), ("f", "v2_meshes_q35_poses"), ("v2r", "v2"), ("ar", "q35")):
+    for _k in EXTRA_TAKES:
+        CONDITIONS[f"{_base}{_k}"] = (f"{_state}.r{_k}.png", V2, None)
+CONTROL = {V2: "v2", Q35: "q35"}  # the condition that sends a scene as it is
+# Every image of each scene state that is sent with v2's list, keyed (meshes from, poses from): B6's
+# photograph where the state is a scene's own, then the renders.
+STATE_IMAGES = {
+    ("v2", "v2"): ["v2", "v2r", "v2r2", *(f"v2r{k}" for k in EXTRA_TAKES)],
+    ("q35", "q35"): ["a", "ar", "ar2", *(f"ar{k}" for k in EXTRA_TAKES)],
+    ("q35", "v2"): ["e", "e2", *(f"e{k}" for k in EXTRA_TAKES)],
+    ("v2", "q35"): ["f", "f2", *(f"f{k}" for k in EXTRA_TAKES)],
 }
 # What the summary tests (Fisher): (conditions, conditions, count, what changes between them). The
 # single pairs differ in one thing; on the q35 image, q35 -> c -> a and q35 -> d -> a change the list's
@@ -95,6 +138,37 @@ COMPARISONS = [
     (("q35",), ("c", "d", "a"), MIC, "q35 image: q35 list -> any of the changed lists"),
     (("q35", "b"), ("v2", "a", "c", "d"), "on_cup_runs", "q35 list -> the other lists"),
     (("q35", "a", "c", "d"), ("v2", "b"), "scissors_in_cup_runs", "q35 image -> v2 image"),
+    # The q35 image's poses and meshes, one at a time (v2's list throughout): against B6's two images,
+    (("a",), ("e",), MIC, "q35 meshes: q35 poses -> v2 poses"),
+    (("f",), ("v2",), MIC, "v2 meshes: q35 poses -> v2 poses"),
+    (("a",), ("f",), MIC, "q35 poses: q35 meshes -> v2 meshes"),
+    (("e",), ("v2",), MIC, "v2 poses: q35 meshes -> v2 meshes"),
+    (("a", "f"), ("e", "v2"), MIC, "q35 poses -> v2 poses, over both meshes"),
+    (("a", "e"), ("f", "v2"), MIC, "q35 meshes -> v2 meshes, over both poses"),
+    (("a", "f"), ("e", "v2"), "scissors_in_cup_runs", "q35 poses -> v2 poses, over both meshes"),
+    (("a", "e"), ("f", "v2"), "scissors_in_cup_runs", "q35 meshes -> v2 meshes, over both poses"),
+    # then within the renders alone, and each render against the image it renders again.
+    (("ar",), ("e",), MIC, "renders, q35 meshes: q35 poses -> v2 poses"),
+    (("f",), ("v2r",), MIC, "renders, v2 meshes: q35 poses -> v2 poses"),
+    (("ar",), ("f",), MIC, "renders, q35 poses: q35 meshes -> v2 meshes"),
+    (("e",), ("v2r",), MIC, "renders, v2 poses: q35 meshes -> v2 meshes"),
+    (("ar", "f"), ("e", "v2r"), MIC, "renders, q35 poses -> v2 poses, over both meshes"),
+    (("ar", "e"), ("f", "v2r"), MIC, "renders, q35 meshes -> v2 meshes, over both poses"),
+    (("ar", "f"), ("e", "v2r"), "scissors_in_cup_runs", "renders, q35 poses -> v2 poses, over both meshes"),
+    (("ar", "e"), ("f", "v2r"), "scissors_in_cup_runs", "renders, q35 meshes -> v2 meshes, over both poses"),
+    (("a",), ("ar",), MIC, "q35 image: B6's -> rendered again"),
+    (("v2",), ("v2r",), MIC, "v2 image: B6's -> rendered again"),
+    # A state's two renders, and the renders' poses and meshes over both renders of each state.
+    (("v2r",), ("v2r2",), MIC, "v2 state: first render -> second"),
+    (("ar",), ("ar2",), MIC, "q35 state: first render -> second"),
+    (("e",), ("e2",), MIC, "q35 meshes at v2 poses: first render -> second"),
+    (("f",), ("f2",), MIC, "v2 meshes at q35 poses: first render -> second"),
+    (("ar", "f", "ar2", "f2"), ("e", "v2r", "e2", "v2r2"), MIC, "both renders, q35 poses -> v2 poses, over both meshes"),
+    (("ar", "e", "ar2", "e2"), ("f", "v2r", "f2", "v2r2"), MIC, "both renders, q35 meshes -> v2 meshes, over both poses"),
+    (("ar", "f", "ar2", "f2"), ("e", "v2r", "e2", "v2r2"), "scissors_in_cup_runs",
+     "both renders, q35 poses -> v2 poses, over both meshes"),
+    (("ar", "e", "ar2", "e2"), ("f", "v2r", "f2", "v2r2"), "scissors_in_cup_runs",
+     "both renders, q35 meshes -> v2 meshes, over both poses"),
 ]
 
 
@@ -104,14 +178,17 @@ def control_scene(cond):
     return image_from if image_from == list_from and edit is None else None
 
 
-def build_inputs(root, data):
+def build_inputs(root, data, renders, conds):
     """A scene directory per condition with copies of its image and scene JSON; returns what each holds."""
     v2_info = json.loads((data / V2 / SCENE_JSON).read_text())["objects_info"]["init_info"]
     manifest = {}
     for name, (image_from, list_from, edit) in CONDITIONS.items():
+        if name not in conds and not (root / name).exists():
+            continue  # a render that this run neither sends nor sent before need not exist
         scene_dir = root / name
         (scene_dir / SCENE_IMAGE).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(data / image_from / SCENE_IMAGE, scene_dir / SCENE_IMAGE)
+        image_src = data / image_from / SCENE_IMAGE if image_from in CONTROL else renders / image_from
+        shutil.copyfile(image_src, scene_dir / SCENE_IMAGE)
         if edit is None:
             shutil.copyfile(data / list_from / SCENE_JSON, scene_dir / SCENE_JSON)
         else:
@@ -174,11 +251,12 @@ def puts(r, state, kinds):
     return any(f"{state}({cat[k]}, {cat['cup']})" in g["predicates"] for k in kinds for g in r["graded"])
 
 
-def summarize(out, records, manifest, reference):
+def summarize(out, records, manifest, reference, previous):
     for r in records:  # graded again, so a change to grade() applies to calls already made
         r["graded"] = rbs.grade(r.get("tasks", []), r["objects"]) if r.get("objects") else []
     ref_text = {(r["case"]["scene"], r["case"]["seed"]): r.get("text") for r in reference
                 if r["case"]["kind"] == "seed" and not r["discarded"]}
+    prev_text = {(r["case"]["condition"], r["case"]["seed"]): r.get("text") for r in previous if not r["discarded"]}
     prompts = {c: (out / "inputs" / c / "prompt.txt").read_text() for c in CONDITIONS
                if (out / "inputs" / c / "prompt.txt").exists()}
     conds = [c for c in CONDITIONS if any(r["case"]["condition"] == c for r in records)]
@@ -193,6 +271,7 @@ def summarize(out, records, manifest, reference):
         # v2 and q35 send what replay_b7_seeds.py sent from Data/, so they should answer word for word alike.
         scene = control_scene(c)
         same = [r.get("text") == ref_text[(scene, r["case"]["seed"])] for r in runs if (scene, r["case"]["seed"]) in ref_text]
+        same_prev = [r.get("text") == prev_text[(c, r["case"]["seed"])] for r in runs if (c, r["case"]["seed"]) in prev_text]
         summary[c] = {
             "image_from": manifest[c]["image_from"], "list_from": manifest[c]["list_from"], "edit": manifest[c]["edit"],
             "objects": manifest[c]["objects"],
@@ -212,6 +291,7 @@ def summarize(out, records, manifest, reference):
             "mislabeled_tasks": sum(bool(g["mislabeled"]) for g in written),
             "task_kinds": Counter(" & ".join(g["predicates"]) for g in written).most_common(),
             "same_text_as_replay_b7_seeds": f"{sum(same)}/{len(same)}" if same else None,
+            "same_text_as_previous_run": f"{sum(same_prev)}/{len(same_prev)}" if same_prev else None,
             "max_tokens_hits": sum(a.get("done_reason") == "length" for a in attempts),
             "prompt_tokens": sorted({a.get("prompt_tokens") for a in attempts}),
             "gen_tokens_mean": round(sum(a.get("gen_tokens") or 0 for a in attempts) / max(1, len(attempts)), 1),
@@ -230,13 +310,18 @@ def summarize(out, records, manifest, reference):
         if "q35" in prompts and c in prompts and c != "q35":
             checks.append((f"{c}: its prompt is q35's but for the object list",
                            prompts[c].replace(manifest[c]["object_list"], manifest["q35"]["object_list"]) == prompts["q35"]))
-    for c, twin in (("a", "v2"), ("b", "q35")):
-        if c in summary and twin in summary:
+    for c in conds:
+        twin = CONTROL[manifest[c]["list_from"]]
+        if c != twin and manifest[c]["edit"] is None and twin in summary:
             checks.append((f"{c}: sent {twin}'s prompt word for word", summary[c]["sent_prompts"] == summary[twin]["sent_prompts"]))
     for c in conds:
-        twin = {V2: "v2", Q35: "q35"}[manifest[c]["image_from"]]
-        if c != twin and twin in summary:
+        twin = CONTROL.get(manifest[c]["image_from"])
+        if twin and c != twin and twin in summary:
             checks.append((f"{c}: sent {twin}'s image", summary[c]["sent_images"] == summary[twin]["sent_images"]))
+    for c in conds:
+        if summary[c]["same_text_as_previous_run"]:
+            k, n = map(int, summary[c]["same_text_as_previous_run"].split("/"))
+            checks.append((f"{c}: answered as the previous run did, seed for seed ({k}/{n})", k == n))
     summary["checks"] = [{"check": name, "ok": bool(ok)} for name, ok in checks]
 
     tests = []
@@ -247,6 +332,20 @@ def summarize(out, records, manifest, reference):
             tests.append({"from": "+".join(xs), "to": "+".join(ys), "count": count, "change": change,
                           "k": [kx, ky], "n": [nx, ny], "fisher_p": rbs.fisher_two_sided(kx, nx - kx, ky, ny - ky)})
     summary["tests"] = tests
+    rendered = any(summary[c]["image_from"] not in CONTROL for c in conds)
+    summary["image_level"] = {f"{count}, B6's photographs {'in' if b6 else 'out'}": image_level(summary, count, b6)
+                              for count in (MIC, "scissors_in_cup_runs") for b6 in (True, False)} if rendered else {}
+
+    # Two images of one state (B6's and a render of it, or a state's two renders) at the same seed: how often
+    # the very same answer comes back says how far render noise alone moves B7.
+    text = {(r["case"]["condition"], r["case"]["seed"]): r.get("text") for r in records if not r["discarded"]}
+    agree = []
+    for x, y in (("v2", "v2r"), ("a", "ar"), ("v2r", "v2r2"), ("ar", "ar2"), ("e", "e2"), ("f", "f2")):
+        seeds = sorted({sd for c, sd in text if c == x} & {sd for c, sd in text if c == y})
+        if seeds:
+            agree.append({"pair": f"{x} / {y}", "same_text": sum(text[(x, sd)] == text[(y, sd)] for sd in seeds),
+                          "seeds": len(seeds)})
+    summary["same_answer_across_images_of_a_state"] = agree
     (out / "summary.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False) + "\n")
 
     lines = ["| | " + " | ".join(conds) + " |", "|---|" + "---|" * len(conds)]
@@ -263,18 +362,60 @@ def summarize(out, records, manifest, reference):
     row("tasks parsed per run", lambda x: x["n_tasks_parsed"])
     row("written tasks: would not load / mislabeled", lambda x: f"{x['invalid_tasks']} / {x['mislabeled_tasks']} of {x['tasks_written']}")
     row("same text as replay_b7_seeds.py", lambda x: x["same_text_as_replay_b7_seeds"])
+    row("same text as the previous run", lambda x: x["same_text_as_previous_run"])
     row("MAX_TOKENS, prompt tokens, mean gen tokens",
         lambda x: f"{x['max_tokens_hits']}, {x['prompt_tokens']}, {x['gen_tokens_mean']}")
     row("model size / in VRAM (MiB) / context", lambda x: x["loaded_mib_vram_ctx"])
-    lines.append("\nFisher exact (two-sided):\n")
+    if summary["image_level"]:
+        lines.append("\nImage level (one observation per image: its rate over the seeds sent with it):\n")
+    for key, il in summary["image_level"].items():
+        lines.append(f"- {key}:")
+        lines += [f"  - {st}: {x['images']} images, mean {x['mean']}, sd {x['sd']}, rates {x['rates']}"
+                  for st, x in il["states"].items()]
+        lines += [f"  - {t['factor']} (q35 -> v2), within each level of the other: mean difference {t['difference']}, "
+                  f"permutation p = {t['p']}" for t in il["tests"]]
+    lines.append("\nFisher exact (two-sided), each draw as one observation:\n")
     lines += [f"- {t['count']}, {t['from']} -> {t['to']} ({t['change']}): {t['k'][0]}/{t['n'][0]} -> "
               f"{t['k'][1]}/{t['n'][1]}, p = {t['fisher_p']:.3g}" for t in tests]
+    if agree:
+        lines.append("\nSame answer at the same seed, two images of one state:\n")
+        lines += [f"- {a['pair']}: {a['same_text']}/{a['seeds']}" for a in agree]
     lines.append("\nChecks:\n")
     lines += [f"- [{'x' if c['ok'] else ' '}] {c['check']}" for c in summary["checks"]]
     for c in conds:
         lines.append(f"\n{c} written tasks:\n" + "\n".join(f"- {n} x {k}" for k, n in summary[c]["task_kinds"]))
     (out / "summary.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines), flush=True)
+
+
+def image_level(summary, count, include_b6, n_perm=100000, seed=0):
+    """Each image's rate per state, and the poses' and the meshes' effects on it, image by image.
+
+    A draw is not an independent look at a state: the draws on one image share its render noise, which moves
+    the rate as much as anything else here. So each image counts once, by its rate, and an effect is tested
+    by permuting images between the two levels of the factor within each level of the other (two-sided).
+    """
+    rates = {st: [summary[c][count] / summary[c]["runs"] for c in cs if c in summary and summary[c]["runs"]
+                  and (include_b6 or summary[c]["image_from"] not in CONTROL)] for st, cs in STATE_IMAGES.items()}
+    out = {"states": {f"{m} meshes, {p} poses": {
+        "images": len(r), "mean": round(float(np.mean(r)), 3) if r else None,
+        "sd": round(float(np.std(r, ddof=1)), 3) if len(r) > 1 else None, "rates": [round(x, 2) for x in r]}
+        for (m, p), r in rates.items()}, "tests": []}
+    rng = np.random.default_rng(seed)
+    for factor, i in (("poses", 1), ("meshes", 0)):
+        strata = [(np.array(next(r for st, r in rates.items() if st[1 - i] == lvl and st[i] == "q35")),
+                   np.array(next(r for st, r in rates.items() if st[1 - i] == lvl and st[i] == "v2"))) for lvl in ("v2", "q35")]
+        if any(len(a) < 2 or len(b) < 2 for a, b in strata):
+            continue
+        observed = np.mean([b.mean() - a.mean() for a, b in strata])
+        permuted = np.zeros(n_perm)
+        for a, b in strata:
+            pool = np.concatenate([a, b])
+            order = np.argsort(rng.random((n_perm, len(pool))), axis=1)
+            permuted += (pool[order[:, len(a):]].mean(1) - pool[order[:, :len(a)]].mean(1)) / len(strata)
+        p = (np.sum(np.abs(permuted) >= abs(observed) - 1e-12) + 1) / (n_perm + 1)
+        out["tests"].append({"factor": factor, "difference": round(float(observed), 3), "p": round(float(p), 4)})
+    return out
 
 
 # ---------------------------------------------------------------------------------------------- main
@@ -285,6 +426,9 @@ def main():
     ap.add_argument("--conditions", default=",".join(CONDITIONS), help="which of them to call, in this order")
     ap.add_argument("--reference", default=str(bc.REPO / "results/diagnostics/vlm_compare/b7_q35/calls.jsonl"),
                     help="replay_b7_seeds.py's calls, which v2 and q35 should repeat word for word")
+    ap.add_argument("--previous", default=str(bc.REPO / "results/diagnostics/vlm_compare/b7_q35_cross/calls.jsonl"),
+                    help="an earlier run's calls, whose conditions this run's should repeat word for word")
+    ap.add_argument("--renders", default=None, help="render_b7_scenes.py's images (default: <out_dir>/renders)")
     ap.add_argument("--data-root", default=str(bc.DATA), help="scene outputs (default: <repo>/Data)")
     ap.add_argument("--summarize-only", action="store_true", help="grade the calls already made; no VLM calls")
     args = ap.parse_args()
@@ -295,19 +439,21 @@ def main():
     records = [json.loads(line) for line in open(calls)] if calls.exists() else []
     reference = Path(args.reference)
     ref = [json.loads(line) for line in open(reference)] if reference.exists() else []
+    previous = Path(args.previous)
+    prev = [json.loads(line) for line in open(previous)] if previous.exists() and previous.resolve() != calls.resolve() else []
     if args.summarize_only:
-        summarize(out, records, json.loads((out / "inputs/manifest.json").read_text()), ref)
+        summarize(out, records, json.loads((out / "inputs/manifest.json").read_text()), ref, prev)
         return
     bc.check_setup()
     assert bc.lb.OLLAMA_KEEP_ALIVE in ("0", "0s"), "set SIMFOUNDRY_OLLAMA_KEEP_ALIVE=0, as the pipeline does"
     for scene in (V2, Q35):
         # The stage prefers assets/scenes/<scene>/; without it, it reads the two files copied here.
         assert not (bc.REPO / "assets/scenes" / scene).exists(), f"assets/scenes/{scene} would change B7's inputs"
-    manifest = build_inputs(out / "inputs", Path(args.data_root))
+    manifest = build_inputs(out / "inputs", Path(args.data_root), Path(args.renders or out / "renders").resolve(), conds)
     bc.DATA = out / "inputs"  # run_b7 reads bc.DATA / <scene>, here a condition
     print(f"== {bc.lb.OLLAMA_MODEL} think={bc.lb.OLLAMA_THINK!r} keep_alive={bc.lb.OLLAMA_KEEP_ALIVE} "
           f"num_tasks={rbs.NUM_TASKS} temperature={roc.CFG.propose_scene_task.get('temperature', 0.7)} "
-          f"conditions={conds} reference={reference if ref else None}", flush=True)
+          f"conditions={conds} reference={reference if ref else None} previous={previous if prev else None}", flush=True)
     for c in conds:
         print(f"   {c}: image {manifest[c]['image_from']}, list {manifest[c]['objects']}", flush=True)
     bc.warmup()
@@ -335,7 +481,7 @@ def main():
                     break
             else:
                 print(f"   gave up on {cond} seed {seed}: every try overlapped another job", flush=True)
-    summarize(out, records, manifest, ref)
+    summarize(out, records, manifest, ref, prev)
 
 
 if __name__ == "__main__":
