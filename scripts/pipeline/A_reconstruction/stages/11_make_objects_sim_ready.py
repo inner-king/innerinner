@@ -23,7 +23,7 @@ import re
 from simfoundry import CFG_DIR
 from simfoundry.utils.processing_utils import extract_numbers_from_str
 from simfoundry.utils.python_utils import sanitize_path_component
-from simfoundry.utils.prompt_utils import prompt_object_mass_friction, prompt_articulated_object_parts_properties, parse_json_response
+from simfoundry.utils.prompt_utils import mass_prompt_volumes, prompt_object_mass_friction, prompt_articulated_object_parts_properties, parse_json_response
 from simfoundry.pipeline.articulation_physics import resolve_articulation_physics
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 
@@ -204,12 +204,15 @@ def import_rigid_scene_object(
     obb_extent,
     volume_m3: float,
     rigid_scale: float,
+    material_volume_m3: float = None,
 ) -> dict:
     result = vlm(
         prompt=prompt_object_mass_friction(
             obj_phrase=obj_phrase,
             bounding_box_cm=obb_extent * 100,
             volume_cm=volume_m3 * (100 ** 3),
+            material_volume_cm=None if material_volume_m3 is None else material_volume_m3 * (100 ** 3),
+            envelope_note=True,
         ),
         image_paths=img_fpath,
         temperature=0,
@@ -382,12 +385,13 @@ def main(cfg):
         bbox_volume = np.prod(obb_extent)  # Axis-aligned bounding box volume
         min_reasonable_volume = bbox_volume * 0.1  # At least 10% of bbox volume
         
+        # The volume the mass prompt states (stage 11's rule, now in mass_prompt_volumes), plus the material volume
+        # of a closed thin shell such as a cup or bowl reconstructed with its cavity.
+        volume_m3, material_volume_m3 = mass_prompt_volumes(tm, obb_extent)
         if tm.is_volume and tm.volume > min_reasonable_volume:
-            volume_m3 = tm.volume
             logger.info(f"[DEBUG] Mesh is watertight, using computed volume: {volume_m3} m³ ({volume_m3 * (100**3):.2f} cm³)")
         else:
-            # Fallback: estimate volume from bounding box (assume ellipsoid-like shape)
-            volume_m3 = bbox_volume * 0.65  # Approximate as 65% of bbox
+            # Fallback: estimate volume from bounding box (assume ellipsoid-like shape), 65% of the box
             if not tm.is_volume:
                 logger.info(f"[DEBUG] Mesh is not watertight (is_volume={tm.is_volume}), estimating from bbox")
             else:
@@ -410,6 +414,7 @@ def main(cfg):
                 obb_extent=obb_extent,
                 volume_m3=volume_m3,
                 rigid_scale=rigid_scale,
+                material_volume_m3=material_volume_m3,
             )
 
         else: # process articulated objects

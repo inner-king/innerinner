@@ -374,9 +374,48 @@ Pick the option that would reconstruct best, judging in this order of priority:
 Please think through your process first via chain-of-thought, explicitly comparing how large and how occluded the smallest object is in each option. Then provide your final answer as the option number, in the format: ANSWER: <option number between 1 and {n_candidates}>"""
 
 
-def prompt_object_mass_friction(obj_phrase, bounding_box_cm, volume_cm):
+def mass_prompt_volumes(tm, obb_extent):
+    """
+    The volumes stage 11 states in the mass prompt for a rigid mesh.
+
+    The volume is the mesh's own when the mesh is closed and fills at least 10% of its oriented box, else 65% of
+    the box (stage 11's rule). That second case covers open meshes, whose volume trimesh cannot give, and closed
+    thin shells: a cup or bowl reconstructed with its cavity. For the shell the mesh's own volume is the material
+    volume, which is what a mass follows, so it is returned too.
+
+    Args:
+        tm (trimesh.Trimesh): the scaled mesh
+        obb_extent (array): its oriented bounding-box extents (m)
+
+    Returns:
+        2-tuple: volume (m^3) as stage 11 states it, and the material volume (m^3) of a closed thin shell or None
+    """
+    import numpy as np
+
+    bbox_volume = float(np.prod(obb_extent))
+    if tm.is_volume and tm.volume > bbox_volume * 0.1:
+        return float(tm.volume), None
+    return bbox_volume * 0.65, (float(tm.volume) if tm.is_volume and tm.volume > 0 else None)
+
+
+def prompt_object_mass_friction(obj_phrase, bounding_box_cm, volume_cm, material_volume_cm=None, envelope_note=False):
+    """
+    Mass/friction prompt. With the defaults it is the original prompt word for word (the replays in
+    repro/vlm_compare depend on that). envelope_note says what the stated volume is: the volume the object's outer
+    surface encloses, hollow interior included. Small local VLMs multiplied it by a solid density as given (a 26 cm
+    bowl came out at 5.51 kg; repro/README.md, chapter 16). material_volume_cm, from a closed thin-shell mesh, gives
+    the material volume itself.
+    """
     bbox_str = f" x ".join([f"{val:.2f}cm" for val in bounding_box_cm])
-    return f"""Shown is a picture of a {obj_phrase}. Please give the estimated mass (kg) and friction (unitless) of the shown object, given that its bounding box dimensions are {bbox_str} and corresponding volume is {volume_cm:.2f}cm^3. Use chain of thought to think through the predicted material and physical properties of the shown object before deciding on the mass and friction. 
+    note = ""
+    if material_volume_cm is not None:
+        note = (f" Its mesh is a closed thin shell whose material occupies only about {material_volume_cm:.2f}cm^3 of "
+                f"that volume: the object is hollow, and its mass comes from that material.")
+    elif envelope_note:
+        note = (" That volume is what the object's outer surface encloses and counts any hollow interior as filled: if "
+                "the object is a container or otherwise hollow, its material, and so its mass, is only a small "
+                "fraction of it.")
+    return f"""Shown is a picture of a {obj_phrase}. Please give the estimated mass (kg) and friction (unitless) of the shown object, given that its bounding box dimensions are {bbox_str} and corresponding volume is {volume_cm:.2f}cm^3.{note} Use chain of thought to think through the predicted material and physical properties of the shown object before deciding on the mass and friction.\x20
     Answer should be in the following format: json
     {{
         "mass": <value>,

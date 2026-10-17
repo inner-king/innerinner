@@ -33,7 +33,7 @@ from omegaconf import OmegaConf  # noqa: E402
 
 from simfoundry.models.vlm import Gemini  # noqa: E402
 from simfoundry.pipeline.front_canonicalization import front_pick_prompt, parse_front_choice  # noqa: E402
-from simfoundry.utils.prompt_utils import parse_json_response, prompt_object_mass_friction  # noqa: E402
+from simfoundry.utils.prompt_utils import mass_prompt_volumes, parse_json_response, prompt_object_mass_friction  # noqa: E402
 
 STAGES = bc.REPO / "scripts/pipeline"
 SCENES = ("put_marker_in_cup", "put_marker_in_cup_v2", "put_cup_in_bowl_v2")
@@ -82,8 +82,9 @@ def load_mesh_as_trimesh(mesh_path):
     return tm
 
 
-def mass_friction_inputs(scene, img_name):
-    """Extents (cm) and volume (cm^3) exactly as stage 11 computes them for a rigid object."""
+def mass_friction_inputs(scene, img_name, with_material=False):
+    """Extents (cm) and volume (cm^3) exactly as stage 11 computes them for a rigid object; with_material also
+    returns the material volume (cm^3) of a closed thin shell, as stage 11 now states it (else None)."""
     d = bc.DATA / scene
     info = json.load(open(d / "s8_pose/info" / f"{img_name}.json"))
     tf_scale = info["z_up"]["scale"]
@@ -97,17 +98,27 @@ def mass_friction_inputs(scene, img_name):
         volume_m3 = tm.volume
     else:
         volume_m3 = bbox_volume * 0.65
+    if with_material:
+        _, material_m3 = mass_prompt_volumes(tm, obb_extent)
+        return obb_extent * 100, volume_m3 * (100 ** 3), None if material_m3 is None else material_m3 * (100 ** 3)
     return obb_extent * 100, volume_m3 * (100 ** 3)
 
 
+# MASS_PROMPT=hollow replays stage 11's current mass prompt (the volume note and a thin shell's material
+# volume); the default replays the prompt the recorded runs used.
+MASS_PROMPT = __import__("os").environ.get("MASS_PROMPT", "original")
+
+
 def run_a11(scene, idx, img_name, meta):
-    bbox_cm, volume_cm = mass_friction_inputs(scene, img_name)
+    bbox_cm, volume_cm, material_cm = mass_friction_inputs(scene, img_name, with_material=True)
     vlm = Gemini(project="local", location="global", model=CFG.s11_sim.vlm_model)
+    extra = {} if MASS_PROMPT == "original" else {"material_volume_cm": material_cm, "envelope_note": True}
     result = vlm(prompt=prompt_object_mass_friction(obj_phrase=meta["removed_obj_phrase"], bounding_box_cm=bbox_cm,
-                                                    volume_cm=volume_cm),
+                                                    volume_cm=volume_cm, **extra),
                  image_paths=str(bc.DATA / scene / "s6_upsample/upsampled" / f"{img_name}.png"),
                  temperature=0, top_p=0, seed=0, print_results=False)
-    out = {"bbox_cm": [round(float(x), 2) for x in bbox_cm], "volume_cm3": round(float(volume_cm), 2)}
+    out = {"bbox_cm": [round(float(x), 2) for x in bbox_cm], "volume_cm3": round(float(volume_cm), 2),
+           "material_cm3": None if material_cm is None else round(float(material_cm), 2), "mass_prompt": MASS_PROMPT}
     text = vlm.get_result_text(result)  # stage 11 does not catch a refusal here either
     out["text"] = text
     j = parse_json_response(text)

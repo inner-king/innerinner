@@ -27,7 +27,7 @@ import os
 import re
 
 from simfoundry.utils.processing_utils import extract_numbers_from_str
-from simfoundry.utils.prompt_utils import parse_json_response, prompt_object_mass_friction
+from simfoundry.utils.prompt_utils import mass_prompt_volumes, parse_json_response, prompt_object_mass_friction
 
 # see https://github.com/facebookresearch/hydra/issues/2949#issue-2516892001
 if hydra.core.global_hydra.GlobalHydra.instance().is_initialized():
@@ -164,9 +164,15 @@ def main(cfg):
             logger.info(f"Front canonicalization for {obj_category}: {front_info['status']} "
                         f"(yaw={front_info['applied_yaw_deg']:.0f} deg)")
         obb_tf, obb_extent = trimesh.bounds.oriented_bounds(tm)
+        mass_volumes = mass_prompt_volumes(tm, obb_extent)
 
         result = vlm(
-            prompt=prompt_object_mass_friction(obj_phrase=obj_phrase, bounding_box_cm=obb_extent * 100, volume_cm=tm.volume * (100 ** 3)),
+            # Same volumes as stage 11 states for the originals (mass_prompt_volumes); tm.volume alone is
+            # undefined for an open mesh and only the material for a closed thin shell.
+            prompt=prompt_object_mass_friction(obj_phrase=obj_phrase, bounding_box_cm=obb_extent * 100,
+                                               volume_cm=mass_volumes[0] * (100 ** 3),
+                                               material_volume_cm=None if mass_volumes[1] is None else mass_volumes[1] * (100 ** 3),
+                                               envelope_note=True),
             image_paths=img_fpath,
             temperature=0,
             top_p=0,
