@@ -23,7 +23,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
-SPEC="${SPEC:-${HERE}/table_g1.yaml}"  # SPEC=<file> runs another spec of the same schema
+# SPEC=<file> runs another spec of the same schema; made absolute, since init reads it from a work directory.
+SPEC="$(readlink -f "${SPEC:-${HERE}/table_g1.yaml}")"
 EVAL_ROOT="${EVAL_ROOT:-/content/eval}"
 PY="${SIMFOUNDRY_PY:-/root/miniforge3/envs/simfoundry/bin/python}"
 OPENPI_DIR="${OPENPI_DIR:-/content/openpi}"
@@ -110,7 +111,8 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
   prompt="${PROMPT:-$(spec "s['tasks']['${t}']['prompt']")}"
   local sensors="${SENSORS_CFG:-nv_franka_droid}"
   timeout=$(spec "s['tasks']['${t}']['timeout_s']")
-  horizon=$(spec "s['tasks']['${t}']['execute_horizon']")
+  # EXECUTE_HORIZON=<n> replaces the task's execute_horizon (an ablation); the stage executes min(n, chunk).
+  horizon="${EXECUTE_HORIZON:-$(spec "s['tasks']['${t}']['execute_horizon']")}"
   local init="${EVAL_ROOT}/init_states/${t}.json"
   [[ -s "${init}" ]] || { echo "[eval] no init states for ${t}; run init first"; return 1; }
   if [[ ${n} -lt 25 ]]; then
