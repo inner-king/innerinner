@@ -20,8 +20,10 @@ from omnigibson.utils.usd_utils import create_primitive_mesh, absolute_prim_path
 from omnigibson.utils import transform_utils as T
 import torch as th
 import numpy as np
+import logging
 from typing import Tuple
 
+log = logging.getLogger(__name__)
 
 # OmniGibson simulator settings
 USE_FLUID = False
@@ -71,28 +73,48 @@ VIS_GEOM_COLORS = {
 
 
 def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
-    # Set physical materials for each object
+    """Bind each object's estimated friction to every collision mesh it has.
+
+    Stage 11 asks the VLM for a single unitless friction per object (``scene_objects_info.json``), so it is
+    used as both the static and the dynamic coefficient. Both must be authored: ``UsdPhysics.MaterialAPI``
+    falls back to 0.0 for a coefficient left unset, so a material carrying only a static friction would
+    contribute none once the object slides. Restitution stays unset, i.e. 0.0, as in PhysX's default
+    material that the objects used before this was bound. PhysX averages the two materials of a contact,
+    so an object on the ground plane (0.5) meets the mean of its own coefficient and 0.5.
+
+    Call it while the simulator is stopped. PhysX takes a material binding when it parses the stage on
+    play; one made while it plays shows in USD but reaches PhysX only at the next stop and play
+    (repro/friction/check_friction.py reads the shapes' materials back from PhysX).
+
+    Args:
+        objs (dict): object name -> object; robots are skipped
+        obj_frictions (dict): object name -> friction coefficient
+
+    Returns:
+        dict: object name -> the PhysicsMaterial bound to its collision meshes
+    """
+    if og.sim.is_playing():
+        log.warning("set_obj_materials called while the simulator plays: PhysX keeps the old materials "
+                    "until the next stop and play")
     obj_materials = dict()
     for obj_name, obj in objs.items():
         if isinstance(obj, BaseRobot):
             continue
 
-        # Create physical material for object
+        friction = float(obj_frictions[obj_name])
         obj_mat = lazy.isaacsim.core.api.materials.PhysicsMaterial(
             prim_path=f"{obj.prim_path}/Looks/mat",
             name=f"{obj_name}_mat",
-            static_friction=obj_frictions[obj_name],
-            # dynamic_friction=1.0,
+            static_friction=friction,
+            dynamic_friction=friction,
             restitution=None,
         )
-        # for link in obj.links.values():
-        #     # TODO: Why is inertia used (not ignored during import)? And also why is it bad?
-        #     link.set_property("physics:diagonalInertia", lazy.pxr.Gf.Vec3f(0, 0, 0))
-        #     # for msh in link.collision_meshes.values():
-        #     #     msh.apply_physics_material(obj_mat)
+        for link in obj.links.values():
+            # TODO: Why is inertia used (not ignored during import)? And also why is it bad?
+            # link.set_property("physics:diagonalInertia", lazy.pxr.Gf.Vec3f(0, 0, 0))
+            for msh in link.collision_meshes.values():
+                msh.apply_physics_material(obj_mat)
         obj_materials[obj_name] = obj_mat
-
-        objs[obj_name] = obj
 
     return obj_materials
 

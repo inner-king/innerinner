@@ -321,8 +321,12 @@ def main(cfg):
             for i in range(10):
                 og.sim.step()
 
-    # Set object materials
-    obj_materials = set_obj_materials(objs=objs, obj_frictions=obj_frictions)
+        # Set object materials while stopped: a binding made while the simulator plays reaches PhysX only at
+        # the next play, after the settle below.
+        obj_materials = set_obj_materials(objs=objs, obj_frictions=obj_frictions)
+        for obj_name, obj_mat in obj_materials.items():
+            print(f"Friction of {obj_name}: static {obj_mat.get_static_friction():.3f}, "
+                  f"dynamic {obj_mat.get_dynamic_friction():.3f}")
 
     # Let simulation settle before capturing final poses
     print("\nLetting simulation settle...")

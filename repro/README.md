@@ -181,6 +181,7 @@ repro/run_local_pipeline.sh C_application --scene-name NAME --mode smoke-random
 | `C_application/stages/2_teleop_og_scene.py` (20장) | 장면에 기록된 질량 적용(`apply_scene_masses`, 평가 단계와 같음) |
 | `C_application/stages/1_eval_policy_og_scene.py`, `scripts/cfg/real2sim_cfg.yaml` (20장) | `s15_eval.tonemap_op`: 정책 카메라의 RTX 톤매퍼 선택. 기본 null(예전과 같음) |
 | `A_reconstruction/stages/14_create_og_scene.py`, `scripts/cfg/*.yaml` (20장) | `s14_og.robot_standoff_m`(설정 기본 0.6 m): 로봇 베이스를 물체 중심 뒤에 둠. null이면 고정 위치 |
+| `simfoundry/utils/og_utils.py` (`set_obj_materials`), `14_create_og_scene.py`, `B_augmentation/stages/6_sample_reconstructed_scene.py` (20.4) | 마찰 재질을 충돌 메시에 실제로 붙이고 운동 마찰도 같은 값으로 정함. 14단계와 B6은 stopped 블록 안에서 붙임 |
 
 ## 10. 추가 실험: 이미지 백엔드 비교 (2026-10-10)
 
@@ -431,6 +432,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험 | 16 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
 | `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기, 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV | 19 |
+| `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
 | `diag/diag_*.py` | 조작 시연을 만들며 쓴 로봇 베이스·IK·하강·그리퍼 축 진단 | 12 |
 | `diag/smoke_hunyuan_12gb.py` | Hunyuan3D-2.1 형상·텍스처가 12 GB에 들어가는지 점검 | 2 |
 | `g4/setup_g4.sh`, `g4/constraints_simfoundry.txt` | Colab G4 런타임 설치(Vulkan·libGLU 보완, 버전 고정) | 17 |
@@ -1109,9 +1111,9 @@ repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/our
 python repro/policy_eval_ours/correlate.py --check-paper --results results/policy_eval_ours/gr00t/out:main
 ```
 
-## 20. 시뮬레이션 품질 수정: 질량, 렌더, 로봇 위치 (2026-10-17)
+## 20. 시뮬레이션 품질 수정: 질량, 렌더, 로봇 위치, 마찰 (2026-10-17)
 
-사용자 요청(메인 재현 세션이 전달)으로 시뮬레이션 자체의 품질 문제 가운데 파이프라인 쪽에서 고칠 수 있는 세 가지를 고쳤습니다. 자동 3DGS 배경의 로봇 시점 문제는 17장(fork 세션)이, B7 태스크 제안은 16장 끝(B7 세션)이 맡습니다.
+사용자 요청(메인 재현 세션이 전달)으로 시뮬레이션 자체의 품질 문제 가운데 파이프라인 쪽에서 고칠 수 있는 네 가지를 고쳤습니다(마찰은 20.4). 자동 3DGS 배경의 로봇 시점 문제는 17장(fork 세션)이, B7 태스크 제안은 16장 끝(B7 세션)이 맡습니다.
 
 ### 20.1 질량
 
@@ -1157,3 +1159,53 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
 - 14단계는 로봇 베이스를 `s14_og.robot_config.position = [-1.0, 0, 0]`에 고정해서, 원점 주변에 복원된 책상 물체에 Franka 팔(약 0.85 m)이 닿지 않습니다(PutMarkerInCup 0.87 m. 12장의 시연은 장면 JSON을 손으로 고쳤음).
 - `s14_og.robot_standoff_m`를 넣었습니다. 값을 주면 물체들 중심에서 −x 방향으로 그만큼 떨어진 곳에 베이스를 둡니다(로봇은 +x를 봄). 장면 설정의 기본값은 저자 DROID 장면이 물체를 두는 거리인 0.6 m이고, null이면 예전의 고정 위치입니다. 저장소 원래 코드에도 테이블 기준 0.55 m 앞에 두는 줄이 주석으로 남아 있습니다.
 - `put_cup_in_bowl_v2`에서 14단계를 다른 폴더(`s14_og_standoff`)로 다시 돌리니, 베이스가 (−0.46, 0.02, 0)에 놓였고 물체까지 거리는 그릇 0.44 m, 컵 0.67 m, 펜 0.71 m였습니다. 셋 다 팔이 닿는 범위 안입니다.
+
+### 20.4 마찰
+
+11단계가 VLM에게 받은 물체별 마찰 계수는 지금까지 시뮬레이션에 한 번도 들어가지 않았습니다. 원인은 세 가지였습니다.
+
+- **재질을 붙이지 않음.** 11단계는 물체마다 마찰 계수 하나("friction (unitless)")를 받아 `s11_sim/scene_objects_info.json`에 적습니다. 14단계, 텔레옵(`2_teleop_og_scene.py`, `2b_teleop_og_scene_cousins.py`), B6(`6_sample_reconstructed_scene.py`)은 이 값으로 `set_obj_materials`(`simfoundry/utils/og_utils.py`)를 부릅니다. 그런데 이 함수는 재질을 만들기만 하고, 충돌 메시에 붙이는 반복문은 주석 처리돼 있었습니다. 그래서 모든 물체가 PhysX 기본 재질(정지·운동 마찰 0.5, 반발 0)로 돌았습니다.
+- **운동 마찰 0.** 반복문만 되살려도 안 됩니다. 재질은 정지 마찰만 정했고, 운동 마찰 줄도 주석이었습니다. `UsdPhysics.MaterialAPI`는 정하지 않은 계수를 0.0으로 읽습니다. 그대로 붙였다면 물체가 미끄러지기 시작하는 순간 그 물체 쪽 마찰은 0이 됩니다.
+- **play 중에 붙이면 늦게 들어감.** 14단계와 B6은 시뮬레이터가 도는 중에 이 함수를 불렀습니다. 이렇게 붙인 재질은 USD에는 보이지만 PhysX에는 다음 stop/play 때야 들어갑니다(아래 첫 표). 14단계는 그 뒤에 멈추는 일이 없어서, 가라앉히기와 저장이 모두 기본 재질로 끝났습니다. 텔레옵 두 단계는 `og.sim.stopped()` 안에서 불러서 이 문제는 없었습니다.
+
+**고친 것**
+- `set_obj_materials`는 물체의 모든 링크에 있는 충돌 메시에 재질을 붙이고, 운동 마찰을 정지 마찰과 같은 값으로 정합니다.
+  - 같은 값으로 둔 이유: VLM이 주는 값이 하나뿐이라 둘로 나눌 근거가 없습니다. 평가 단계(물체 0.5, 손가락 2.0)와 라이트 에디터의 마찰 칸도 두 값을 같게 둡니다. 실제 재료의 운동 마찰은 보통 조금 낮지만, 그 비율을 지어내지는 않았습니다.
+  - 반발은 예전처럼 정하지 않습니다(0.0). 지금까지 쓰던 PhysX 기본 재질과 같은 값입니다.
+- 14단계와 B6(두 곳)은 이 함수를 물체를 넣는 `og.sim.stopped()` 블록 안에서 부릅니다. 함수는 play 중에 불리면 경고를 남깁니다. 14단계는 붙인 값을 로그에 적습니다(`Friction of iter_1: static 0.400, dynamic 0.400`).
+- 평가 단계(`1_eval_policy_og_scene.py`)는 고치지 않았습니다. 모든 물체에 0.5, 그리퍼 손가락에 2.0을 일부러 붙이고, Table G.1 수치가 그 설정에서 나왔습니다.
+- PhysX는 접촉한 두 재질의 평균을 씁니다(`physxMaterial:frictionCombineMode` 기본값 average). 바닥(ground plane) 재질은 정지·운동 0.5, 반발 0.8입니다. 그래서 바닥에 놓인 물체에는 (추정값 + 0.5)/2가, 물체끼리는 두 추정값의 평균이 걸립니다.
+
+**확인** (`repro/friction/check_friction.py`, 결과 `diagnostics/friction/`, 로그 `logs/friction/`)
+- `put_cup_in_bowl_v2`의 물체 셋을 14단계와 같은 방식으로 올리고, 충돌 shape마다 PhysX가 가진 재질을 직접 읽었습니다(텐서 API `RigidBodyView.get_material_properties`). 표의 값은 정지/운동/반발입니다.
+
+  | 물체 (shape 수) | 11단계 추정 | 붙이기 전 | play 중에 붙임 (예전 14단계·B6) | stopped 안에서 붙임 (지금) | 바닥과의 마찰 |
+  |---|---|---|---|---|---|
+  | iter_0 주황 그릇 (32) | 0.5 | 0.5 / 0.5 / 0 | 0.5 / 0.5 / 0 | 0.5 / 0.5 / 0 | 0.5 → 0.5 |
+  | iter_1 검은 펜 (1) | 0.4 | 0.5 / 0.5 / 0 | **0.5 / 0.5 / 0** (USD는 0.4) | **0.4 / 0.4 / 0** | 0.5 → 0.45 |
+  | iter_2 흰 컵 (32) | 0.5 | 0.5 / 0.5 / 0 | 0.5 / 0.5 / 0 | 0.5 / 0.5 / 0 | 0.5 → 0.5 |
+
+  - 이 장면에서는 펜의 추정값만 기본값과 달라서, 실제로 바뀌는 물체는 펜 하나입니다.
+- **미끄럼 시험.** 그릇 복사본을 바닥에서 +x 방향 0.5 m/s로 밀었습니다. 미끄러진 거리는 바닥과 합친 운동 마찰 μ로 계산한 v²/(2μg)의 79–99%였습니다. 반복문만 되살린 재질(정지 마찰만 0.5)은 지금 재질보다 2.1배 멀리 미끄러졌습니다.
+
+  | 그릇의 재질 | PhysX 운동 마찰 | 바닥과 평균 μ | 미끄러진 거리 | 예상 |
+  |---|---|---|---|---|
+  | 붙이지 않음 (예전) | 0.5 | 0.5 | 2.34 cm | 2.55 cm |
+  | 정지 마찰만 0.5 (반복문만 되살린 경우) | 0.0 | 0.25 | **5.03 cm** | 5.10 cm |
+  | 둘 다 0.5 (지금, 그릇의 추정값) | 0.5 | 0.5 | 2.34 cm | 2.55 cm |
+  | 둘 다 0.2 | 0.2 | 0.35 | 3.48 cm | 3.64 cm |
+  | 둘 다 1.0 | 1.0 | 0.75 | 1.35 cm | 1.70 cm |
+
+- **14단계 재실행.** 20.3의 `s14_og_standoff`와 같은 설정으로 `Data/put_cup_in_bowl_v2/s14_og_friction`에 다시 돌렸습니다(결과 사본 `diagnostics/friction/s14_og_friction/`).
+  - 로그에 세 물체의 마찰이 위 값대로 찍혔습니다.
+  - 가라앉은 자세는 펜까지 `s14_og_standoff`와 0.001 mm, 0.001° 단위에서 같습니다. 가라앉는 동안 마찰력이 한계(μN)에 닿지 않으면 μ는 계산에 쓰이지 않습니다. 예전 두 실행(`s14_og`, `s14_og_standoff`)끼리도 같았으니 PhysX는 실행마다 같은 결과를 냅니다.
+  - 저장된 세 물체는 속도 0이고 잠든 상태입니다. 검사 스크립트에서도 추정값이 들어간 뒤 100스텝 동안 0.05 mm 넘게 움직인 물체가 없습니다.
+- 텔레옵(대화형)과 B6은 돌리지 않았습니다. 두 단계도 같은 함수를 `og.sim.stopped()` 안에서 부르므로 첫 표의 "지금" 열과 같은 경우입니다.
+
+**저장 장면에는 기록하지 않았습니다**
+- AGENTS.md("The saved-scene contract")는 `objects_info.init_info[<name>].args.link_physics_materials`에 마찰을 적으면 OmniGibson이 로드할 때 붙이므로, 소비자를 고치지 않아도 어디서나 쓰인다고 적고 있습니다. 로드할 때 붙는 것은 맞습니다. 이 인자로 만든 물체는 PhysX에서 0.7/0.7로 읽혔습니다.
+- 하지만 OmniGibson 3.8.0은 재질을 붙인 뒤 그 dict의 값을 자기가 만든 `PhysicsMaterial` 객체로 바꿔 넣습니다(`object_base.py`의 `_post_load`). 그 dict는 복사본이 아닙니다. 객체의 init info가 같은 dict를 가리키고(`save_init_info`가 인자를 그대로 기록), 장면을 JSON에서 읽었다면 그 JSON 안의 dict도 같은 것입니다.
+- 그래서 이 키가 있는 장면을 로드한 뒤 저장하면 `TypeError: Object of type PhysicsMaterial is not JSON serializable`가 납니다. `og.sim.save()`와 `scene.save()` 모두 확인했습니다. 텔레옵과 평가가 쓰는 DataCollectionWrapper도 시작할 때 `env.scene.save()`를 부릅니다.
+- 14단계나 B6 출력에 이 키를 넣으면, 그 장면을 읽는 텔레옵(2, 2b), `scene_json: null`로 돌린 평가, 라이트 에디터의 `settle.py`가 저장하는 순간 멈춥니다. 그래서 넣지 않았습니다. 14단계 JSON은 예전처럼 마찰을 담지 않고, 텔레옵과 B6은 `scene_objects_info.json`에서 마찰을 읽어 붙입니다.
+- 라이트 에디터의 마찰 칸이 쓰는 키도 이것이라, 그 칸으로 고친 장면은 같은 문제를 겪습니다. 지금 이 머신의 장면 중 이 키를 가진 것은 없습니다.
+- 고치려면 OmniGibson이 받은 dict를 복사해서 써야 합니다. `deps/`는 고칠 수 없으므로 `patches/`의 패치나 업스트림 PR로 해야 하고, 따로 할 일로 남깁니다.

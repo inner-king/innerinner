@@ -523,8 +523,8 @@ def reload_objects_with_poses(scene, objs, scene_objects_info, new_poses, obj_fr
             for i in range(10):
                 og.sim.step()
 
-    # Re-apply materials
-    set_obj_materials(objs=objs, obj_frictions=obj_frictions)
+        # Re-apply materials while stopped: PhysX takes a binding made while playing only at the next play
+        set_obj_materials(objs=objs, obj_frictions=obj_frictions)
 
     # Let simulation settle (don't wake objects so they can reach zero velocity)
     print("  Letting objects settle after reload...")
@@ -1015,8 +1015,8 @@ def main(cfg):
             for i in range(10):
                 og.sim.step()
 
-    # Set object materials
-    obj_materials = set_obj_materials(objs=objs, obj_frictions=obj_frictions)
+        # Set object materials while stopped: PhysX takes a binding made while playing only at the next play
+        obj_materials = set_obj_materials(objs=objs, obj_frictions=obj_frictions)
 
     # Let simulation settle before capturing final poses
     print("\nLetting simulation settle...")
