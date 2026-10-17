@@ -3,7 +3,7 @@
 # (SPEC=...), plus a `build` block per task for build_droid_scene.py.
 #
 #   template   the authors' DROID desk scene whose robot, sensors, mesh background and ground plane every scene
-#              here keeps; its own task objects are dropped
+#              here keeps; its own task objects are dropped. A task may name its own (serve_fruits_ours)
 #   build      source: our reconstruction under Data/; objects: <category> -> the source object (`from`), the
 #              xy it is moved to, and optionally a template object whose long-axis heading it takes (`align_to`)
 #   prompt     paper App. I.2, lower-cased without the final period, as table_g1.yaml writes them
@@ -143,6 +143,43 @@ tasks:
       objects:
         - {name: red_marker_nvnysj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
         - {name: white_paper_cup_owccwy_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
+  # Serve Fruits from our reconstruction of the repository's example video Fruits.mp4 (Data/serve_fruits): the
+  # same six objects as the authors' scene droid_desk_serve_fruits, which is the template here. Each of ours
+  # takes the authors' category and sits where the authors' object of that category sits; the banana and the
+  # two plates also take its heading. Masses are what our stage 11 estimated (README chapter 22). Stage 5
+  # also cut out two "green bananas" that the image model had painted over the removed banana; they are left
+  # out. Timeout, horizon and the starts' grids follow the authors' scene in repro/policy_eval/table_g1.yaml.
+  serve_fruits_ours:
+    template: scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+    scene: scenes/DROID/droid_desk_serve_fruits_ours/droid_desk_serve_fruits_ours_scene_state_latest.json
+    task: ours_serve_fruits
+    prompt: "put both the banana and the apple on the green plate"
+    timeout_s: 120
+    execute_horizon: 24
+    paper: {pi0: 4, pi05: 80, gr00t: 20}
+    paper_real: {pi0: 0, pi05: 72, gr00t: 4}
+    build:
+      source: serve_fruits
+      objects:
+        yellow_pear: {from: iter_0, xy: [0.474, -0.062]}
+        yellow_banana: {from: iter_1, xy: [0.483, 0.052], align_to: yellow_banana_yvjcfy_3}
+        red_apple: {from: iter_2, xy: [0.666, -0.023]}
+        orange_square_plate: {from: iter_4, xy: [0.593, -0.211], align_to: orange_square_plate_rfnrye_1}
+        orange_fruit: {from: iter_5, xy: [0.657, 0.135]}
+        teal_tray: {from: iter_7, xy: [0.576, 0.282], align_to: teal_tray_tdxtsb_5}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: teal_tray_kwmamu_1
+      objects:
+        - {name: yellow_banana_ymuxhn_1, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: red_apple_fuegro_1, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: teal_tray_kwmamu_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+        - {name: yellow_pear_nnhfjs_1, grid_size: [0.25, 0.25], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_square_plate_cwrqdt_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
 
 policies:
   pi0:

@@ -8,9 +8,10 @@ PutCupInBowl.mp4: a white paper cup, an orange bowl and a black pen. Our pipelin
 (Data/put_cup_in_bowl_v2), so this script builds the missing scene from it, and a Marker in Cup scene from
 our PutMarkerInCup reconstruction the same way.
 
-Everything except the task objects comes unchanged from the authors' scene droid_desk_put_marker_in_cup: the
-Franka and its controller and sensor config, the droid_v1 mesh background at the pose they tuned, and the
-ground plane. Its own task objects are removed and ours are added:
+Everything except the task objects comes unchanged from an authors' scene, the spec's `template`
+(droid_desk_put_marker_in_cup) unless the task names its own: the Franka and its controller and sensor
+config, the droid_v1 mesh background at the pose they tuned, and the ground plane. Its own task objects are
+removed and ours are added:
 
   - each object keeps the orientation it was settled in by our stage 12 (resting on z = 0) and is moved to a
     given xy; z is shifted by the template's ground-plane height, which is where its desk is;
@@ -80,7 +81,8 @@ def main():
     spec = yaml.safe_load(open(args.spec))
     task = spec["tasks"][args.task]
     build = task["build"]
-    template_path = os.path.join(args.asset_dir, spec["template"])
+    template_rel = task.get("template", spec["template"])  # a task may start from another authors' scene
+    template_path = os.path.join(args.asset_dir, template_rel)
     template_dir = os.path.dirname(template_path)
     out_path = os.path.join(args.asset_dir, task["scene"])
     out_dir = os.path.dirname(out_path)
@@ -149,10 +151,10 @@ def main():
                 reg[n]["root_link"][k] = [0.0, 0.0, 0.0]
     scene.setdefault("metadata", {})["built_by"] = {
         "script": "repro/policy_eval_ours/build_droid_scene.py", "task": args.task,
-        "template": spec["template"], "source": build["source"]}
+        "template": template_rel, "source": build["source"]}
     with open(out_path, "w") as f:
         json.dump(scene, f, indent=2)
-    print(f"[build] {out_path}\n  template {spec['template']} (ground plane z {ground_z}), "
+    print(f"[build] {out_path}\n  template {template_rel} (ground plane z {ground_z}), "
           f"dropped {sorted(template_objects)}")
     print("\n".join(report))
 
