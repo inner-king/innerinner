@@ -427,6 +427,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `run_local_pipeline.sh`, `start_ollama.sh` | 로컬 백엔드로 A/B/C 실행 | 8 |
 | `eval_pose_fit.py` | 포즈 정합 잔차 | 3.2, 6, 11, 17 |
 | `compare_scenes.py` | 저자 공개 장면과 크기·거리 비교 | 3.2 |
+| `compare_s5_runs.py` | 두 5단계 결과를 반복마다 비교: 기록, 마스크·이미지의 픽셀 일치, 깊이 차이 | 24 |
 | `q21/compare_image_backends.py` | 이미지 백엔드 비교 | 10 |
 | `rerun_v2.sh` | v2 재실행 | 11 |
 | `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크 | 12, 13, 17 |
@@ -1311,6 +1312,7 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
   - 지우기 단계는 물체를 초록색으로 칠해 표시하고(`removal_outline_color` [0, 255, 0]) 이미지 모델에 지우라고 시킵니다. Qwen-Image-2.1-Turbo는 바나나를 지우지 않고 초록 바나나로 다시 그렸습니다.
   - 그 유령이 다시 물체로 잡혀 두 번 더 떼어졌고, 세 번째 시도 뒤에도 남았습니다(`diagnostics/policy_eval_ours/serve_fruits/s5_removal.jpg`).
   - 평가 장면에서는 뺐습니다. Gemini 이미지 모델에서도 이런지는 확인하지 않았습니다.
+  - 이 결함은 24장에서 5단계를 고쳐 막았습니다.
 - 배에는 "orange tangerine"이라는 이름이 붙었습니다. 장면에서는 저자 범주를 씁니다.
 - **크기**는 저자 물체와 1 cm 안쪽으로 맞습니다. 주황 접시만 23.4×17.7 cm로, 저자의 20.1×21.9 cm와 비율이 다릅니다.
 - **질량**(11단계 추정)은 바나나가 610 g입니다(저자 120 g, 실물 약 120–150 g). 두 가지가 겹친 결과입니다.
@@ -1445,4 +1447,71 @@ python repro/policy_eval_ours/check_scene.py --spec repro/policy_eval/table_g1.y
   --scene scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_norobot.json --out <dir>
 SCENE_JSON=scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_norobot.json \
   repro/policy_eval_ours/run_local_gr00t.sh all 25 norobot repro/policy_eval/table_g1.yaml:marker_in_cup
+```
+
+## 24. 5단계 유령 물체 수정 (2026-10-17)
+
+22.1에서 5단계가 실제 물체 6개에 "초록 바나나" 둘을 더해 8개를 떼어 냈습니다. 5단계를 고친 뒤 세 장면의 5단계만 새 폴더에 다시 돌려 확인했습니다. 6–14단계는 돌리지 않았습니다.
+
+### 24.1 원인
+
+- mask 방식은 지울 물체를 초록으로 칠해 이미지 모델에 넘깁니다. Qwen-Image-2.1-Turbo는 칠한 바나나 자리에 초록 바나나를 그렸고(iter_1), 진한 초록이라 "초록 잔여" 검사((0, 255, 0) ± 50)를 통과했습니다.
+- 다음 VLM 탐지가 그것을 새 물체 "green banana"로 잡았습니다. 5단계는 같은 mask 방식으로 두 번 지우려 했고, 두 번 다 같은 식으로 실패했습니다(iter_3, iter_6).
+- 기존 픽셀 검사(`is_valid_removed_obj`: 물체 픽셀 가운데 원본 이미지와 같은 비율)는 두 유령을 잡았습니다(0.4%, 0.1%. 실제 물체는 모두 100%). 하지만 기록만 했고, 기본 설정이 `s6_upsample.include_invalid: true`라 6단계 이후로 그대로 넘어갔습니다.
+- Qwen-Image-Edit-2511을 쓴 v1에서도 같은 식의 유리잔 유령 루프가 있었습니다. 그때는 설정에서 mask 방식을 뺐습니다(2장).
+
+### 24.2 수정
+
+- **판정**: 새 탐지의 마스크가 앞서 지운 물체의 마스크(5픽셀 키움) 안에 95% 넘게 들어 있으면, 새 물체가 아니라 그 제거가 남긴 유령으로 봅니다.
+  - 기준값은 한 탐지 안에서 중복 마스크를 가르는 `duplicate_mask_intersect_area_threshold`(0.95)를 그대로 쓰되, 한 방향으로만 봅니다. 다시 그린 물체는 표시한 영역 안에 더 작게 그려지기 때문입니다. 이 장면의 유령은 바나나 마스크 안에 99.9% 들어 있지만, 바나나 마스크의 75%만 채웠습니다.
+  - 지운 물체가 가리고 있던 실제 물체는 원래 보이던 부분이 그 영역 밖에 있어서 걸리지 않습니다. 이 머신의 5단계 결과 11개에서 각 반복이 지운 마스크에 이 기준을 적용하면, 걸리는 것은 Serve Fruits의 iter_3·iter_6뿐입니다.
+- **다시 지우기**: 유령은 다른 물체보다 먼저, 그 물체에 아직 쓰지 않은 방식(mask, outline, bbox 중 남은 것)으로 지웁니다.
+  - 이 반복은 이미지만 고치고 물체는 내보내지 않습니다. `skipped_iterations/iter_N.json`(`reason: removal_ghost`)만 쓰고 `obj_cat_list`와 `masked_object`는 쓰지 않으므로, 6단계 이후는 이 반복을 보지 않습니다. 다음 물체의 `base_iter`는 이 반복을 가리킵니다.
+- **건너뛰기**: 모든 방식이 실패하면 그 유령은 이후 탐지에서 빼고 `skipped_objects`에 적습니다.
+- 반복마다 시도한 방식을 `obj_cat_list`의 새 키 `removal_prompt_types_tried`에 남깁니다. 이어 돌리기 때 같은 상태를 디스크에서 다시 만들기 위해서입니다. 5b 피드백으로 범주나 점을 고정한 반복은 판정하지 않습니다.
+- 바꾼 파일: `scripts/pipeline/A_reconstruction/stages/5_decompose_scene.py`, 새 `simfoundry/pipeline/removal_ghosts.py`, 테스트 `tests/test_stage5_removal_ghosts.py`·`tests/test_stage5_resume_guard.py`.
+- 한계가 둘 있습니다.
+  - 지운 물체 뒤에 95% 넘게 가려져 있던 실제 물체가 드러나면, 유령과 구별되지 않아 빠집니다.
+  - 표시 색을 바꿔 다시 지우는 방법은 넣지 않았습니다. 제거 프롬프트가 "bright green"을 글로 적고 있어서, 색을 바꾸려면 프롬프트도 바꿔야 합니다.
+
+### 24.3 확인: Serve Fruits
+
+22장의 응답 캐시 사본으로 5단계만 `Data/serve_fruits_ghostfix`에 다시 돌렸습니다(10분, 1–4단계는 원래 장면을 링크).
+
+- iter_0–2는 캐시가 그대로 맞아, 원래 실행과 같은 물체(배, 노란 바나나, 사과)와 같은 이미지가 나왔습니다.
+- iter_3에서 VLM이 다시 "green banana"를 잡았습니다. iteration 1이 지운 영역 안에 100% 들어 있어 유령으로 판정됐고, outline 방식 첫 시도에 지워졌습니다. 물체로는 나가지 않았고, 이후 탐지에서도 다시 잡히지 않았습니다.
+- **떼어 낸 물체는 7개입니다.** 배, 바나나, 사과, 주황 접시, 오렌지, 청록 접시, 그리고 검은 사각 틀입니다. 초록 바나나는 없고, 마지막 이미지는 빈 책상입니다.
+- 검은 사각 틀은 청록 접시 밑에 깔린 실제 물건입니다(22.2). 유령이 아니라, VLM이 어디까지 물체로 세느냐의 차이입니다.
+  - 세 번째 VLM 탐지(iter_6)는 원래 실행에서 유령이 남은 이미지를 보고 [청록 접시, 초록 바나나]를 냈습니다.
+  - 이번에는 유령이 없는 이미지를 보고 [청록 접시, 검은 사각 틀]을 냈습니다.
+  - 저자 장면에도 없는 물체이므로, 22.2처럼 장면을 만들 때 빼면 됩니다.
+
+| | 원래 (22.1) | 수정 후 |
+|---|---|---|
+| 떼어 낸 물체 | 8개 (초록 바나나 2개 포함) | 7개 (검은 사각 틀 포함) |
+| 초록 바나나 | iter_3·iter_6에서 mask로 지우다 실패, 물체로 나감 | iter_3에서 outline으로 지움, 물체 아님 |
+| 마지막 이미지 | 초록 바나나와 사각 틀이 남음 | 빈 책상 |
+
+### 24.4 앞선 두 장면
+
+v2의 두 장면(`put_cup_in_bowl_v2`, `put_marker_in_cup_v2`)의 5단계를 수정한 코드로 다시 돌렸습니다. v2 응답 캐시를 재생만 하는 test mode라서, 원래 실행에 없던 요청이 하나라도 생기면 거기서 멈춥니다.
+
+- 두 장면 모두 끝까지 돌았고, 유령 판정은 한 번도 없었습니다.
+- 반복 3개씩, 기록, 마스크, 물체 이미지, 제거 전후 이미지가 원래와 픽셀 단위로 같습니다(`repro/compare_s5_runs.py`). 기록에는 새 키 둘만 더해졌습니다.
+- 깊이만 조금 다릅니다(픽셀의 0.4–5.6%, 99퍼센타일 2.2 mm 이하, 최대 5.4 mm). Prior-Depth-Anything이 척도를 맞출 때 고정하지 않은 난수를 더하기 때문입니다. 입력이 같은 iter_0에서도 생기는 실행마다의 차이입니다.
+
+결과는 Drive `diagnostics/s5_ghosts/`에 있습니다(전후 비교 `serve_fruits_ghost_fix.jpg`, 물체 목록, 비교 결과). 장면은 `scenes/serve_fruits_ghostfix.tar`, 응답 캐시는 `model_calls/model_calls_fruits_ghostfix`(22장 캐시에 이번 호출을 더한 것), 로그는 `logs/s5_ghosts/`에 있습니다.
+
+```bash
+# 1–4단계는 원래 장면을 링크하고 5단계만 새 폴더에 (local/env.sh를 읽은 셸에서)
+d=Data/serve_fruits_ghostfix; mkdir -p $d; for s in s1_video s2_da s3_ground s4_frame; do ln -s ../serve_fruits/$s $d/$s; done
+SIMFOUNDRY_IMAGE_BACKEND=qwen21 repro/run_local_pipeline.sh A_reconstruction --scene-name serve_fruits_ghostfix \
+  --video-fpath "$PWD/docs/assets/example_videos/Fruits.mp4" --env-da3 simfoundry --no-stream --include 5 \
+  --cache-mode --model-cache-dir .cache/simfoundry/model_calls_fruits_ghostfix -- s5_scene.pda_geometric_backend=depth_pro
+# v2 장면은 같은 식으로 폴더를 만들고 캐시 재생만 (PutMarkerInCup도 같음)
+SIMFOUNDRY_IMAGE_BACKEND=qwen21 SIMFOUNDRY_OLLAMA_MODEL=qwen3-vl:8b-instruct repro/run_local_pipeline.sh A_reconstruction \
+  --scene-name put_cup_in_bowl_v2_ghostfix --video-fpath "$PWD/docs/assets/example_videos/PutCupInBowl.mp4" \
+  --env-da3 simfoundry --no-stream --include 5 --test-mode --model-cache-dir .cache/simfoundry/model_calls_qwen21 \
+  -- s7_mesh.low_vram=true s5_scene.pda_geometric_backend=depth_pro
+python repro/compare_s5_runs.py Data/put_cup_in_bowl_v2/s5_scene Data/put_cup_in_bowl_v2_ghostfix/s5_scene
 ```
