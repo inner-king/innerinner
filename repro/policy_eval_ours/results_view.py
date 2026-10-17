@@ -32,6 +32,10 @@ from correlate import TABLE_G1, PAPER_R_MMRV, POLICY_COLUMN, mmrv, pearson, r_in
 # Local root -> where repro/drive_sync.sh puts it under the Drive folder innerinner/.
 ROOTS = [(os.path.join(REPO, "results", "policy_eval_ours"), "results/policy_eval_ours"),
          (os.path.expanduser("~/simfoundry_logs/policy_eval"), "results/logs/policy_eval")]
+# Runs whose raw folders did not survive, known by their success counts only (records with scene, policy, tag,
+# successes, episodes, source).
+COUNT_FILES = [os.path.join(REPO, "results", "diagnostics", "policy_eval_ours", "serve_fruits",
+                            "authplate_openpi_counts.json")]
 
 # (scene, tag) -> (README chapter, what the run changed). Runs not listed still appear, undescribed.
 AUTHORS = "저자 장면"
@@ -125,6 +129,13 @@ def find_runs():
         key = (r["scene"], r["policy"], r["tag"])
         if key not in newest or r["results"] > newest[key]["results"]:
             newest[key] = r
+    for path in COUNT_FILES:
+        for c in (json.load(open(path)) if os.path.exists(path) else []):
+            key = (c["scene"], c["policy"], c["tag"])
+            if key not in newest:
+                newest[key] = {"scene": c["scene"], "task": task_of(c["scene"]), "policy": c["policy"], "tag": c["tag"],
+                               "successes": c["successes"], "episodes": c["episodes"], "results": "", "dir": None,
+                               "drive": f"(원본 없음, 성공 횟수만: {os.path.relpath(path, REPO)})"}
     return sorted(newest.values(), key=lambda r: (r["task"], r["scene"], r["tag"], r["policy"]))
 
 
@@ -140,7 +151,7 @@ def main():
     for r in runs:
         chapter, what = DESCRIBE.get((r["scene"], r["tag"]), ("", ""))
         real, sim = TABLE_G1.get(r["task"], {}).get(POLICY_COLUMN[r["policy"]], (None, None))
-        videos = sorted(glob.glob(os.path.join(r["dir"], "videos", "episode_*.mp4")))
+        videos = sorted(glob.glob(os.path.join(r["dir"], "videos", "episode_*.mp4"))) if r["dir"] else []
         picks = [next((v for v in videos if v.endswith(f"_{kind}.mp4")), None) for kind in ("success", "fail")]
         copied = []
         for v in filter(None, picks):
