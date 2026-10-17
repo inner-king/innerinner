@@ -181,6 +181,40 @@ tasks:
         - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
         - {name: orange_square_plate_cwrqdt_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
 
+  # serve_fruits_ours with each object given the mass of the authors' object of its category (their USDs: banana
+  # 120 g, apple 130 g, teal tray 500 g, orange plate 400 g, pear 240 g, orange 140 g) instead of ours (610, 123,
+  # 30, 90, 137, 162 g): the masses are where our objects differ most from theirs. Same starts.
+  serve_fruits_ours_authmass:
+    template: scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+    scene: scenes/DROID/droid_desk_serve_fruits_ours_authmass/droid_desk_serve_fruits_ours_authmass_scene_state_latest.json
+    task: ours_serve_fruits
+    prompt: "put both the banana and the apple on the green plate"
+    timeout_s: 120
+    execute_horizon: 24
+    paper: {pi0: 4, pi05: 80, gr00t: 20}
+    paper_real: {pi0: 0, pi05: 72, gr00t: 4}
+    build:
+      source: serve_fruits
+      objects:
+        yellow_pear: {from: iter_0, xy: [0.474, -0.062], mass: 0.240}
+        yellow_banana: {from: iter_1, xy: [0.483, 0.052], align_to: yellow_banana_yvjcfy_3, mass: 0.120}
+        red_apple: {from: iter_2, xy: [0.666, -0.023], mass: 0.130}
+        orange_square_plate: {from: iter_4, xy: [0.593, -0.211], align_to: orange_square_plate_rfnrye_1, mass: 0.400}
+        orange_fruit: {from: iter_5, xy: [0.657, 0.135], mass: 0.140}
+        teal_tray: {from: iter_7, xy: [0.576, 0.282], align_to: teal_tray_tdxtsb_5, mass: 0.500}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: teal_tray_kwmamu_1
+      objects:
+        - {name: yellow_banana_ymuxhn_1, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: red_apple_fuegro_1, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: teal_tray_kwmamu_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+        - {name: yellow_pear_nnhfjs_1, grid_size: [0.25, 0.25], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_square_plate_cwrqdt_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+
 policies:
   pi0:
     checkpoint: pi0_droid_jointpos

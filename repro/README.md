@@ -139,10 +139,10 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | 태스크 제안 | | 2개 PickPlaceTask 생성 | 재현됨 |
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
 | Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문을 바꿔도 같음) |
-| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차는 원인이 아님(21장) |
+| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장). 우리가 복원한 Serve Fruits: 0.824, MMRV 0 (22장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차는 원인이 아님(21장). 우리 Serve Fruits는 순위가 맞고 GR00T만 높음 |
 | 정책 학습·성공률 개선 (+17/21/40%), 미세조정 과제의 상관 | | 학습 코드·미세조정 체크포인트 미공개, 실제 로봇 필요 | 재현 불가 |
 
-**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 물체 질량을 실물에 가깝게 고쳐도(종이컵 70→10 g 등) 성공률이 유의하게 바뀐 정책은 없었습니다. Marker in Cup은 r 0.984로 그대로 맞았고, Cup in Bowl은 0.45로 올랐지만 여전히 맞지 않았습니다(21장). 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
+**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 물체 질량을 실물에 가깝게 고쳐도(종이컵 70→10 g 등) 성공률이 유의하게 바뀐 정책은 없었습니다. Marker in Cup은 r 0.984로 그대로 맞았고, Cup in Bowl은 0.45로 올랐지만 여전히 맞지 않았습니다(21장). 세 번째 예제 영상 Fruits.mp4로 복원한 Serve Fruits는 순위가 실제와 같았지만(MMRV 0), GR00T가 52%로 높아 r은 0.824였습니다(22장). 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
 
 ## 8. 다시 실행하는 법
 
@@ -1296,4 +1296,75 @@ SPEC=repro/policy_eval_ours/ours.yaml TASKS="cup_in_bowl_ours_mass marker_in_cup
   repro/policy_eval/run_table_g1.sh all pi05 2 25 mass
 python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_eval_ours/mass/ch19_counts.json \
   --results results/policy_eval_ours/mass_colab/out:mass --results results/policy_eval_ours/gr00t/out:mass --draws 20000
+```
+
+## 22. Serve Fruits를 우리 파이프라인으로 복원해 평가 (2026-10-17)
+
+저장소 예제 영상 `Fruits.mp4`는 Serve Fruits 과제의 책상을 찍은 것입니다. 물체는 저자 장면 `droid_desk_serve_fruits`와 같은 여섯 개(배, 바나나, 사과, 오렌지, 주황 접시, 청록 접시)입니다. 19장의 두 과제처럼 이 영상을 우리 파이프라인으로 복원하고, 그 물체로 Table G.1의 Serve Fruits 행을 다시 평가했습니다.
+
+### 22.1 복원
+
+- Pipeline A를 이 머신에서 돌렸습니다(`Data/serve_fruits`, 1시간 1분). VLM은 Qwen3.5, 이미지 모델은 Qwen-Image-2.1, 질량 프롬프트는 20.1의 새 문구이고, 12 GB용 조정은 v2와 같습니다.
+- **5단계가 물체 8개를 떼어 냈습니다.** 실제 물체 6개에 "초록 바나나" 둘이 더해졌습니다.
+  - 지우기 단계는 물체를 초록색으로 칠해 표시하고(`removal_outline_color` [0, 255, 0]) 이미지 모델에 지우라고 시킵니다. Qwen-Image-2.1-Turbo는 바나나를 지우지 않고 초록 바나나로 다시 그렸습니다.
+  - 그 유령이 다시 물체로 잡혀 두 번 더 떼어졌고, 세 번째 시도 뒤에도 남았습니다(`diagnostics/policy_eval_ours/serve_fruits/s5_removal.jpg`).
+  - 평가 장면에서는 뺐습니다. Gemini 이미지 모델에서도 이런지는 확인하지 않았습니다.
+- 배에는 "orange tangerine"이라는 이름이 붙었습니다. 장면에서는 저자 범주를 씁니다.
+- **크기**는 저자 물체와 1 cm 안쪽으로 맞습니다. 주황 접시만 23.4×17.7 cm로, 저자의 20.1×21.9 cm와 비율이 다릅니다.
+- **질량**(11단계 추정)은 바나나가 610 g입니다(저자 120 g, 실물 약 120–150 g). 두 가지가 겹친 결과입니다.
+  - VLM이 무광 표면을 보고 바나나를 점토(밀도 2.0)로 판단했습니다.
+  - 11단계의 부피 규칙(닫히지 않은 메시는 방향 상자 부피의 65%)이 휜 바나나에서 304.8 cm³을 내, 실제 부피의 약 두 배였습니다.
+  - 청록 접시는 30 g으로 나왔습니다(20.1의 속 빈 물체 문구가 작동). 주황 접시는 90 g입니다. 저자(Gemini) 값은 각각 500 g, 400 g입니다.
+
+| 물체 | 우리 크기 (cm) | 저자 크기 (cm) | 우리 질량 | 저자 질량 |
+|---|---|---|---|---|
+| 바나나 | 17.2 × 11.8 × 3.2 | 19.3 × 12.6 × 4.0 | **610 g** | 120 g |
+| 사과 | 6.9 × 6.9 × 6.7 | 7.0 × 6.9 × 6.1 | 123 g | 130 g |
+| 청록 접시 | 26.6 × 18.1 × 3.2 | 25.7 × 17.9 × 4.3 | 30 g | 500 g |
+| 주황 접시 | 23.6 × 17.9 × 4.6 | 20.1 × 21.9 × 3.1 | 90 g | 400 g |
+| 배 | 6.2 × 6.1 × 7.7 | 6.3 × 6.4 × 8.8 | 137 g | 240 g |
+| 오렌지 | 6.6 × 6.6 × 6.5 | 6.9 × 6.9 × 6.1 | 162 g | 140 g |
+
+### 22.2 장면과 실행
+
+- `ours.yaml`의 `serve_fruits_ours`는 저자 장면을 틀로 씁니다(로봇, 카메라, 배경, 바닥면). 우리 물체 여섯 개를 저자 물체 자리에 저자 범주로 놓고, 바나나와 두 접시는 저자 물체의 방향으로 돌렸습니다. 이를 위해 `build_droid_scene.py`는 과제마다 다른 틀 장면을 받게 됐습니다.
+- 태스크 설정(`tasks/ours_serve_fruits.yaml`)은 저자 Serve Fruits 설정을 이름만 바꾼 것입니다. 우리 물체가 저자 범주를 쓰기 때문입니다.
+- 시작 상태: 저자 장면과 같은 격자 설정(seed 42)으로 뽑았고, 25개 중 11개는 겹침 때문에 조금 옮겨서 통과했습니다.
+- 확인: 정착하는 동안 움직임 0 mm, 시작할 때 마일스톤 0이었습니다. 청록 접시가 실제 영상처럼 책상의 검은 사각형 위에 놓였습니다. 저자 배치가 실제 배치를 따랐다는 근거입니다.
+- GR00T N1.6은 이 머신(외부 카메라 하나, 19장과 같음), π0·π0.5는 Colab L4에서 돌렸습니다. 시간 제한 120 s, 지평 24입니다.
+
+### 22.3 결과
+
+| 정책 | 우리 장면 | 저자 장면 (18·19장) | 차이 (Fisher p) | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|---|---|
+| π0 | **2/25 = 8%** | 0/25 = 0% | 0.49 | 4% | 0% |
+| π0.5 | **20/25 = 80%** | 22/25 = 88% | 0.70 | 80% | 72% |
+| GR00T N1.6 | **13/25 = 52%** | 4/25 = 16% | **0.016** | 20% | 4% |
+
+| 장면 | r | r 95% 구간 | MMRV | 논문 r | 논문 MMRV |
+|---|---|---|---|---|---|
+| Serve Fruits (**우리 복원**) | **0.824** | +0.56..+0.97 | **0.000** | 0.960 | 0.016 |
+| Serve Fruits (저자 장면, 19장) | 0.993 | | 0.000 | 0.960 | 0.016 |
+
+- **순위는 실제와 같습니다**(π0.5 > GR00T > π0, MMRV 0). π0와 π0.5는 저자 장면과 통계적으로 같은 값을 냈습니다. 우리 물체로 바꿔도 두 정책에는 장면이 같은 과제로 보였다는 뜻입니다.
+- **GR00T만 크게 높습니다.** 우리 장면 52%는 저자 장면 16%(p = 0.016)와 논문 실제 4%보다 높아 r을 0.824로 낮춥니다.
+- **질량 때문은 아닙니다.** 우리 물체에 저자 물체의 질량(바나나 120 g, 청록 접시 500 g 등)을 넣은 `serve_fruits_ours_authmass`에서도 GR00T는 11/25(44%)였습니다. 우리 질량의 13/25와 차이가 없습니다(p = 0.78).
+  - 남은 차이는 물체의 형상과 외관(복원 결과 자체)과 시작 상태입니다. 시작 상태는 같은 격자 설정으로 뽑았지만, 물체가 달라 겹침을 피해 옮긴 자리가 다릅니다. 이 둘은 따로 떼어 보지 않았습니다.
+- 실패 양상: 세 정책 모두 사과를 놓는 단계에서 가장 많이 실패했습니다.
+  - GR00T 실패 12번 중 6번과 π0.5 실패 5번 중 4번은, 바나나를 접시에 놓고 사과를 집은 뒤 놓지 못했습니다.
+  - π0 실패 23번 중 10번은 바나나만 놓았습니다.
+  - GR00T 실패 3번은 마일스톤을 모두 지났지만, 끝났을 때 목표 상태가 아니었습니다.
+- 결과는 Drive `results/policy_eval_ours/fruits_colab/`(π0·π0.5)와 `results/policy_eval_ours/gr00t/out/serve_fruits_ours*/`(GR00T)에 있습니다. 판정표는 `diagnostics/policy_eval_ours/serve_fruits/correlate_serve_fruits.json`, 로그는 `logs/policy_eval_fruits/`와 `logs/serve_fruits_A.log`에 있습니다.
+
+```bash
+# 복원 (이 머신, local/env.sh를 읽은 셸에서)
+SIMFOUNDRY_IMAGE_BACKEND=qwen21 repro/run_local_pipeline.sh A_reconstruction --scene-name serve_fruits \
+  --video-fpath "$PWD/docs/assets/example_videos/Fruits.mp4" --env-da3 simfoundry --no-stream \
+  --cache-mode --model-cache-dir .cache/simfoundry/model_calls_fruits -- s7_mesh.low_vram=true s5_scene.pda_geometric_backend=depth_pro
+python repro/policy_eval_ours/build_droid_scene.py --task serve_fruits_ours \
+  --asset-dir assets --data-dir Data --dataset-dir deps/BEHAVIOR-1K/datasets/real2sim-assets
+python repro/policy_eval/sample_init_states.py --spec repro/policy_eval_ours/ours.yaml --task serve_fruits_ours \
+  --task-yaml repro/policy_eval_ours/tasks/ours_serve_fruits.yaml --out results/policy_eval_ours/gr00t/init_states/serve_fruits_ours.json
+EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/ours.yaml:serve_fruits_ours
+SPEC=repro/policy_eval_ours/ours.yaml repro/policy_eval/run_table_g1.sh eval pi05 serve_fruits_ours 25 main   # Colab L4
 ```
