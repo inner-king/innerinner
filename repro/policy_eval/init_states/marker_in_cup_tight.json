@@ -1,0 +1,1297 @@
+{
+ "task": "marker_in_cup_tight",
+ "scene": "scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json",
+ "config": {
+  "grid_resolution": [
+   5,
+   5
+  ],
+  "seed": 42,
+  "randomize_pairings": true,
+  "pairing_anchor_object": null,
+  "objects": [
+   {
+    "name": "red_marker_undupl_2",
+    "grid_size": [
+     0.1,
+     0.1
+    ],
+    "z_rot_range": [
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "name": "cream_mug_bpupsc_1",
+    "grid_size": [
+     0.1,
+     0.1
+    ],
+    "z_rot_range": [
+     0.0,
+     0.0
+    ]
+   }
+  ]
+ },
+ "physics_check": {
+  "n_physics_steps": 30,
+  "max_velocity_threshold": 0.05,
+  "max_displacement_threshold": 0.02,
+  "max_retries": 10,
+  "retry_perturbation": 0.02,
+  "max_swaps": 400
+ },
+ "init_states": [
+  {
+   "state_idx": 0,
+   "grid_row": 3,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_2": 15,
+    "cream_mug_bpupsc_1": 20
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.630035,
+      -0.238802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.649481,
+      0.223334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0141
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0071
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 1,
+   "grid_row": 3,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_2": 16,
+    "cream_mug_bpupsc_1": 19
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.630035,
+      -0.213802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.624481,
+      0.323334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0123
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0073
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 2,
+   "grid_row": 3,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_2": 19,
+    "cream_mug_bpupsc_1": 6
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.630035,
+      -0.138802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.574481,
+      0.248334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.013
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 3,
+   "grid_row": 4,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_2": 20,
+    "cream_mug_bpupsc_1": 11
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.655035,
+      -0.238802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.599481,
+      0.248334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0104
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 4,
+   "grid_row": 1,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_2": 9,
+    "cream_mug_bpupsc_1": 1
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.580035,
+      -0.138802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.549481,
+      0.248334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0144
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0051
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 5,
+   "grid_row": 1,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_2": 7,
+    "cream_mug_bpupsc_1": 4
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.580035,
+      -0.188802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.549481,
+      0.323334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0144
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0029
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 6,
+   "grid_row": 3,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_2": 17,
+    "cream_mug_bpupsc_1": 8
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.630035,
+      -0.188802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.574481,
+      0.298334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0132
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 7,
+   "grid_row": 4,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_2": 24,
+    "cream_mug_bpupsc_1": 23
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.655035,
+      -0.138802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.649481,
+      0.298334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0133
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0032
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 8,
+   "grid_row": 1,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_2": 6,
+    "cream_mug_bpupsc_1": 7
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.580035,
+      -0.213802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.574481,
+      0.273334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0104
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0053
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 9,
+   "grid_row": 2,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_2": 10,
+    "cream_mug_bpupsc_1": 9
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.605035,
+      -0.238802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.574481,
+      0.323334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0107
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 10,
+   "grid_row": 0,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_2": 3,
+    "cream_mug_bpupsc_1": 16
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.555035,
+      -0.163802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.624481,
+      0.248334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0142
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0091
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 11,
+   "grid_row": 0,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_2": 0,
+    "cream_mug_bpupsc_1": 5
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.555035,
+      -0.238802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.574481,
+      0.223334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0145
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0072
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 12,
+   "grid_row": 4,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_2": 21,
+    "cream_mug_bpupsc_1": 24
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.655035,
+      -0.213802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.649481,
+      0.323334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0134
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0054
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 13,
+   "grid_row": 3,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_2": 18,
+    "cream_mug_bpupsc_1": 12
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.630035,
+      -0.163802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.599481,
+      0.273334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0145
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 14,
+   "grid_row": 2,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_2": 12,
+    "cream_mug_bpupsc_1": 0
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.605035,
+      -0.188802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.549481,
+      0.223334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0114
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0091
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 15,
+   "grid_row": 1,
+   "grid_col": 0,
+   "cells": {
+    "red_marker_undupl_2": 5,
+    "cream_mug_bpupsc_1": 14
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.580035,
+      -0.238802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.599481,
+      0.323334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0143
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0072
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 16,
+   "grid_row": 2,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_2": 11,
+    "cream_mug_bpupsc_1": 18
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.605035,
+      -0.213802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.624481,
+      0.298334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0138
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 17,
+   "grid_row": 2,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_2": 14,
+    "cream_mug_bpupsc_1": 15
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.605035,
+      -0.138802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.624481,
+      0.223334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0148
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.005
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 18,
+   "grid_row": 4,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_2": 23,
+    "cream_mug_bpupsc_1": 21
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.655035,
+      -0.163802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.649481,
+      0.248334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.0146
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0051
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 19,
+   "grid_row": 0,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_2": 2,
+    "cream_mug_bpupsc_1": 2
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.555035,
+      -0.188802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.549481,
+      0.273334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0034,
+      "velocity": 0.014
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0051
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 20,
+   "grid_row": 0,
+   "grid_col": 4,
+   "cells": {
+    "red_marker_undupl_2": 4,
+    "cream_mug_bpupsc_1": 10
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.555035,
+      -0.138802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.599481,
+      0.223334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0123
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0049
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 21,
+   "grid_row": 4,
+   "grid_col": 2,
+   "cells": {
+    "red_marker_undupl_2": 22,
+    "cream_mug_bpupsc_1": 3
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.655035,
+      -0.188802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.549481,
+      0.298334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0107
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0072
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 22,
+   "grid_row": 0,
+   "grid_col": 1,
+   "cells": {
+    "red_marker_undupl_2": 1,
+    "cream_mug_bpupsc_1": 13
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.555035,
+      -0.213802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.599481,
+      0.298334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.013
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0069
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 23,
+   "grid_row": 2,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_2": 13,
+    "cream_mug_bpupsc_1": 22
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.605035,
+      -0.163802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.649481,
+      0.273334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0148
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0051
+     }
+    },
+    "retries": 0
+   }
+  },
+  {
+   "state_idx": 24,
+   "grid_row": 1,
+   "grid_col": 3,
+   "cells": {
+    "red_marker_undupl_2": 8,
+    "cream_mug_bpupsc_1": 17
+   },
+   "objects": {
+    "red_marker_undupl_2": {
+     "pos": [
+      0.580035,
+      -0.163802,
+      -0.005352
+     ],
+     "ori": [
+      0.146138,
+      0.113301,
+      0.778985,
+      -0.599157
+     ]
+    },
+    "cream_mug_bpupsc_1": {
+     "pos": [
+      0.624481,
+      0.273334,
+      0.025213
+     ],
+     "ori": [
+      0.000543,
+      0.00062,
+      0.619964,
+      0.78463
+     ]
+    }
+   },
+   "check": {
+    "moved": {
+     "red_marker_undupl_2": {
+      "displacement": 0.0033,
+      "velocity": 0.0123
+     },
+     "cream_mug_bpupsc_1": {
+      "displacement": 0.002,
+      "velocity": 0.0052
+     }
+    },
+    "retries": 0
+   }
+  }
+ ]
+}

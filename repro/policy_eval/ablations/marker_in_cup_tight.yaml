@@ -1,0 +1,33 @@
+# Marker in Cup with a tighter marker grid (repro/README.md, chapter 18.4): the spec of table_g1.yaml's
+# marker_in_cup with the marker's 5x5 grid at 10 x 10 cm (+-5 cm) instead of the repository task config's
+# 25 x 25 cm (+-12.5 cm). Everything else is that task's: scene, task config, prompt, time limit, horizon, the
+# mug's 10 x 10 cm grid and the seed. Paper App. J.1 gives no grid size for this task.
+#
+#   SPEC=repro/policy_eval/ablations/marker_in_cup_tight.yaml run_table_g1.sh init marker_in_cup_tight
+#   SPEC=repro/policy_eval/ablations/marker_in_cup_tight.yaml run_table_g1.sh eval pi05 marker_in_cup_tight
+tasks:
+  marker_in_cup_tight:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json
+    task: table_g1_marker_in_cup
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88}
+    paper_real: {pi0: 40, pi05: 92}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_undupl_2, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+        - {name: cream_mug_bpupsc_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+policies:
+  pi0:
+    checkpoint: pi0_droid_jointpos
+    config: pi0_droid_jointpos_polaris
+    port: 8000
+  pi05:
+    checkpoint: pi05_droid_jointpos
+    config: pi05_droid_jointpos_polaris
+    port: 8001
