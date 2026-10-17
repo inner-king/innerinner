@@ -435,7 +435,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
-| `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험, 11단계 질량 프롬프트 변형(`MASS_PROMPT`) | 16, 20.1, 20.5 |
+| `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험, 11단계 질량 프롬프트 변형(`MASS_PROMPT`)과 부피 후보(`mass_volumes.py`) | 16, 20.1, 20.5 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
 | `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`), 평가 결과 요약 폴더(`results_view.py`) | 19, 21, 22, 23 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
@@ -1296,7 +1296,7 @@ python repro/policy_eval_ours/correlate.py --check-paper --results results/polic
 - 마커와 펜은 부피 차이가 작아 질량도 거의 같습니다. 접시·그릇·컵·가위는 프롬프트가 예전과 같으므로 질량도 같습니다.
 - 남은 차이는 부피가 아니라 VLM의 판단입니다. 접시 둘(90·30 g, 저자 400·500 g)과 가위(35 g, 실물 약 50–80 g)가 그렇습니다.
 - 이미 만든 장면의 질량은 바꾸지 않았습니다. Serve Fruits는 22.3의 `serve_fruits_ours_authmass`가 이미 바나나 120 g(저자 값, 새 추정과 같음)으로 평가했습니다. GR00T 성공률은 우리 질량일 때와 차이가 없었습니다(p = 0.78).
-- 결과는 Drive `results/diagnostics/vlm_compare/mass_volume/`에 있습니다. `volumes.json`(물체별 부피 후보), `hollow/`, `welded/`, `welded_shell_material/`(채택하지 않은 변형), `summary.json`(위 표)입니다.
+- 결과는 Drive `results/diagnostics/vlm_compare/mass_volume/`에 있습니다. `volumes.json`(물체별 부피 후보), `hollow/`, `welded/`, `welded_shell_material/`(채택하지 않은 변형), `summary.json`(재생별 부피와 질량), 재생 로그 `replay_*.log`입니다. `volumes.json`과 `summary.json`은 `repro/vlm_compare/mass_volumes.py`가 씁니다.
 
 ```bash
 # GPU가 빈 뒤에. 11단계 질량 질문을 저장된 입력으로 다시 보냄
@@ -1305,6 +1305,8 @@ for v in hollow welded; do
   MASS_PROMPT=$v python repro/vlm_compare/replay_other_calls.py results/diagnostics/vlm_compare/mass_volume/$v --only A11 \
     --data-root Data --scenes serve_fruits,put_cup_in_bowl_v2,put_marker_in_cup_v2
 done
+# 부피 후보(합친 메시, CoACD 합, 복셀)와 재생 결과 표. GPU 필요 없음
+python repro/vlm_compare/mass_volumes.py results/diagnostics/vlm_compare/mass_volume --data-root Data
 ```
 
 ## 21. 질량을 실물에 가깝게 고친 장면으로 다시 평가 (2026-10-17)
