@@ -70,6 +70,7 @@ DESCRIBE = {
 }
 for rep in (2, 3, 4):
     DESCRIBE[("marker_in_cup", f"rep{rep}")] = ("18.4", AUTHORS + f", 기준 반복 {rep}")
+    DESCRIBE[("marker_in_cup_kp4", f"rep{rep}")] = ("26.3", AUTHORS + f", 팔 stiffness ×4, 반복 {rep}")
     DESCRIBE[("marker_in_cup_tight", f"h15_rep{rep}")] = ("18.4", AUTHORS + f", 마커 격자 ±5 cm + 지평 15, 반복 {rep}")
 
 # Three-policy sets whose r and MMRV the README reports: (task, scene variant label, {policy: (scene, tag)}).
