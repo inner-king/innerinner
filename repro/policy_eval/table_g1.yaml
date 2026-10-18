@@ -11,7 +11,8 @@
 #                    four-step tasks that have none
 #   execute_horizon  likewise (8, 24, 8); 8, the repository default, for the two without one. The eval stage
 #                    executes min(horizon, chunk): pi0 returns 10 actions, pi0.5 15
-#   paper            Table G.1's simulation success rate (%), paper_real its real-world one. For Stack
+#   paper            Table G.1's simulation success rate (%), paper_real its real-world one (dreamzero is
+#                    DreamZero-DROID, which Table G.1 runs on the zero-shot rows only). For Stack
 #                    Dishware, Store Marker and Throw Away Trash those rows are policies finetuned on 50 real
 #                    demos (paper Sec. 5.1, App. H), not the public checkpoints evaluated here; paper_base is
 #                    what the paper's FAQ 6 reports for the public checkpoints on those tasks (the setting is
@@ -32,8 +33,8 @@ tasks:
     prompt: "pick up the marker, and put the marker in the cup"
     timeout_s: 90
     execute_horizon: 8
-    paper: {pi0: 40, pi05: 88}
-    paper_real: {pi0: 40, pi05: 92}
+    paper: {pi0: 40, pi05: 88, dreamzero: 80}
+    paper_real: {pi0: 40, pi05: 92, dreamzero: 88}
     init_states:
       grid_resolution: [5, 5]
       seed: 42
@@ -48,8 +49,8 @@ tasks:
     prompt: "put both the banana and the apple on the green plate"
     timeout_s: 120
     execute_horizon: 24
-    paper: {pi0: 4, pi05: 80}
-    paper_real: {pi0: 0, pi05: 72}
+    paper: {pi0: 4, pi05: 80, dreamzero: 12}
+    paper_real: {pi0: 0, pi05: 72, dreamzero: 8}
     init_states:
       grid_resolution: [5, 5]
       seed: 42
@@ -121,3 +122,10 @@ policies:
     checkpoint: pi05_droid_jointpos
     config: pi05_droid_jointpos_polaris
     port: 8001
+  # DreamZero-DROID (hf GEAR-Dreams/DreamZero-DROID), a zero-shot column of Table G.1's Marker in Cup and Serve
+  # Fruits rows. Served by DreamZero's own server, not openpi's (kind; setup_dreamzero.sh fetches the checkpoint
+  # into /content/dz_ckpt/<checkpoint>)
+  dreamzero:
+    kind: dreamzero
+    checkpoint: DreamZero-DROID
+    port: 5000

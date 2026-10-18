@@ -14,7 +14,7 @@
 | Digital cousin·태스크 생성 (Pipeline B) | 재현 (로컬 모델로 대체) | 코드 공개 |
 | OmniGibson 로딩·물리 스모크 테스트 (Pipeline C) | 재현 | 코드 공개 |
 | 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정. 3060(7장)과 96 GB G4(17장) |
-| 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽은 재현: 저자 공개 장면 5개에서 공개 π0·π0.5-DROID(18장), 우리 복원 장면과 GR00T N1.6(19장) |
+| 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽은 재현: 저자 공개 장면 5개에서 공개 π0·π0.5-DROID(18장), 우리 복원 장면과 GR00T N1.6·DreamZero(19장) |
 | 기하 정확도 Chamfer/F1 (Table L.2) | 불가 | YCB 장면의 준정답(quasi-GT) 스캔 미공개 |
 | 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
 
@@ -139,10 +139,10 @@ SAM 3.1 가중치를 SAM3 이미지 모델에 넣었을 때 빠지는 키는 RoP
 | 태스크 제안 | | 2개 PickPlaceTask 생성 | 재현됨 |
 | 기하 정확도 (Table L.2) | Chamfer 4.2 mm, F1 0.92 (Easy) | 준정답 스캔 미공개라 불가. 대신 관측 대비 잔차를 보고 (평균 2~6 mm, 그릇 12.7 mm) | 직접 비교 불가 |
 | Table G.1 시뮬 성공률 (미세조정 없는 π0 / π0.5, 저자 장면) | Marker in Cup 40/88%, Serve Fruits 4/80% | 16/52%, 0/88% (18장, 25회씩) | Serve Fruits는 맞음. Marker in Cup은 두 정책 모두 낮음(질량·카메라·지시문, 톤매퍼, 배경 스캔의 로봇, 팔의 추적 지연을 바꿔도 유의한 차이 없음: 18, 20.2, 23, 26장) |
-| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장). 우리가 복원한 Serve Fruits: 0.824, MMRV 0, 방해물인 주황 접시만 저자 것으로 바꾸면 **0.994** (22장). 저장소 태스크 설정의 배치로 뽑은 Cup in Bowl: 0.14 (25장) | 3개 중 2개 재현. Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차도, 저장소 설정의 배치도 원인이 아님(21, 25장). 우리 Serve Fruits는 순위가 맞고 GR00T만 높았는데, 원인은 방해물 하나의 복원(22.4) |
+| 과제별 sim-real 상관 (Table G.1, 제로샷 과제) | r 0.995 (Marker in Cup), 0.960 (Serve Fruits), 0.907 (Cup in Bowl). 정책 5개 | 정책 3개(π0, π0.5, GR00T N1.6)의 우리 시뮬 대 논문 실제: **0.999** (우리 복원 Marker in Cup), **0.993** (Serve Fruits), −0.14 / −0.48 (우리 복원 Cup in Bowl, 배치 두 가지) (19장). DreamZero-DROID를 넷째 정책으로 더하면 0.330 (우리 복원 Marker in Cup), 0.993 (Serve Fruits), −0.501 (우리 복원 Cup in Bowl) (19.4). 질량을 실물에 가깝게 고친 장면: 0.984 (Marker in Cup), 0.45 (Cup in Bowl) (21장). 우리가 복원한 Serve Fruits: 0.824, MMRV 0, 방해물인 주황 접시만 저자 것으로 바꾸면 **0.994** (22장). 저장소 태스크 설정의 배치로 뽑은 Cup in Bowl: 0.14 (25장) | 정책 3개로는 3개 중 2개 재현. DreamZero는 우리 장면 두 과제에서 논문보다 크게 낮아(0%, 16%) 정책 4개로는 Serve Fruits만 맞음, 원인 미확인(19.4). Cup in Bowl은 저자 장면이 공개되지 않아 직접 비교 불가. 질량 오차도, 저장소 설정의 배치도 원인이 아님(21, 25장). 우리 Serve Fruits는 순위가 맞고 GR00T만 높았는데, 원인은 방해물 하나의 복원(22.4) |
 | 정책 학습·성공률 개선 (+17/21/40%), 미세조정 과제의 상관 | | 학습 코드·미세조정 체크포인트 미공개, 실제 로봇 필요 | 재현 불가 |
 
-**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 물체 질량을 실물에 가깝게 고쳐도(종이컵 70→10 g 등) 성공률이 유의하게 바뀐 정책은 없었습니다. Marker in Cup은 r 0.984로 그대로 맞았고, Cup in Bowl은 0.45로 올랐지만 여전히 맞지 않았습니다(21장). 세 번째 예제 영상 Fruits.mp4로 복원한 Serve Fruits는 순위가 실제와 같았지만(MMRV 0), GR00T가 52%로 높아 r은 0.824였습니다. 원인은 방해물인 주황 접시였습니다. 이 접시만 저자 것으로 바꾸자 GR00T가 4/25로 떨어졌고, r은 0.994로 논문(0.960)에 맞았습니다(22장). 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
+**결론**: 공개된 범위(Pipeline A·B·C)는 Gemini 없이 로컬 모델로 바꾸고 12 GB GPU에 맞게 조정한 상태에서, 저장소 예제 동영상 두 개에 대해 끝까지 재현했습니다. 12 GB 조정을 모두 뺀 저장소 기본값으로도 96 GB GPU에서 같은 결과가 나왔습니다(17장). 자동 3DGS 배경은 촬영 시점 근처에서만 맞고 로봇 카메라 시점에서는 쓸 수 없습니다(17.4). 논문의 핵심 정량 결과 가운데 "시뮬 평가가 실제 성능을 예측한다"는 주장은, 공개 체크포인트로 평가할 수 있는 제로샷 과제에서 부분적으로 재현했습니다(19장). 우리가 예제 영상에서 복원한 Marker in Cup 장면은 세 정책의 순위와 성공률이 논문의 실제 로봇 결과와 r 0.999로 맞았고, 저자 장면의 Serve Fruits는 0.993이었습니다. 네 번째 정책 DreamZero-DROID는 Serve Fruits에서는 논문과 맞았지만(16%, 논문 시뮬 12%), 우리 장면 두 과제에서는 0%와 16%로 논문 시뮬(80%, 92%)보다 크게 낮았습니다. 그래서 정책 넷으로는 Marker in Cup이 0.330으로 내려갑니다(19.4). Cup in Bowl은 어느 배치에서도 맞지 않았습니다. 물체 질량을 실물에 가깝게 고쳐도(종이컵 70→10 g 등) 성공률이 유의하게 바뀐 정책은 없었습니다. Marker in Cup은 r 0.984로 그대로 맞았고, Cup in Bowl은 0.45로 올랐지만 여전히 맞지 않았습니다(21장). 세 번째 예제 영상 Fruits.mp4로 복원한 Serve Fruits는 순위가 실제와 같았지만(MMRV 0), GR00T가 52%로 높아 r은 0.824였습니다. 원인은 방해물인 주황 접시였습니다. 이 접시만 저자 것으로 바꾸자 GR00T가 4/25로 떨어졌고, r은 0.994로 논문(0.960)에 맞았습니다(22장). 정책 학습 개선(+17/21/40%)은 학습 코드와 실제 로봇이 필요해서 재현할 수 없습니다.
 
 ## 8. 다시 실행하는 법
 
@@ -436,7 +436,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험, 11단계 질량 프롬프트 변형(`MASS_PROMPT`)과 부피 후보(`mass_volumes.py`) | 16, 20.1, 20.5 |
-| `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi 서버와 평가 드라이버, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18 |
+| `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi·DreamZero 서버와 평가 드라이버, DreamZero 클라이언트 점검, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18, 19.4 |
 | `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`), 평가 결과 요약 폴더(`results_view.py`) | 19, 21, 22, 23 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험, `link_physics_materials` 저장 | 20.4 |
 | `friction/check_saved_scene.py`, `friction/check_finger_friction.py` | 마찰을 기록한 장면을 텔레옵처럼 로드해 PhysX 재질과 다시 저장을 점검, 로봇 손가락 마찰 점검 | 20.4 |
@@ -1030,14 +1030,15 @@ python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <res
 | `repro/policy_eval/summarize.py`, `ping_policy.py`, `contact_sheet.py` | 요약표(Wilson 구간, Fisher 검정), 서버 예열, 영상 프레임 모음 |
 | `repro/policy_eval/ablations/` | 머그 질량 장면 사본 생성과 질량 적용 확인 |
 
-## 19. Table G.1 제로샷 행: 우리가 복원한 장면과 세 번째 정책 (2026-10-17)
+## 19. Table G.1 제로샷 행: 우리가 복원한 장면과 세 번째·네 번째 정책 (2026-10-17~18)
 
 논문의 핵심 정량 결과는 "시뮬레이션 평가가 실제 성능을 예측한다"는 것입니다. Table G.1은 과제마다 여러 정책의 시뮬 성공률과 실제 성공률을 나란히 싣고, 과제별로 두 열 사이의 Pearson r과 MMRV를 냅니다. 초록의 **r 0.911과 MMRV 0.018은 이 7개 과제 값의 평균**입니다. `repro/policy_eval_ours/correlate.py --check-paper`는 Table G.1의 시뮬·실제 열에서 7개 과제의 r과 MMRV를 모두 소수 셋째 자리까지 그대로 다시 계산합니다.
 
 18장은 저자들이 공개한 장면 5개에서 공개 π0·π0.5 체크포인트를 평가합니다. 이 장은 거기에 두 가지를 더합니다.
 
 - **우리가 복원한 장면.** 미세조정 없이 평가하는 과제 4개 중 Cup in Bowl은 저자 장면이 공개되지 않았습니다. 그런데 저장소의 태스크 설정(`scripts/cfg/task/droid/droid_desk_put_cup_in_bowl.yaml`)이 부르는 물체(흰 종이컵, 주황 그릇, 검은 펜)가 예제 영상 PutCupInBowl.mp4의 물체이고, 우리 파이프라인이 그 영상을 복원했습니다(11장 `put_cup_in_bowl_v2`). 그 결과로 장면을 만들어 평가합니다. Marker in Cup도 우리 복원(`put_marker_in_cup_v2`)으로 같은 방식의 장면을 만들어, 18장의 저자 장면 결과와 나란히 봅니다.
-- **세 번째 정책.** 정책이 둘뿐이면 과제별 r은 정의상 ±1이라 측정이 되지 않습니다. 논문의 제로샷 열 가운데 공개 DROID 체크포인트가 있는 GR00T N1.6-DROID(`nvidia/GR00T-N1.6-DROID`)를 더했습니다. GR00T N1.7은 DROID 체크포인트를 찾지 못했고(기본 모델도 백본 접근 승인이 필요), DreamZero-DROID는 14B라 H100급 GPU가 필요해 이번에는 하지 않았습니다.
+- **세 번째 정책.** 정책이 둘뿐이면 과제별 r은 정의상 ±1이라 측정이 되지 않습니다. 논문의 제로샷 열 가운데 공개 DROID 체크포인트가 있는 GR00T N1.6-DROID(`nvidia/GR00T-N1.6-DROID`)를 더했습니다. GR00T N1.7은 DROID 체크포인트를 찾지 못했습니다(기본 모델도 백본 접근 승인이 필요).
+- **네 번째 정책.** 남은 공개 체크포인트인 DreamZero-DROID(`GEAR-Dreams/DreamZero-DROID`, 영상과 동작을 함께 내는 14B 월드 액션 모델)를 Colab G4 한 대에서 돌렸습니다(19.4).
 
 ### 19.1 장면
 
@@ -1056,6 +1057,7 @@ python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <res
 - **시작 상태**: 논문 App. J.1대로 물체마다 5×5 격자 25칸을 씁니다. 18장의 `sample_init_states.py`로 만들었습니다(seed 42). 격자 크기는 저장소 태스크 설정의 범위(±r → 2r)입니다. 집는 물체는 25 cm, 넣을 곳과 펜은 10 cm이고 회전은 없습니다. 두 장면 모두 25칸 전부가 물리 검사를 그대로 통과했습니다.
 - **설정**: 지시문은 App. I.2를 소문자로 마침표 없이 씁니다. 시간 제한은 저장소 평가 설정(Cup in Bowl 60 s, Marker in Cup 90 s), 실행 지평은 8입니다(`repro/policy_eval_ours/ours.yaml`, 18장 `table_g1.yaml`과 같은 형식).
 - **π0·π0.5**: 18장의 Colab L4 런타임에서 18장 드라이버로 돌립니다(`SPEC=repro/policy_eval_ours/ours.yaml`).
+- **DreamZero-DROID**: Colab G4(96 GB) 한 대에서 같은 드라이버로 돌립니다. 서버와 설정은 19.4입니다.
 - **GR00T N1.6**: 이 머신의 RTX 3060에서 `repro/policy_eval_ours/run_local_gr00t.sh`로 돌립니다.
   - 서버는 Isaac-GR00T `e29d8fc`(Isaac Lab Arena가 이 체크포인트에 고정한 커밋)를 그 저장소의 uv 환경에서 띄웁니다. 6.8 GB를 쓰고, 추론 1회에 0.24 s가 걸리며, 32스텝의 절대 관절 위치를 냅니다.
   - 에피소드는 저장소의 평가 단계를 그대로 `s15_eval.policy=gr00t`로 씁니다. Isaac Sim까지 합쳐 GPU 11.4 GB입니다.
@@ -1064,30 +1066,30 @@ python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <res
 
 ### 19.3 결과
 
-π0·π0.5는 18장 런타임이(가까운 배치는 따로 빌린 L4가), GR00T N1.6은 이 머신이 돌렸습니다. 성공 횟수/25(24) 회입니다.
+π0·π0.5는 18장 런타임이(가까운 배치는 따로 빌린 L4가), GR00T N1.6은 이 머신이, DreamZero는 Colab G4가 돌렸습니다. 성공 횟수/25(24) 회입니다. DreamZero는 계획한 세 과제만 돌렸습니다(–).
 
-| 과제 (장면) | π0 | π0.5 | GR00T N1.6 | 논문 시뮬 (π0 / π0.5 / GR00T) | 논문 실제 |
+| 과제 (장면) | π0 | π0.5 | GR00T N1.6 | DreamZero | 논문 시뮬 (π0 / π0.5 / GR00T / DreamZero) | 논문 실제 |
+|---|---|---|---|---|---|---|
+| Cup in Bowl (**우리 복원**) | **20/25 = 80%** | **25/25 = 100%** | **25/25 = 100%** | **4/25 = 16%** | 56 / 92 / 40 / 92 | 88 / 100 / 68 / 100 |
+| Cup in Bowl (우리 복원, 가까운 배치) | **20/24 = 83%** | **15/24 = 62%** | **18/24 = 75%** | – | 56 / 92 / 40 / 92 | 88 / 100 / 68 / 100 |
+| Marker in Cup (**우리 복원**) | **7/25 = 28%** | **20/25 = 80%** | **5/25 = 20%** | **0/25 = 0%** | 40 / 88 / 28 / 80 | 40 / 92 / 28 / 88 |
+| Marker in Cup (저자 장면, 18장) | 4/25 = 16% | 13/25 = 52% | **5/25 = 20%** | – | 40 / 88 / 28 / 80 | 40 / 92 / 28 / 88 |
+| Serve Fruits (저자 장면, 18장) | 0/25 = 0% | 22/25 = 88% | **4/25 = 16%** | **4/25 = 16%** | 4 / 80 / 20 / 12 | 0 / 72 / 4 / 8 |
+
+**과제별 시뮬-실제 일치** (`correlate.py`: 우리 시뮬 성공률 대 논문의 실제 성공률. DreamZero를 돌린 과제는 정책 넷, 나머지는 셋입니다. 괄호는 DreamZero를 빼고 정책 셋으로 계산한 값입니다. 논문 값은 정책 다섯 개)
+
+| 과제 (장면) | 정책 | Pearson r | MMRV | 논문 r | 논문 MMRV |
 |---|---|---|---|---|---|
-| Cup in Bowl (**우리 복원**) | **20/25 = 80%** | **25/25 = 100%** | **25/25 = 100%** | 56 / 92 / 40 | 88 / 100 / 68 |
-| Cup in Bowl (우리 복원, 가까운 배치) | **20/24 = 83%** | **15/24 = 62%** | **18/24 = 75%** | 56 / 92 / 40 | 88 / 100 / 68 |
-| Marker in Cup (**우리 복원**) | **7/25 = 28%** | **20/25 = 80%** | **5/25 = 20%** | 40 / 88 / 28 | 40 / 92 / 28 |
-| Marker in Cup (저자 장면, 18장) | 4/25 = 16% | 13/25 = 52% | **5/25 = 20%** | 40 / 88 / 28 | 40 / 92 / 28 |
-| Serve Fruits (저자 장면, 18장) | 0/25 = 0% | 22/25 = 88% | **4/25 = 16%** | 4 / 80 / 20 | 0 / 72 / 4 |
+| Marker in Cup (**우리 복원**) | 넷 | **0.330** (0.999) | **0.420** (0.000) | 0.995 | 0.008 |
+| Marker in Cup (저자 장면) | 셋 | 0.961 | 0.080 | 0.995 | 0.008 |
+| Serve Fruits (저자 장면) | 넷 | **0.993** (0.993) | **0.010** (0.000) | 0.960 | 0.016 |
+| Cup in Bowl (**우리 복원**) | 넷 | **−0.501** (−0.143) | **0.210** (0.173) | 0.907 | 0.016 |
+| Cup in Bowl (우리 복원, 가까운 배치) | 셋 | −0.475 | 0.253 | 0.907 | 0.016 |
 
-**과제별 시뮬-실제 일치** (`correlate.py`: 정책 세 개의 우리 시뮬 성공률 대 논문의 실제 성공률. 논문 값은 정책 다섯 개)
-
-| 과제 (장면) | Pearson r | MMRV | 논문 r | 논문 MMRV |
-|---|---|---|---|---|
-| Marker in Cup (**우리 복원**) | **0.999** | **0.000** | 0.995 | 0.008 |
-| Marker in Cup (저자 장면) | 0.961 | 0.080 | 0.995 | 0.008 |
-| Serve Fruits (저자 장면) | **0.993** | **0.000** | 0.960 | 0.016 |
-| Cup in Bowl (**우리 복원**) | −0.143 | 0.173 | 0.907 | 0.016 |
-| Cup in Bowl (우리 복원, 가까운 배치) | −0.475 | 0.253 | 0.907 | 0.016 |
-
-- **우리가 영상에서 복원한 Marker in Cup 장면이 논문의 핵심 결과를 재현했습니다.** 세 정책의 성공률(28 / 80 / 20%)이 논문의 시뮬(40 / 88 / 28%)과 실제(40 / 92 / 28%)를 순서와 크기 모두 따라가, r 0.999에 순위 뒤집힘이 없습니다(MMRV 0). 같은 과제의 저자 공개 장면(18장)보다 논문 값에 가깝습니다. 저자 장면에서는 π0.5가 52%에 그쳤는데, 18장의 분석으로는 머그컵 입구(약 6.5 cm)에 마커를 맞춰 넣지 못하는 실패가 대부분입니다. 우리 장면의 종이컵 입구는 약 8.5 cm입니다.
-- **Serve Fruits(저자 장면)도 재현됩니다.** π0 0%, π0.5 88%, GR00T 16%로 r 0.993, MMRV 0입니다.
-- **Cup in Bowl은 재현되지 않습니다.** π0(80%)와 π0.5(100%)는 논문 실제 값(88, 100%)과 맞습니다. 하지만 GR00T가 시뮬에서 100%로 π0.5와 같은 1위인데, 논문의 실제 값은 세 정책 중 가장 낮은 68%입니다. 이 하나가 r을 −0.143으로 끌어내립니다. 배치를 좁혀도 나아지지 않습니다. 가까운 배치에서는 세 정책이 모두 컵을 거의 매번 집지만(22–24/24), 그릇에 넣는 비율이 달라져 π0 83%, π0.5 62%, GR00T 75%가 됩니다. 실제로 가장 강한 π0.5가 가장 낮아져 r은 −0.475입니다. π0.5는 24회 중 17회 컵을 그릇에 넣었지만, 놓은 뒤 판정까지 마친 것은 15회입니다. 두 배치 모두 우리 장면의 Cup in Bowl은 논문의 순위를 재현하지 못합니다.
-- 정책이 세 개 이상인 과제 셋의 r 평균은 0.616입니다(Cup in Bowl을 빼면 0.996). 논문의 같은 세 과제 평균은 0.954, 7개 과제 평균은 0.911입니다. 미세조정 과제 셋(Stack Dishware, Store Marker, Throw Away Trash)은 논문의 미세조정 체크포인트가 공개되지 않아 이 비교에 넣을 수 없습니다(18장).
+- **우리가 영상에서 복원한 Marker in Cup 장면은 정책 셋까지 논문의 핵심 결과를 재현했지만, DreamZero에서 어긋납니다.** 세 정책의 성공률(28 / 80 / 20%)이 논문의 시뮬(40 / 88 / 28%)과 실제(40 / 92 / 28%)를 순서와 크기 모두 따라가, r 0.999에 순위 뒤집힘이 없습니다(MMRV 0). 같은 과제의 저자 공개 장면(18장)보다 논문 값에 가깝습니다. 저자 장면에서는 π0.5가 52%에 그쳤는데, 18장의 분석으로는 머그컵 입구(약 6.5 cm)에 마커를 맞춰 넣지 못하는 실패가 대부분입니다. 우리 장면의 종이컵 입구는 약 8.5 cm입니다. 그런데 DreamZero가 이 장면에서 0%(논문 시뮬 80%, 실제 88%)여서, 정책 넷으로는 r 0.330, MMRV 0.420입니다(19.4).
+- **Serve Fruits(저자 장면)는 정책 넷으로도 재현됩니다.** π0 0%, π0.5 88%, GR00T 16%, DreamZero 16%(논문 시뮬 12%)로 r 0.993, MMRV 0.010입니다.
+- **Cup in Bowl은 재현되지 않습니다.** π0(80%)와 π0.5(100%)는 논문 실제 값(88, 100%)과 맞습니다. 하지만 GR00T가 시뮬에서 100%로 π0.5와 같은 1위인데, 논문의 실제 값은 세 정책 중 가장 낮은 68%입니다. 이 하나가 r을 −0.143으로 끌어내립니다. 배치를 좁혀도 나아지지 않습니다. 가까운 배치에서는 세 정책이 모두 컵을 거의 매번 집지만(22–24/24), 그릇에 넣는 비율이 달라져 π0 83%, π0.5 62%, GR00T 75%가 됩니다. 실제로 가장 강한 π0.5가 가장 낮아져 r은 −0.475입니다. π0.5는 24회 중 17회 컵을 그릇에 넣었지만, 놓은 뒤 판정까지 마친 것은 15회입니다. 두 배치 모두 우리 장면의 Cup in Bowl은 논문의 순위를 재현하지 못합니다. DreamZero(16%, 논문 실제 100%)를 더하면 r은 −0.501로 더 내려갑니다.
+- 정책이 세 개 이상인 과제 셋의 r 평균은 정책 넷으로 0.274입니다(Cup in Bowl을 빼면 0.661). DreamZero를 빼고 정책 셋으로 내면 0.616(Cup in Bowl을 빼면 0.996)입니다. 논문의 같은 세 과제 평균은 0.954, 7개 과제 평균은 0.911입니다. 미세조정 과제 셋(Stack Dishware, Store Marker, Throw Away Trash)은 논문의 미세조정 체크포인트가 공개되지 않아 이 비교에 넣을 수 없습니다(18장).
 
 - GR00T N1.6은 우리 Cup in Bowl 장면에서 25회 모두 성공했습니다. 에피소드 길이의 중앙값은 193스텝(12.9 s), 최대는 537스텝으로 60 s 제한 안에 끝났습니다. 성공 영상을 확인해 보니 컵을 집어 그릇 안에 내려놓고 놓았습니다(`diagnostics/policy_eval_ours/gr00t_cup_in_bowl_success_ep0_ep7.jpg`).
 - Marker in Cup에서는 25회 모두 마커를 집었지만(마일스톤 touched·picked 25/25) 컵에 넣은 것은 6회, 놓기까지 마쳐 성공한 것은 5회입니다. 실패한 에피소드는 대부분 마커를 든 채 90 s 제한까지 컵 위를 맴돌거나 책상에 떨어뜨립니다. 20%(95% 구간 9–39%)는 논문 값 28%(시뮬·실제 모두)와 통계적으로 구별되지 않습니다.
@@ -1098,10 +1100,70 @@ python repro/policy_eval/analyze_rollouts.py --task marker_in_cup --results <res
   - 결과는 **18/24(75%)**로, 떨어뜨려 놓은 배치의 25/25와 통계적으로 다릅니다(Fisher p = 0.0096). 실패는 테두리 간격 5 cm 미만에서 조금 더 잦았습니다(12회 중 8회 성공 대 12회 중 10회). 24회 모두 컵을 집었고, 실패는 그릇에 넣기와 놓기에서 났습니다.
   - 배치를 좁히면 논문 실제 값(68%) 쪽으로 내려오지만, 논문 시뮬 값(40%)보다는 여전히 높습니다. 저자 장면이 공개되지 않아 물체 크기와 배치가 얼마나 다른지는 확인할 수 없습니다.
 
-### 19.4 한계와 다음 단계
+### 19.4 DreamZero-DROID: 네 번째 정책 (2026-10-17~18)
+
+DreamZero-DROID는 DROID 데이터만으로 처음부터 학습한 14B 월드 액션 모델입니다(Wan2.1-I2V-14B 기반). 호출마다 앞으로의 영상과 24스텝의 절대 관절 위치를 함께 냅니다. 세 과제를 다른 정책과 같은 시작 상태·지시문·시간 제한·실행 지평(Marker 8, Cup 8, Serve 24)으로 25회씩 돌렸습니다.
+
+| 과제 (장면) | 성공 | 95% 구간 | 논문 시뮬 / 실제 | Fisher p (대 논문 시뮬) | 마일스톤 (25회 중) |
+|---|---|---|---|---|---|
+| Marker in Cup (우리 복원) | **0/25 = 0%** | 0–13% | 80 / 88 | 2×10⁻⁹ | 마커 닿음 17, 집음 11, 컵 안 0 |
+| Cup in Bowl (우리 복원) | **4/25 = 16%** | 6–35% | 92 / 100 | 7×10⁻⁸ | 컵 닿음 19, 집음 12, 그릇 안 4 |
+| Serve Fruits (저자 장면) | **4/25 = 16%** | 6–35% | 12 / 8 | 1.0 | 바나나 집음 25·놓음 25, 사과 집음 5·놓음 4 |
+
+- **Serve Fruits(저자 장면)는 논문과 맞습니다.** 바나나는 25회 모두 쟁반에 올렸지만 사과까지 간 것은 드뭅니다(놓음 4회). 논문이 π0.5의 장점으로 든 지시문 따르기의 차이가 그대로 나옵니다(π0.5는 사과 놓기 92%, 18장). 성공 영상은 `diagnostics/policy_eval_ours/dreamzero/serve_fruits_ep2_success.jpg`입니다.
+- **우리 복원 장면 두 과제는 논문보다 훨씬 낮습니다.** Marker in Cup에서는 같은 장면의 π0·π0.5·GR00T가 논문 값과 맞았으므로(19.3), 이 차이는 DreamZero에서만 생깁니다. Cup in Bowl은 GR00T도 논문과 달랐습니다.
+  - Marker in Cup은 25회 모두 90 s 제한까지 갔습니다. 우리 장면의 마커는 책상에 세워져 있습니다. DreamZero는 마커에 다가간 뒤, 벌린 손가락 옆이나 사이에 마커를 둔 채 수십 초씩 맴돕니다(`marker_in_cup_ours_ep9_hovers_by_upright_marker.jpg`). 25회 중 7회는 그리퍼를 한 번도 닫지 않았습니다. 서버가 저장한 예측 영상을 보면, 모델도 마커 옆에서 집는 장면을 상상합니다(`marker_in_cup_ours_ep1_predicted_wrist_view.jpg`).
+  - 첫 에피소드에서는 팔을 의자 쪽으로 돌려 손목 카메라가 배경 메시의 의자 속으로 들어갔고, 26호출(약 14 s) 동안 손목 영상이 검었습니다(`marker_in_cup_ours_ep0_wrist_black_inside_chair.jpg`). 배경 메시에는 충돌이 없습니다.
+  - Cup in Bowl의 성공 4회는 영상으로 확인했습니다. 넘어져 있는 종이컵을 집어 그릇에 넣고 놓았습니다(`cup_in_bowl_ours_ep17_success.jpg`). 실패 21회는 모두 60 s 제한까지 갔습니다.
+  - 원인은 가리지 못했습니다(아래 호출 방식, 19.5). 저자 Marker in Cup 장면(논문 80%)으로 몇 회 돌려 장면 쪽 원인인지 가르는 진단은 이번에는 하지 않았습니다.
+
+**호출 방식**
+- 서버(`socket_test_optimized_AR.py`)는 호출마다 받은 프레임을 쌓습니다. 첫 호출 뒤로는 마지막 4장을 한 블록으로 씁니다. 월드 모델의 문맥(KV 캐시)은 4호출마다 새로 시작합니다(`max_chunk_size` 4). 시드가 고정이라, 같은 입력을 보내면 다섯 번째 호출이 첫 호출과 같은 출력을 냅니다.
+- 우리 클라이언트는 호출마다 현재 프레임 1장을 보냅니다. DreamZero 저장소의 시뮬 평가 클라이언트(`eval_utils/run_sim_eval.py`, 지평 8)와 이 저장소의 원래 클라이언트가 그렇게 합니다. 평가 단계는 청크마다 관측을 하나만 정책에 넘기므로, 평가 코드를 고치지 않고는 다른 방식이 불가능합니다.
+- 지평 8(Marker, Cup)에서는 서버가 쓰는 4장이 8스텝 간격(−24, −16, −8, 0)입니다. DreamZero의 테스트 클라이언트(`test_client_AR.py`)가 학습 때 간격으로 보내는 [−23, −16, −8, 0]과 거의 같습니다. 다만 블록 사이가 학습의 24스텝이 아니라 8스텝이라, 이어지는 블록이 16스텝씩 겹칩니다.
+- 지평 24(Serve Fruits)에서는 블록 사이가 24스텝으로 학습과 같습니다. 대신 4장의 간격이 24스텝으로 학습의 세 배입니다.
+- DreamZero가 논문 값과 맞은 과제는 지평 24인 Serve Fruits(저자 장면)뿐이고, 어긋난 두 과제는 지평 8인 우리 장면입니다. 장면과 지평이 함께 바뀌었으므로, 이 결과만으로는 어느 쪽 때문인지 가를 수 없습니다.
+- 그 밖에 점검했고 문제가 없던 것: 카메라 슬롯(로봇 왼쪽 카메라가 1번, 오른쪽이 2번으로 다른 정책과 같음), 그리퍼 상태(0 열림, 1 닫힘으로 DROID와 같음), 동작(첫 동작이 보낸 관절 상태에서 0.03–0.08 rad 안이라 절대 관절 목표가 맞음), 색 순서(예측 영상의 색이 입력과 같음).
+
+**클라이언트** (`simfoundry/policies/dreamzero.py`). 저장소의 원래 클라이언트는 공개 서버와 맞지 않아 DreamZero의 시뮬 평가 클라이언트와 같게 고쳤습니다.
+- 외부 카메라 키: 서버는 `exterior_image_0_left`·`exterior_image_1_left`를 받아 모델의 1번·2번 카메라에 넣습니다. 원래 코드는 DROID 이름(1, 2)으로 보내서, 1번 카메라가 2번 자리에 들어가고 2번 카메라는 버려졌습니다.
+- 세션: 원래 코드는 세션 ID가 고정이라 앞 에피소드의 문맥이 다음 에피소드로 이어졌습니다. 이제 에피소드마다 새 세션을 씁니다.
+- 원래 코드는 청크마다 요청을 두 번 보냈습니다(재시도 루프 뒤에 한 번 더). 상태가 있는 서버에서는 프레임이 두 번 쌓입니다.
+- 응답: 서버는 (N, 8) 배열을 그대로 보냅니다. 원래 코드는 `["actions"]`로 읽었습니다.
+- 연결 유지: 서버는 추론 중 ping에 답하지 않습니다. DreamZero 클라이언트처럼 60 s 간격, 600 s 한도로 기다립니다.
+- `repro/policy_eval/check_dreamzero_client.py`가 이것을 DreamZero의 서버 코드로 확인합니다(모델과 GPU 불필요). 이 머신과 G4 런타임에서 전 항목 통과했습니다.
+
+**서버와 설치** (`repro/policy_eval/setup_dreamzero.sh`)
+- `dreamzero0/dreamzero` `ab790c1`을 Python 3.11 conda 환경에 README대로 설치했습니다(`pip install -e .`, cu129 인덱스, torch 2.8.0+cu129에 sm_120 포함). 바꾼 것은 세 가지입니다.
+  - `gear` 제외: DreamZero가 쓰지 않는, 이름만 같은 PyPI 패키지입니다(이슈 #95).
+  - `deepspeed` 제거: 버전 고정이 없어 0.19.7이 깔렸는데, 고정된 transformers 4.51.3과 서로를 import하다 순환 import로 서버가 시작하자마자 죽었습니다. DreamZero에서 deepspeed를 쓰는 곳은 학습 코드뿐입니다.
+  - flash-attn과 Transformer Engine 미설치: 주의 연산이 torch SDPA로 대체됩니다. 길이 정보(패딩 마스크)를 넘기는 호출이 없으면 같은 계산이고, 서버 로그에 `Padding mask is disabled` 경고는 한 번도 없었습니다.
+- 체크포인트(46 GB, `tensorrt/` 제외)와 아래 Wan2.1 파일(16 GB)은 G4에서 4분 안에 받았습니다. `config.json`의 `skip_component_loading`을 `true`로 둡니다. 그대로 두면 Wan2.1-I2V-14B의 DiT(약 65 GB)를 따로 받아 RAM에 올린 뒤 체크포인트 가중치로 덮어씁니다. T5·CLIP·VAE 파일(16 GB)은 이 값과 상관없이 읽으므로 함께 받습니다. 체크포인트의 `experiment_cfg/conf.yaml`에는 `eval_bf16: true`가 있어, 모델은 bf16으로 GPU에 올라갑니다.
+- GPU가 한 장(`ip_size` 1)이라 CFG의 두 갈래를 차례로 계산합니다. DiT 캐시(`--enable-dit-cache`)는 README대로 켰습니다.
+- 서버 로드에 8분(RAM 최대 약 105 GB), 첫 두 호출에 82 s·61 s(torch.compile)가 걸렸습니다. 그 뒤로는 호출당 4.2–5.5 s(중앙값 약 4.5 s)입니다. DreamZero 발표값은 H100 두 장에서 약 3 s입니다. 시뮬레이션까지 합치면 8스텝 청크 하나에 5.1 s, 24스텝 청크에 5.5 s입니다.
+- GPU 메모리는 서버 78–88 GB에 Isaac Sim 6 GB로, 97.9 GB 중 최대 93.6 GB였습니다.
+- 서버는 세션이 바뀔 때마다 앞 세션의 예측 영상을 저장합니다(79개, 예열 포함).
+
+**비용과 진행**
+- G4 한 대를 13.3시간 썼습니다(약 118 CU, 승인한 160 CU 안). 평가가 12.5시간(Marker 6.0, Cup 3.8, Serve 2.8)이고, 나머지는 설치(19분)·서버 로드·예열과 아래 두 문제입니다. 추론은 추정(6–12 s)보다 빨랐지만, 실패한 에피소드가 모두 시간 제한까지 가서 호출이 8,630회로 추정(약 4,600회)의 두 배 가까이 됐습니다.
+  - 업로드 중 SSH가 끊긴 뒤, VM에 남은 sshd 세션 때문에 새 연결이 HTTP 429로 막혔습니다(약 15분). 커널을 재시작하고 그 세션을 끝내 풀었습니다.
+  - 드라이버가 작업 폴더로 이동한 뒤 상대 경로 `SPEC`을 읽어 정책 종류가 빈 값이 되었고, 첫 시도의 세 과제가 시작하자마자 끝났습니다. `SPEC`을 절대 경로로 바꿔 다시 돌렸습니다.
+- 결과: `results/policy_eval_ours/dreamzero/`에 평가 출력(`out/`, 영상·롤아웃 포함), 로그(`logs/`), 서버 예측 영상(`server_videos/`), 요약(`summary_ours.json`, `summary_authors.json`), 정책 넷의 상관(`correlate_four_policies.json`)이 있습니다. 진단 이미지는 `results/diagnostics/policy_eval_ours/dreamzero/`에 있습니다. Drive에도 같은 경로로 올렸습니다.
+
+| 파일 | 내용 |
+|---|---|
+| `repro/policy_eval/setup_dreamzero.sh` | DreamZero 서버 환경과 체크포인트(위 세 가지 차이, `skip_component_loading`) |
+| `repro/policy_eval/run_table_g1.sh` | 정책 `kind: dreamzero`: 서버 시작·예열·중지, 평가 단계에 `s15_eval.policy` 전달, 평가는 한 번에 하나. `SPEC`을 절대 경로로, 스펙 옆 `tasks/`도 복사 |
+| `repro/policy_eval/setup_colab.sh` | `client`(openpi 클라이언트만), `miniforge` 단계 |
+| `repro/policy_eval/ping_dreamzero.py` | 평가 단계의 클라이언트로 서버 예열과 호출 시간 측정 |
+| `repro/policy_eval/check_dreamzero_client.py`, `simfoundry/policies/dreamzero.py` | 공개 서버에 맞춘 클라이언트와 그 점검 |
+| `repro/policy_eval/table_g1.yaml`, `repro/policy_eval_ours/ours.yaml` | `dreamzero` 정책 항목과 논문의 DreamZero 수치 |
+
+### 19.5 한계와 다음 단계
 
 - **Cup in Bowl의 배치.** 저자 장면이 공개되지 않아, 물체를 어디에 어떤 범위로 놓았는지는 저장소 설정에서 추정했습니다. 세 정책 모두 배치에 민감했고(π0.5 100→62%, GR00T 100→75%), 어느 배치에서도 논문의 순위가 나오지 않았습니다. 저자 장면의 물체(크기·질량·입구)와 시작 범위를 모르는 한 이 과제는 직접 비교할 수 없습니다. 우리 물체의 질량을 실물에 가깝게 고친 경우는 21장에 있습니다(r 0.45, 여전히 순위가 맞지 않음).
-- **정책 수.** 논문의 제로샷 열은 정책 다섯 개이고 여기는 세 개입니다. GR00T N1.7은 DROID 체크포인트를 찾지 못했고, DreamZero-DROID(14B)는 H100급 GPU가 필요합니다. 정책이 셋이면 r은 점 세 개로 정해져 흔들림이 큽니다.
+- **정책 수.** 논문의 제로샷 열은 정책 다섯 개이고 여기는 넷입니다. GR00T N1.7은 DROID 체크포인트를 찾지 못했습니다. 정책이 넷이어도 r은 한 정책에 크게 흔들립니다(Marker in Cup, 우리 장면: 0.999 → 0.330).
+- **DreamZero의 낮은 성공률.** 우리 장면 두 과제에서 논문보다 크게 낮은 원인을 가리지 못했습니다(19.4). 다음에 돌릴 것은 두 가지입니다. 저자 Marker in Cup 장면에서 DreamZero를 돌려 논문 값이 나오면 우리 장면 쪽이 원인입니다. 우리 Marker 장면에서 실행 지평 24로 돌려 나아지면 호출 방식이 원인입니다.
 - **비교 기준.** 실제 성공률은 논문의 값을 그대로 썼습니다. 우리가 실제 로봇으로 잰 것이 아닙니다.
 - **Clear Table**은 장면도 영상도 공개되지 않아 하지 않았습니다.
 - **GR00T 실행 환경.** 이 머신의 12 GB GPU에서 돌렸습니다. Serve Fruits만 외부 카메라 하나로 돌렸고, 정책이 받는 입력은 같습니다.
@@ -1114,8 +1176,22 @@ python repro/policy_eval_ours/check_scene.py --task cup_in_bowl_ours --out resul
 # GR00T N1.6 (OPENPI_STUBS: openpi_client import만 막는 빈 패키지가 든 폴더)
 repro/policy_eval_ours/run_local_gr00t.sh server
 repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/ours.yaml:cup_in_bowl_ours ...
-# 집계: 과제별로 우리 시뮬 대 논문 실제의 r·MMRV
-python repro/policy_eval_ours/correlate.py --check-paper --results results/policy_eval_ours/gr00t/out:main
+# DreamZero-DROID (Colab G4 한 대. 체크아웃을 /content/SimFoundry에, 장면 세 개와 droid_v* 배경을 assets/ 아래에,
+# 시작 상태 세 개를 /content/eval/init_states/에 올린 뒤)
+bash repro/policy_eval/setup_colab.sh miniforge && bash repro/policy_eval/setup_dreamzero.sh conda
+bash repro/policy_eval/setup_colab.sh vulkan &
+(bash repro/policy_eval/setup_colab.sh simfoundry && bash repro/policy_eval/setup_colab.sh client) &
+bash repro/policy_eval/setup_dreamzero.sh all; wait
+/root/miniforge3/envs/simfoundry/bin/python repro/policy_eval/check_dreamzero_client.py --dreamzero /content/dreamzero
+R=repro/policy_eval/run_table_g1.sh
+SPEC=repro/policy_eval_ours/ours.yaml $R servers dreamzero   # 로드 약 8분, 이어서 예열
+SPEC=repro/policy_eval_ours/ours.yaml $R eval dreamzero marker_in_cup_ours 25 main
+SPEC=repro/policy_eval_ours/ours.yaml $R eval dreamzero cup_in_bowl_ours 25 main
+$R eval dreamzero serve_fruits 25 main
+# 집계: 과제별로 우리 시뮬 대 논문 실제의 r·MMRV (π0·π0.5: ~/simfoundry_logs/policy_eval, 가까운 배치: near_colab)
+python repro/policy_eval_ours/correlate.py --check-paper --results ~/simfoundry_logs/policy_eval/out:main \
+  --results ~/simfoundry_logs/policy_eval/out:ours --results results/policy_eval_ours/near_colab/out:near \
+  --results results/policy_eval_ours/gr00t/out:main --results results/policy_eval_ours/dreamzero/out:main
 ```
 
 ## 20. 시뮬레이션 품질 수정: 질량, 렌더, 로봇 위치, 마찰 (2026-10-17)
