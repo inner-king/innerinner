@@ -17,6 +17,8 @@
 # Setup (once): Isaac-GR00T at e29d8fc in ${GR00T_DIR}, `uv sync --python 3.10 --no-install-package flash-attn`,
 # then the prebuilt flash-attn 2.8.0.post2 wheel for torch 2.7 / cxx11abi TRUE / cp310 and
 # `uv pip install --no-deps -e .` (no nvcc here to build the pinned 2.7.4.post1; the GR00T README tested 2.8.0.post2).
+# GRASPING_MODE=physical|assisted overrides the scene robot's grasping (s15_eval.grasping_mode), as in
+# run_table_g1.sh.
 # The eval stage imports openpi_client unconditionally; a GR00T run never calls it, so OPENPI_STUBS holds an
 # import-only stub instead of installing the client into the shared simfoundry env.
 set -uo pipefail
@@ -100,6 +102,7 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
     "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_gr00t_${tag}" \
     s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" s15_eval.checkpoint=gr00t_n16_droid \
     "s15_eval.external_sensors_cfg=${EXTERNAL_SENSORS:-nv_franka_droid}" "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
+    ${GRASPING_MODE:+"++s15_eval.grasping_mode=${GRASPING_MODE}"} \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
     "s15_eval.init_states_path=${init}" \
