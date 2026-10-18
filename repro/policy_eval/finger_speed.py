@@ -7,9 +7,13 @@ check needs no Isaac Sim. The state vector holds the robot's joint positions, th
 arm controller's goal flag and goal; the goal block is the one that matches the recorded actions (as in the
 tracking analysis of chapter 26), and the joint block sits 2 * n_dof + 1 entries before it.
 
-For every switch of the gripper command it reports how long the first Robotiq joint takes to finish 95% of
-the travel it makes in the next two seconds; switches after which the fingers barely move (already closed
-on an object, or already open) are skipped.
+It follows one of the two Robotiq joints the drive moves: the second of the eight in the state (--joint 1);
+the fourth (--joint 3) is the other. Their peak speed sits at the joint velocity limit (2.27 rad/s as the
+asset sets it, 1.0 with PickPlaceTask's reapply_joint_limits); the other six are passive and jump at
+contacts. For every
+switch of the gripper command it reports how long that joint takes to finish 95% of the travel it makes in
+the next two seconds, skipping switches after which the fingers barely move (already closed on an object, or
+already open), and its peak speed per episode, which a joint velocity limit caps.
 
     python repro/policy_eval/finger_speed.py out/marker_in_cup/s15_eval_pi05_main/*/*/results_*/rollouts.hdf5
 """
@@ -44,10 +48,11 @@ def main():
     ap.add_argument("rollouts", nargs="+", help="rollouts.hdf5 files")
     ap.add_argument("--n-dof", type=int, default=15, help="robot DOFs (7 arm + 8 Robotiq joints for nv_franka_droid)")
     ap.add_argument("--dt", type=float, default=1 / 15, help="seconds per action (one recorded state each)")
+    ap.add_argument("--joint", type=int, default=1, help="Robotiq joint (0-7) in the state; 1 and 3 are driven")
     args = ap.parse_args()
 
     window = int(round(2.0 / args.dt))
-    closes, opens, episodes = [], [], 0
+    closes, opens, peaks, episodes = [], [], [], 0
     for path in args.rollouts:
         with h5py.File(path, "r") as f:
             for name in f["data"]:
@@ -56,14 +61,15 @@ def main():
                     continue  # the stage's extra env.reset() leaves one-state demos between episodes
                 S, A = g["state"][:].astype(float), g["action"][:].astype(float)
                 qi = find_goal(S, A) - (2 * args.n_dof + 1)
-                finger = S[:, qi + 7]  # the first Robotiq joint; 0 open, 0.785 rad closed
+                finger = S[:, qi + 7 + args.joint]  # 0 open, 0.785 rad closed
+                peaks.append(np.abs(S[:, qi + args.n_dof + 7 + args.joint]).max())
                 # The recorded action is the one the controller received: inverted from DROID's convention and
                 # binarized by the eval stage, so 1 opens. Checked on the data: after a rise the joint goes to 0.
                 closed = A[:, 7] < 0.5
                 closes += switch_times(finger, closed, args.dt, window)
                 opens += switch_times(finger, ~closed, args.dt, window)
                 episodes += 1
-    print(f"{episodes} episodes")
+    print(f"{episodes} episodes; peak speed per episode median {np.median(peaks):.2f} rad/s, max {max(peaks):.2f}")
     for what, ts in (("close", closes), ("open", opens)):
         if ts:
             print(f"{what}: {len(ts)} switches, 95% of the travel in median {np.median(ts):.2f} s "
