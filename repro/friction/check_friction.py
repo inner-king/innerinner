@@ -89,9 +89,11 @@ def main():
             if prim.HasAPI(lazy.pxr.UsdPhysics.CollisionAPI):
                 binding = lazy.pxr.UsdShade.MaterialBindingAPI(prim).GetDirectBinding(materialPurpose="physics")
                 api = lazy.pxr.UsdPhysics.MaterialAPI(stage.GetPrimAtPath(binding.GetMaterialPath()))
+                mode = stage.GetPrimAtPath(binding.GetMaterialPath()).GetAttribute("physxMaterial:frictionCombineMode")
                 return {"collider": str(prim.GetPath()), "material": str(binding.GetMaterialPath()),
                         "static": api.GetStaticFrictionAttr().Get(), "dynamic": api.GetDynamicFrictionAttr().Get(),
-                        "restitution": api.GetRestitutionAttr().Get()}
+                        "restitution": api.GetRestitutionAttr().Get(),
+                        "friction_combine": mode.Get() if mode and mode.HasAuthoredValue() else "average"}
         return None
 
     def snapshot(objs):
@@ -122,6 +124,11 @@ def main():
             for _ in range(10):
                 og.sim.step()
     report["link_names"] = {name: list(obj.links) for name, obj in objs.items()}
+    # The masses PhysX loaded from the stage 13 USDs, next to the ones stage 11 estimated (README chapter 29).
+    report["masses_kg"] = {name: {"physx": float(obj.mass),
+                                  "stage11": next((info.get("mass") for info in scene_objects_info.values()
+                                                   if info["name"] == name), None)}
+                           for name, obj in objs.items()}
 
     report["phases"]["before"] = snapshot(objs)
     set_obj_materials(objs=objs, obj_frictions=obj_frictions)  # playing, where stage 14 and B6 called it until now
@@ -177,11 +184,16 @@ def main():
     start_pos[1] -= 1.5
     start_pos[2] += 0.002
     g = 9.81
+    # set_obj_materials binds the floor plane too (set_floor_material), so the floor the probe slides on is read
+    # again here; its combine mode decides the coefficient the probe meets.
+    report["ground_plane_at_slide"] = ground = ground_material()
+    combine = {"average": lambda a, b: (a + b) / 2.0, "min": min, "max": max, "multiply": lambda a, b: a * b}
     report["slide"] = {"object": slide_name, "speed_m_s": args.slide_speed, "runs": []}
     # (tag, static, dynamic): nothing bound; the original material with its bind loop uncommented (static only);
     # what set_obj_materials binds now; and two other coefficients to show the response.
     for tag, static, dynamic in (("unbound", None, None), ("static_only_0.5", 0.5, None),
-                                 ("both_0.5", 0.5, 0.5), ("both_0.2", 0.2, 0.2), ("both_1.0", 1.0, 1.0)):
+                                 ("both_0.5", 0.5, 0.5), ("both_0.2", 0.2, 0.2), ("both_0.9", 0.9, 0.9),
+                                 ("both_1.0", 1.0, 1.0)):
         with og.sim.stopped():
             if static is not None:
                 mat = lazy.isaacsim.core.api.materials.PhysicsMaterial(
@@ -199,13 +211,48 @@ def main():
         for _ in range(90):
             og.sim.step()
         p1 = probe.get_position_orientation()[0].clone()
-        ground = (report["ground_plane"] or {}).get("dynamic")
-        mu = None if ground is None else (mats[0]["dynamic"] + ground) / 2.0  # PhysX's "average" combine mode
+        mu = None if ground is None else combine[ground["friction_combine"]](mats[0]["dynamic"], ground["dynamic"])
         report["slide"]["runs"].append({
             "material": tag, "physx": mats, "slid_m": float(p1[0] - p0[0]),
             "drift_y_m": float(p1[1] - p0[1]), "combined_dynamic": mu,
             "expected_m": args.slide_speed ** 2 / (2.0 * mu * g) if mu else None,
             "speed_after_m_s": float(th.linalg.norm(probe.get_linear_velocity()))})
+    # The same probe on the floor's own material (the GroundPlane default, averaged), as before set_floor_material:
+    # an object meets the mean of its coefficient and the floor's instead of its own.
+    floor_default = (report["ground_plane"] or {}).get("material")
+    report["slide_default_floor"] = {"floor_material": floor_default, "runs": []}
+    if floor_default and ground and ground["material"] != floor_default:
+        stage = og.sim.stage
+        with og.sim.stopped():
+            mat = lazy.pxr.UsdShade.Material(stage.GetPrimAtPath(floor_default))
+            for prim in lazy.pxr.Usd.PrimRange(stage.GetPrimAtPath("/World/ground_plane")):
+                if prim.HasAPI(lazy.pxr.UsdPhysics.CollisionAPI):
+                    lazy.pxr.UsdShade.MaterialBindingAPI(prim).Bind(
+                        mat, bindingStrength=lazy.pxr.UsdShade.Tokens.strongerThanDescendants, materialPurpose="physics")
+        default_ground = ground_material()
+        report["slide_default_floor"]["ground"] = default_ground
+        for tag, value in (("default_floor_0.2", 0.2), ("default_floor_0.9", 0.9)):
+            with og.sim.stopped():
+                mat = lazy.isaacsim.core.api.materials.PhysicsMaterial(
+                    prim_path=f"{probe.prim_path}/Looks/slide_{tag.replace('.', '_')}", name=f"slide_{tag}",
+                    static_friction=value, dynamic_friction=value, restitution=None)
+                for link in probe.links.values():
+                    for msh in link.collision_meshes.values():
+                        msh.apply_physics_material(mat)
+                probe.set_position_orientation(position=start_pos, orientation=settled[slide_name][1])
+            for _ in range(30):
+                og.sim.step()
+            p0 = probe.get_position_orientation()[0].clone()
+            mats = physx_materials(probe)
+            probe.set_linear_velocity(th.tensor([args.slide_speed, 0.0, 0.0]))
+            for _ in range(90):
+                og.sim.step()
+            p1 = probe.get_position_orientation()[0].clone()
+            mu = combine[default_ground["friction_combine"]](mats[0]["dynamic"], default_ground["dynamic"])
+            report["slide_default_floor"]["runs"].append({
+                "material": tag, "physx": mats, "slid_m": float(p1[0] - p0[0]), "combined_dynamic": mu,
+                "expected_m": args.slide_speed ** 2 / (2.0 * mu * g),
+                "speed_after_m_s": float(th.linalg.norm(probe.get_linear_velocity()))})
     with og.sim.stopped():
         scene.remove_object(probe)
 

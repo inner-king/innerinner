@@ -28,6 +28,7 @@ import re
 
 from simfoundry.utils.processing_utils import extract_numbers_from_str
 from simfoundry.utils.prompt_utils import mass_prompt_volumes, parse_json_response, prompt_object_mass_friction
+from simfoundry.utils.mass_estimation import estimate_rigid_mass
 
 # see https://github.com/facebookresearch/hydra/issues/2949#issue-2516892001
 if hydra.core.global_hydra.GlobalHydra.instance().is_initialized():
@@ -68,6 +69,64 @@ def generate_seeded_random_letters(seed_value, length=6):
 # TODO: Include VLM-based annotations for mass and friction, based on (a) image, (b) bounding box (extents), and (c) category name / description
 
 @hydra.main(config_name="real2sim_cfg", config_path=CFG_DIR, version_base="1.3")
+def direct_mass_friction(vlm, obj_phrase, obj_name, img_fpath, obb_extent, mass_volumes):
+    """The single mass and friction question stage B4 asked before (and its fallbacks); see estimate_rigid_mass."""
+    result = vlm(
+        # Same volumes as stage 11 states for the originals (mass_prompt_volumes); tm.volume alone is
+        # undefined for an open mesh and only the material for a closed thin shell.
+        prompt=prompt_object_mass_friction(obj_phrase=obj_phrase, bounding_box_cm=obb_extent * 100,
+                                           volume_cm=mass_volumes[0] * (100 ** 3),
+                                           material_volume_cm=None if mass_volumes[1] is None else mass_volumes[1] * (100 ** 3),
+                                           envelope_note=True),
+        image_paths=img_fpath,
+        temperature=0,
+        top_p=0,
+        seed=0,
+        print_results=True,
+    )
+    result_text = vlm.get_result_text(result=result)
+    try:
+        result_json = parse_json_response(result_text)
+        mass = float(result_json["mass"])
+        friction = float(result_json["friction"])
+    except Exception:
+        result_str = ""
+        include_line = False
+        for line in result_text.split("\n"):
+            if "answer" in line.lower():
+                include_line = True
+            if include_line:
+                result_str += line
+        if not result_str:
+            result_str = result_text
+        numbers = extract_numbers_from_str(result_str)
+        if len(numbers) >= 2:
+            mass, friction = float(numbers[0]), float(numbers[1])
+            if len(numbers) > 2:
+                logger.warning(
+                    f"Parsed {len(numbers)} numbers for {obj_name}. "
+                    f"Using first two as mass/friction: {numbers[:2]}. "
+                    f"Raw answer text: {result_str}"
+                )
+        elif len(numbers) == 1:
+            mass = float(numbers[0])
+            friction = DEFAULT_FRICTION
+            logger.warning(
+                f"Parsed only one number for {obj_name}. "
+                f"Using mass={mass}, default friction={friction}. "
+                f"Raw answer text: {result_str}"
+            )
+        else:
+            mass = DEFAULT_MASS_KG
+            friction = DEFAULT_FRICTION
+            logger.warning(
+                f"Failed to parse mass/friction for {obj_name}. "
+                f"Using defaults mass={mass}, friction={friction}. "
+                f"Raw answer text: {result_str}"
+            )
+    return mass, friction
+
+
 def main(cfg):
     scene_dir = cfg_path(cfg.s5_scene.out_dir)
     img_dir = cfg_path(cfg.prompt_cousin_structured.out_dir)
@@ -166,59 +225,19 @@ def main(cfg):
         obb_tf, obb_extent = trimesh.bounds.oriented_bounds(tm)
         mass_volumes = mass_prompt_volumes(tm, obb_extent, weld_seams=True)
 
-        result = vlm(
-            # Same volumes as stage 11 states for the originals (mass_prompt_volumes); tm.volume alone is
-            # undefined for an open mesh and only the material for a closed thin shell.
-            prompt=prompt_object_mass_friction(obj_phrase=obj_phrase, bounding_box_cm=obb_extent * 100,
-                                               volume_cm=mass_volumes[0] * (100 ** 3),
-                                               material_volume_cm=None if mass_volumes[1] is None else mass_volumes[1] * (100 ** 3),
-                                               envelope_note=True),
-            image_paths=img_fpath,
-            temperature=0,
-            top_p=0,
-            seed=0,
-            print_results=True,
-        )
-        result_text = vlm.get_result_text(result=result)
-        try:
-            result_json = parse_json_response(result_text)
-            mass = float(result_json["mass"])
-            friction = float(result_json["friction"])
-        except Exception:
-            result_str = ""
-            include_line = False
-            for line in result_text.split("\n"):
-                if "answer" in line.lower():
-                    include_line = True
-                if include_line:
-                    result_str += line
-            if not result_str:
-                result_str = result_text
-            numbers = extract_numbers_from_str(result_str)
-            if len(numbers) >= 2:
-                mass, friction = float(numbers[0]), float(numbers[1])
-                if len(numbers) > 2:
-                    logger.warning(
-                        f"Parsed {len(numbers)} numbers for {obj_name}. "
-                        f"Using first two as mass/friction: {numbers[:2]}. "
-                        f"Raw answer text: {result_str}"
-                    )
-            elif len(numbers) == 1:
-                mass = float(numbers[0])
-                friction = DEFAULT_FRICTION
-                logger.warning(
-                    f"Parsed only one number for {obj_name}. "
-                    f"Using mass={mass}, default friction={friction}. "
-                    f"Raw answer text: {result_str}"
-                )
-            else:
-                mass = DEFAULT_MASS_KG
-                friction = DEFAULT_FRICTION
-                logger.warning(
-                    f"Failed to parse mass/friction for {obj_name}. "
-                    f"Using defaults mass={mass}, friction={friction}. "
-                    f"Raw answer text: {result_str}"
-                )
+        # sim.mass_method "material_typical" estimates as stage 11 does by default (simfoundry/utils/mass_estimation.py).
+        # B4 keeps the single direct question by default: Pipeline B runs Qwen3-VL, which gave whole tools with plastic
+        # handles the density of steel, and with it the two questions did no better on YCB (repro/README.md, 29.3).
+        estimate = None
+        if cfg.sim.get("mass_method", "direct") == "material_typical":
+            estimate = estimate_rigid_mass(vlm, obj_phrase, img_fpath, tm, obb_extent, print_results=True)
+            logger.info(f"Mass of {obj_phrase} ({obj_category}): typical {estimate['typical_g']} g, from material "
+                        f"{estimate['material_g']} g -> {estimate['mass_kg']} kg, friction {estimate['friction']}")
+        if estimate is not None and estimate["mass_kg"] is not None:
+            mass = estimate["mass_kg"]
+            friction = estimate["friction"] if estimate["friction"] is not None else DEFAULT_FRICTION
+        else:
+            mass, friction = direct_mass_friction(vlm, obj_phrase, obj_name, img_fpath, obb_extent, mass_volumes)
 
         print(f"[DEBUG] Before import_custom_object...")
         # Convert to URDF representation

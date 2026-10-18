@@ -361,6 +361,10 @@ s11_sim:          # env: simfoundry
   collision_method: coacd
   hull_count: 32
   n_submesh: 10
+  # material_typical: the mass the VLM's material answer gives on the mesh, held within a factor 2 of what it says such
+  # an object typically weighs (simfoundry/utils/mass_estimation.py; scored with Qwen3.5-9B, Pipeline A's VLM).
+  # direct: the single mass question asked before. Another VLM: score it first with repro/mass_friction/bench_mass.py.
+  mass_method: material_typical
 s12_physics:      # env: simfoundry
   rerun: true
   out_dirname: s12_physics
@@ -720,6 +724,9 @@ sim:          # env: simfoundry
   hull_count: 32
   n_submesh: 10
   canonicalize_front: true      # match cousin fronts to the originals' +Z convention
+  # direct: one mass question (Pipeline B's Qwen3-VL did no better with stage 11's two questions);
+  # material_typical: as s11_sim.mass_method
+  mass_method: direct
 usd: #env b1k
   rerun: true
   out_dirname: usd_cousins

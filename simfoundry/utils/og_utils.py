@@ -93,6 +93,51 @@ def og_copies_link_physics_materials() -> bool:
         return False
 
 
+#: Stage 11 asks for an object's friction coefficient sliding on a wooden table: the floor plane that holds the props
+#: up. PhysX combines a contact's two materials by whichever combine mode ranks higher (average < min < multiply <
+#: max), so a floor of friction 1 that multiplies gives an object on it exactly its own coefficient, while two objects
+#: still meet the mean of theirs. Under the GroundPlane's own material (0.5, averaged) an object of 0.9 meets 0.7
+#: and one of 0.2 meets 0.35. Restitution keeps the GroundPlane's 0.8, averaged as before.
+FLOOR_FRICTION = 1.0
+FLOOR_FRICTION_COMBINE_MODE = "multiply"
+FLOOR_RESTITUTION = 0.8
+
+
+def set_floor_material(floor_path: str = "/World/ground_plane"):
+    """Bind the floor plane's colliders to a material under which an object meets its own friction.
+
+    See FLOOR_FRICTION_COMBINE_MODE. Like set_obj_materials, call it while the simulator is stopped: PhysX takes a
+    binding when it parses the stage on play. Binding again reuses the material.
+
+    Args:
+        floor_path (str): the floor plane's prim, as ``og.sim.add_ground_plane`` creates it
+
+    Returns:
+        str or None: the material's prim path, or None when there is no floor plane (``use_floor_plane`` off)
+    """
+    stage = og.sim.stage
+    root = stage.GetPrimAtPath(floor_path)
+    if not root or not root.IsValid():
+        return None
+    mat_path = f"{floor_path}/Looks/floor_physics_mat"
+    if not stage.GetPrimAtPath(mat_path).IsValid():
+        lazy.isaacsim.core.api.materials.PhysicsMaterial(
+            prim_path=mat_path, name="floor_physics_mat", static_friction=FLOOR_FRICTION,
+            dynamic_friction=FLOOR_FRICTION, restitution=FLOOR_RESTITUTION)
+    mat_prim = stage.GetPrimAtPath(mat_path)
+    physx = lazy.pxr.PhysxSchema.PhysxMaterialAPI.Apply(mat_prim)
+    physx.CreateFrictionCombineModeAttr().Set(FLOOR_FRICTION_COMBINE_MODE)
+    physx.CreateRestitutionCombineModeAttr().Set("average")
+    material = lazy.pxr.UsdShade.Material(mat_prim)
+    bound = 0
+    for prim in lazy.pxr.Usd.PrimRange(root):
+        if prim.HasAPI(lazy.pxr.UsdPhysics.CollisionAPI):
+            lazy.pxr.UsdShade.MaterialBindingAPI.Apply(prim).Bind(
+                material, bindingStrength=lazy.pxr.UsdShade.Tokens.strongerThanDescendants, materialPurpose="physics")
+            bound += 1
+    return mat_path if bound else None
+
+
 def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
     """Bind each object's estimated friction to every collision mesh it has, and record it for saving.
 
@@ -100,8 +145,9 @@ def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
     used as both the static and the dynamic coefficient. Both must be authored: ``UsdPhysics.MaterialAPI``
     falls back to 0.0 for a coefficient left unset, so a material carrying only a static friction would
     contribute none once the object slides. Restitution stays unset, i.e. 0.0, as in PhysX's default
-    material that the objects used before this was bound. PhysX averages the two materials of a contact,
-    so an object on the ground plane (0.5) meets the mean of its own coefficient and 0.5.
+    material that the objects used before this was bound. The floor plane is bound too (set_floor_material),
+    so that an object on it meets exactly its own coefficient: stage 11 estimates it sliding on a table.
+    Two objects meet the mean of their coefficients, PhysX's default combine mode.
 
     Call it while the simulator is stopped. PhysX takes a material binding when it parses the stage on
     play; one made while it plays shows in USD but reaches PhysX only at the next stop and play
@@ -154,6 +200,9 @@ def set_obj_materials(objs: dict, obj_frictions: dict) -> dict:
                 link_name: {"static_friction": friction, "dynamic_friction": friction} for link_name in obj.links
             }
 
+    if obj_materials and set_floor_material() is None:
+        log.warning("no floor plane to bind: objects meet whatever supports them with the mean of the two "
+                    "coefficients")
     return obj_materials
 
 

@@ -24,6 +24,7 @@ from simfoundry import CFG_DIR
 from simfoundry.utils.processing_utils import extract_numbers_from_str
 from simfoundry.utils.python_utils import sanitize_path_component
 from simfoundry.utils.prompt_utils import mass_prompt_volumes, prompt_object_mass_friction, prompt_articulated_object_parts_properties, parse_json_response
+from simfoundry.utils.mass_estimation import estimate_rigid_mass
 from simfoundry.pipeline.articulation_physics import resolve_articulation_physics
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 
@@ -205,23 +206,40 @@ def import_rigid_scene_object(
     volume_m3: float,
     rigid_scale: float,
     material_volume_m3: float = None,
+    tm: trimesh.Trimesh = None,
 ) -> dict:
-    result = vlm(
-        prompt=prompt_object_mass_friction(
-            obj_phrase=obj_phrase,
-            bounding_box_cm=obb_extent * 100,
-            volume_cm=volume_m3 * (100 ** 3),
-            material_volume_cm=None if material_volume_m3 is None else material_volume_m3 * (100 ** 3),
-            envelope_note=True,
-        ),
-        image_paths=img_fpath,
-        temperature=0,
-        top_p=0,
-        seed=0,
-        print_results=True,
-    )
-    result_json = parse_json_response(vlm.get_result_text(result))
-    mass, friction = result_json["mass"], result_json["friction"]
+    # mass_method "material_typical" (the default) asks what such an object typically weighs and what it is made of,
+    # and takes the mass the material answer gives on the mesh, held within a factor 2 of the typical one
+    # (simfoundry/utils/mass_estimation.py; repro/README.md, chapter 29). "direct" is the single question the stage
+    # asked before; it is also the fallback when neither of the two questions gives a mass.
+    estimate = None
+    if cfg.s11_sim.get("mass_method", "material_typical") == "material_typical" and tm is not None:
+        estimate = estimate_rigid_mass(vlm, obj_phrase, img_fpath, tm, obb_extent, print_results=True)
+        logger.info(f"Mass of {obj_phrase}: typical {estimate['typical_g']} g, from material {estimate['material_g']} g "
+                    f"({(estimate['material'] or {}).get('material')}) -> {estimate['mass_kg']} kg, "
+                    f"friction {estimate['friction']}")
+    if estimate is not None and estimate["mass_kg"] is not None:
+        mass = estimate["mass_kg"]
+        friction = estimate["friction"] if estimate["friction"] is not None else 0.5  # PhysX's default material
+    else:
+        result = vlm(
+            prompt=prompt_object_mass_friction(
+                obj_phrase=obj_phrase,
+                bounding_box_cm=obb_extent * 100,
+                volume_cm=volume_m3 * (100 ** 3),
+                material_volume_cm=None if material_volume_m3 is None else material_volume_m3 * (100 ** 3),
+                envelope_note=True,
+            ),
+            image_paths=img_fpath,
+            temperature=0,
+            top_p=0,
+            seed=0,
+            print_results=True,
+        )
+        result_json = parse_json_response(vlm.get_result_text(result))
+        if isinstance(result_json, list):  # Qwen3.5 sometimes wraps its one answer in a JSON array
+            result_json = next(a for a in result_json if isinstance(a, dict))
+        mass, friction = result_json["mass"], result_json["friction"]
 
     rigid_collision_method = cfg.s11_sim.get("collision_method", "coacd")
     import_custom_object(
@@ -240,12 +258,16 @@ def import_rigid_scene_object(
         mass=mass,
     )
 
-    return {
+    out = {
         "category": obj_category,
         "model": obj_model,
         "name": img_name,
         "friction": friction,
+        "mass": float(mass),
     }
+    if estimate is not None:
+        out["mass_estimate"] = {k: estimate[k] for k in ("typical_g", "material_g", "material", "errors")}
+    return out
 
 
 # TODO: Include VLM-based annotations for mass and friction, based on (a) image, (b) bounding box (extents), and (c) category name / description
@@ -411,6 +433,7 @@ def main(cfg):
                 volume_m3=volume_m3,
                 rigid_scale=rigid_scale,
                 material_volume_m3=material_volume_m3,
+                tm=tm,
             )
 
         else: # process articulated objects
