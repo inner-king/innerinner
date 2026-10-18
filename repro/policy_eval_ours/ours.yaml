@@ -302,6 +302,26 @@ tasks:
         - {name: red_marker_undupl_2, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
         - {name: cream_mug_bpupsc_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
 
+  # The authors' own Marker in Cup scene with GAINS' finger velocity and effort limits set on every reset
+  # (reapply_joint_limits; README chapter 28): without it the fingers close at the asset's 2.269 rad/s, not GAINS'
+  # 1.0. Same scene and 25 starts as table_g1.yaml's marker_in_cup (copied init-state file).
+  marker_in_cup_limits:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cup_scene_state_latest.json
+    task: table_g1_marker_in_cup_limits
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88, gr00t: 28, dreamzero: 80}
+    paper_real: {pi0: 40, pi05: 92, gr00t: 28, dreamzero: 88}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_undupl_2, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: cream_mug_bpupsc_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
 policies:
   pi0:
     checkpoint: pi0_droid_jointpos

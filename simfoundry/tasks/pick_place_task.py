@@ -153,6 +153,12 @@ class PickPlaceTask(BaseTask):
             first seven driven joints) while their damping stays as tuned. A joint drive follows a moving target
             with a lag of damping / stiffness (0.2 s with the tuned 80 / 400), so this shortens the lag; the paper
             tuned the gains higher in simulation to minimize the tracking error (App. I.1). None keeps GAINS.
+        reapply_joint_limits (bool): If True, sets GAINS' max_velocity and max_effort again on every reset, next
+            to the gains. The ones _load sets do not last: a joint's velocity and effort limits live only in the
+            physics view, which a stop and play of the simulator rebuilds from the USD, so the Robotiq knuckles
+            run at the asset's 2.269 rad/s and 33 instead of GAINS' 1.0 and 24 (the Franka arm's GAINS equal
+            its asset's). The eval stage's tuning notes ask for a lower finger velocity and say the setting
+            would not stick. False keeps that behavior.
     """
 
     def __init__(
@@ -193,6 +199,7 @@ class PickPlaceTask(BaseTask):
         reset_stability_rotation_threshold_deg=30.0,
         reset_stability_n_physics_steps=5,
         arm_kp_scale=None,
+        reapply_joint_limits=False,
     ):
         # Make sure object states are enabled
         assert gm.ENABLE_OBJECT_STATES, f"Must set gm.ENABLE_OBJECT_STATES=True in order to use {self.__class__.__name__}!"
@@ -275,6 +282,7 @@ class PickPlaceTask(BaseTask):
         self.reset_stability_rotation_threshold_deg = reset_stability_rotation_threshold_deg
         self.reset_stability_n_physics_steps = reset_stability_n_physics_steps
         self.arm_kp_scale = arm_kp_scale
+        self.reapply_joint_limits = reapply_joint_limits
 
         # Deterministic pose schedule override: when set to a dict mapping group_name -> z_rot_offset,
         # _reset_scene will apply those exact z-rotation offsets (no xyz randomization) instead of
@@ -780,6 +788,9 @@ class PickPlaceTask(BaseTask):
                         kp = kp * float(self.arm_kp_scale)
                     jnt.stiffness = kp
                     jnt.damping = gains["kv"][idx]
+                    if self.reapply_joint_limits:
+                        jnt.max_velocity = gains["max_velocity"][idx]
+                        jnt.max_effort = gains["max_effort"][idx]
                     if "joint_lower_limits" in gains:
                         jnt.lower_limit = gains["joint_lower_limits"][idx]
                     if "joint_upper_limits" in gains:
