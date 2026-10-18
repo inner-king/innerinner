@@ -1705,3 +1705,25 @@ SPEC=repro/policy_eval_ours/ours.yaml repro/policy_eval/run_table_g1.sh eval pi0
 - 원인은 아직 모릅니다. 우리 복원 장면(19·21장)에서는 π0.5가 80%로 논문에 가까우므로, 저자 장면의 물체(머그컵의 입구 6.5 cm, 18장)와 시뮬 물리의 조합이 남은 후보입니다.
   - 충돌 메시가 입구를 좁히는지 확인했습니다. 볼록 조각 64개를 위에서 투영해 중심축에서 가장 가까운 조각까지 재면, 비어 있는 입구는 저자 머그가 약 4.8 cm(겉모습 6.4 cm), 우리 종이컵이 약 5.4 cm(겉모습 8 cm)입니다. 투영이라 실제보다 좁게 잰 값입니다. 두께 2 cm 남짓한 마커에는 둘 다 충분하고 차이도 작아서, 이것만으로 설명되지는 않습니다.
 - 결과는 Drive `results/policy_eval_ours/kp4_colab/out/marker_in_cup_kp4/`의 `s15_eval_pi05_main`, `rep2`–`rep4`에 있고, 로그는 `logs/policy_eval_kp4rep/`에 있습니다.
+
+### 26.4 physical 잡기
+
+- 평가 단계(`1_eval_policy_og_scene.py`) 머리말에는 저자의 시뮬 튜닝 메모가 있습니다(NOTES FROM JOSIAH).
+  - 항목: 렌더 후처리 색 보정, 실제 데이터의 동작을 재생해 궤적 맞추기, 3DGS 배경을 메시 배경으로 바꾸기, **assisted 잡기를 physical 잡기로 바꾸기**, 모든 물체에 마찰 추가, 물체·로봇 자세와 크기 맞추기, 손가락 최고 속도 낮추기.
+  - 공개된 장면의 로봇은 `grasping_mode: assisted`입니다. Serve Fruits 설정의 평가 블록에는 `grasping_mode: assisted # physical # assisted`가 남아 있습니다. 우리 평가는 모두 assisted였습니다.
+  - assisted에서는 그리퍼가 물체를 잡는 순간 둘이 고정 관절로 묶입니다. 그래서 마커가 머그 테두리에 닿아도, 실제처럼 그리퍼 안에서 조금 돌거나 미끄러져 맞춰 들어갈 수 없습니다.
+- 두 드라이버에 `GRASPING_MODE`를 넣어(`++s15_eval.grasping_mode`), 저자 Marker in Cup을 같은 시작 상태로 physical 잡기에서 돌렸습니다. 장면 기록에 `grasping_mode: physical`이 들어간 것도 확인했습니다.
+
+| 정책 | assisted (18·19장) | physical | 차이 (Fisher p) |
+|---|---|---|---|
+| π0.5 | 55/100 = 55% | **11/25 = 44%** | 0.37 |
+| GR00T N1.6 | 5/25 = 20% | **5/25 = 20%** | 1.00 |
+
+- **잡기 방식도 원인이 아닙니다.** π0.5는 오르지 않았고, 논문 88%와도 여전히 다릅니다(p = 0.002). π0.5의 실패 14번은 모두 마커를 집은 채 컵에 넣지 못한 경우로, assisted 때와 같습니다.
+- GR00T는 성공 횟수와 실패 집계가 우연히 같았습니다. 에피소드별로는 성공한 시작 상태가 다르므로(assisted 0·3·7·11·21번, physical 0·1·6·7·13번) 실제로 다른 실행입니다.
+- π0는 돌지 못했습니다. 서버 예열 호출이 두 번 다 끊겼기 때문입니다.
+  - 원인: 첫 호출은 컴파일 때문에 37 s 넘게 걸리고, 그동안 서버는 웹소켓 keepalive ping에 답하지 못합니다. websockets 기본값은 20 s마다 ping을 보내고 20 s 안에 답이 없으면 연결을 끊습니다. 그래서 첫 호출이 40 s 가까이 걸리면 예열 스크립트 쪽에서 연결이 끊깁니다(`keepalive ping timeout`).
+  - 드라이버는 실패하면 서버를 새로 띄워 한 번 더 시도하지만, 새 서버는 다시 컴파일합니다. 이번에 π0.5는 두 번째 시도가 37 s로 통과했고, π0는 두 번 다 끊겼습니다. 23장의 첫 π0 실패도 같은 원인입니다(`logs/policy_eval_norobot/content/norobot_queue.log`).
+  - 수정: `repro/policy_eval/ping_policy.py`가 자기 연결에서만 keepalive를 끕니다. 평가 중의 호출은 예열 뒤라 0.2 s 남짓이므로 그대로 둡니다.
+- 결과는 Drive `results/policy_eval_ours/phys_colab/`(π0.5)와 `results/policy_eval_ours/gr00t/out/marker_in_cup/s15_eval_gr00t_physical/`(GR00T)에 있습니다.
+- 이로써 저자 장면 Marker in Cup에서 π0.5가 낮은 원인 후보에서 잡기 방식도 빠졌습니다. 빠진 것은 질량·카메라·지시문, 시작 격자·실행 지평, 톤매퍼, 배경 스캔의 로봇, 팔의 추적 지연, 충돌 메시의 입구, 잡기 방식입니다.

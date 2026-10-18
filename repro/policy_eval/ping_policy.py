@@ -9,10 +9,18 @@ sends; the joint state is the DROID scenes' saved arm pose.
     python repro/policy_eval/ping_policy.py --port 8001
 """
 import argparse
+import functools
 import time
 
 import numpy as np
+import websockets.sync.client
 from openpi_client import websocket_client_policy
+
+# The first call compiles (30-40 s on an L4), and the server answers no keepalive ping meanwhile; with the
+# websockets default of a 20 s ping timeout the client then drops the connection ("keepalive ping timeout"),
+# which failed the warm-up of pi0 twice in a row (repro/README.md, 26.4). openpi_client looks connect up on the
+# module at call time, so this turns keepalive off for this script's connection only.
+websockets.sync.client.connect = functools.partial(websockets.sync.client.connect, ping_interval=None)
 
 
 def main():

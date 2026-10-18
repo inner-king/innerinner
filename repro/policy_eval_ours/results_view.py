@@ -54,6 +54,7 @@ DESCRIBE = {
     ("marker_in_cup", "linear"): ("20.2", AUTHORS + ", 톤매퍼 linear"),
     ("serve_fruits", "linear"): ("20.2", AUTHORS + ", 톤매퍼 linear"),
     ("marker_in_cup", "norobot"): ("23", AUTHORS + ", 배경 스캔의 로봇을 가림"),
+    ("marker_in_cup", "physical"): ("26.4", AUTHORS + ", physical 잡기"),
     ("marker_in_cup_kp4", "main"): ("26", AUTHORS + ", 팔 관절 stiffness ×4 (추적 지연 0.2 → 0.04 s)"),
     ("cup_in_bowl_ours", "ours"): ("19", "우리 복원"),
     ("cup_in_bowl_ours", "main"): ("19", "우리 복원"),
