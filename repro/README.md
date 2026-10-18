@@ -1173,7 +1173,7 @@ DreamZero-DROID는 DROID 데이터만으로 처음부터 학습한 14B 월드 �
 python repro/policy_eval_ours/build_droid_scene.py --task cup_in_bowl_ours \
   --asset-dir assets --data-dir Data --dataset-dir deps/BEHAVIOR-1K/datasets/real2sim-assets
 python repro/policy_eval_ours/check_scene.py --task cup_in_bowl_ours --out results/diagnostics/policy_eval_ours/check_cup_in_bowl
-# GR00T N1.6 (OPENPI_STUBS: openpi_client import만 막는 빈 패키지가 든 폴더)
+# GR00T N1.6 (openpi_client 대신 import만 되는 빈 모듈을 스크립트가 만들어 씁니다. 다른 폴더는 OPENPI_STUBS로)
 repro/policy_eval_ours/run_local_gr00t.sh server
 repro/policy_eval_ours/run_local_gr00t.sh all 25 main repro/policy_eval_ours/ours.yaml:cup_in_bowl_ours ...
 # DreamZero-DROID (Colab G4 한 대. 체크아웃을 /content/SimFoundry에, 장면 세 개와 droid_v* 배경을 assets/ 아래에,

@@ -19,8 +19,9 @@
 # `uv pip install --no-deps -e .` (no nvcc here to build the pinned 2.7.4.post1; the GR00T README tested 2.8.0.post2).
 # GRASPING_MODE=physical|assisted overrides the scene robot's grasping (s15_eval.grasping_mode), as in
 # run_table_g1.sh.
-# The eval stage imports openpi_client unconditionally; a GR00T run never calls it, so OPENPI_STUBS holds an
-# import-only stub instead of installing the client into the shared simfoundry env.
+# The eval stage imports openpi_client unconditionally (through simfoundry/policies/openpi.py and dreamzero.py); a
+# GR00T run never calls it, so an import-only stub stands in for it instead of installing the client into the
+# shared simfoundry env. The script writes one under EVAL_ROOT/work/; OPENPI_STUBS names another directory.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
@@ -30,7 +31,15 @@ GR00T_PORT="${GR00T_PORT:-5555}"
 # A local copy: this link stalls on large Hugging Face files, so the shards were fetched with curl -C -.
 GR00T_MODEL="${GR00T_MODEL:-/data/models/gr00t/GR00T-N1.6-DROID}"
 EVAL_ROOT="${EVAL_ROOT:-${REPO}/results/policy_eval_ours/gr00t}"
-OPENPI_STUBS="${OPENPI_STUBS:?set OPENPI_STUBS to a directory holding an openpi_client import stub}"
+# Every openpi_client module the eval stage imports at load time; dreamzero.py added msgpack_numpy.
+if [[ -z "${OPENPI_STUBS:-}" ]]; then
+  OPENPI_STUBS="${EVAL_ROOT}/work/openpi_stubs"
+  mkdir -p "${OPENPI_STUBS}/openpi_client"
+  for m in __init__ image_tools websocket_client_policy msgpack_numpy; do
+    echo '"""Import-only stub for a GR00T run (run_local_gr00t.sh): never called."""' \
+      > "${OPENPI_STUBS}/openpi_client/${m}.py"
+  done
+fi
 # As run_table_g1.sh: no viewer. Next to the 6.8 GB server, the viewer's render products took Serve Fruits
 # (the busiest scene) past 12 GB and the renderer segfaulted out of device memory.
 export OMNIGIBSON_HEADLESS=1 OMNI_KIT_ACCEPT_EULA=YES
