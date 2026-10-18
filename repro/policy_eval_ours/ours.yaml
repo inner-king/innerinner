@@ -123,6 +123,34 @@ tasks:
         - {name: orange_bowl_sfufgv_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
         - {name: black_pen_wpmeam_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
 
+
+  # cup_in_bowl_ours_mass with every realism fix found since (README chapter 30): the masses stage 11 now estimates
+  # (chapter 29: cup 15 g, bowl 293 g, pen 4.5 g), GAINS' finger limits (chapter 28), and physical grasping, given
+  # at run time (GRASPING_MODE=physical). The bowl stands where the authors' mug does, on the desk's black
+  # square, as the paper's Cup in Bowl photo shows it. Same starts (a copy of the init-state file).
+  cup_in_bowl_ours_real:
+    scene: scenes/DROID/droid_desk_put_cup_in_bowl_ours_real/droid_desk_put_cup_in_bowl_ours_real_scene_state_latest.json
+    task: ours_cup_in_bowl_limits
+    prompt: "pick up the cup, and put the cup inside the bowl"
+    timeout_s: 60
+    execute_horizon: 8
+    paper: {pi0: 56, pi05: 92, gr00t: 40, dreamzero: 92}
+    paper_real: {pi0: 88, pi05: 100, gr00t: 68, dreamzero: 100}
+    build:
+      source: put_cup_in_bowl_v2
+      objects:
+        white_paper_cup: {from: iter_2, xy: [0.605, -0.189], mass: 0.015}
+        orange_bowl: {from: iter_0, xy: [0.599, 0.273], mass: 0.2932}
+        black_pen: {from: iter_1, xy: [0.78, 0.05], mass: 0.0045}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: white_paper_cup_eqmylj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: orange_bowl_sfufgv_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+        - {name: black_pen_wpmeam_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
   # cup_in_bowl_ours_mass with the starts drawn the way the repository's task config places the objects
   # (scripts/cfg/task/droid/droid_desk_put_cup_in_bowl.yaml, by sample_task_starts.py), the only description of
   # the authors' Cup in Bowl layout there is: the cup within +-12.5 cm of its scene position and inside the

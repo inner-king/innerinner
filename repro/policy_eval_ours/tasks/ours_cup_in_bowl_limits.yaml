@@ -1,0 +1,69 @@
+# Cup in Bowl on our reconstruction (ours_cup_in_bowl.yaml) with GAINS' finger velocity and effort limits set on
+# every reset (reapply_joint_limits; repro/README.md, chapter 28). Everything else is ours_cup_in_bowl.yaml.
+task_name: ours_cup_in_bowl_limits
+og_task_config:
+  reapply_joint_limits: true
+  type: PickPlaceTask
+  activity_name: ${task_name}
+  semantic_group_mapping:
+    robot: [agent]
+    cup: [white_paper_cup]
+    bowl: [orange_bowl]
+    pen: [black_pen]
+  init_predicates_all: null
+  init_predicates_any: null
+  init_predicates_specific: null
+  goal_predicates_all:
+    - state: InsideAABB
+      value: true
+      group: cup
+      other_group: bowl
+      state_kwargs:
+        volume_threshold: 0.50
+  goal_predicates_any:
+    - state: Touching
+      state_kwargs: null
+      value: false
+      group: robot
+      other_group: cup
+  goal_predicates_specific: null
+  milestone_predicates:
+    - name: touched_cup
+      state: Touching
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: cup
+      requires: []
+    - name: picked_cup
+      state: IsGrasping
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: cup
+      requires: [touched_cup]
+    - name: cup_in_bowl
+      state: InsideAABB
+      state_kwargs:
+        volume_threshold: 0.50
+      value: true
+      group: cup
+      other_group: bowl
+      requires: []
+  robot_pose: null
+  robot_xyz_randomization: null
+  robot_z_rot_randomization: null
+  robot_joint_randomization: null
+  camera_look_at_point: null
+  group_init_relative_poses: null
+  group_xyz_randomization: null
+  group_z_rot_randomization: null
+  group_predicate_placement: null
+  workspace_bounds: null
+  additional_objects: null
+  termination_config:
+    max_steps: 1000
+  reward_config:
+    r_potential: 1.0
+  include_obs: false
+  hdr_background_name: null
