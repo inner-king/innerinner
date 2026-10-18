@@ -1804,6 +1804,7 @@ SPEC=repro/policy_eval_ours/ours.yaml repro/policy_eval/run_table_g1.sh eval pi0
   - 드라이버는 실패하면 서버를 새로 띄워 한 번 더 시도하지만, 새 서버는 다시 컴파일합니다. 이번에 π0.5는 두 번째 시도가 37 s로 통과했고, π0는 두 번 다 끊겼습니다. 23장의 첫 π0 실패도 같은 원인입니다(`logs/policy_eval_norobot/content/norobot_queue.log`).
   - 수정: `repro/policy_eval/ping_policy.py`가 자기 연결에서만 keepalive를 끕니다. 평가 중의 호출은 예열 뒤라 0.2 s 남짓이므로 그대로 둡니다. 27장의 런타임에서는 첫 호출이 π0.5 37.7 s, π0 39.9 s였고 둘 다 첫 시도에 통과했습니다.
 - 결과는 Drive `results/policy_eval_ours/phys_colab/`(π0.5), `results/policy_eval_ours/cibphys_colab/out/marker_in_cup/`(π0), `results/policy_eval_ours/gr00t/out/marker_in_cup/s15_eval_gr00t_physical/`(GR00T)에 있습니다.
+- 저자 메모의 마지막 항목 "손가락 최고 속도 낮추기"는 롤아웃으로 확인했습니다. 저장된 시뮬 상태에서 손가락 관절 위치를 읽으면, 닫기 명령 뒤 움직임의 95%를 마치는 데 중앙값 1.2 s가 걸립니다(π0.5 91회, GR00T 75회). 손가락 구동의 시정수(damping/stiffness = 10/25 = 0.4 s)의 세 배입니다. 실제 Robotiq 2F-85는 사양 최고 속도(150 mm/s)로 85 mm를 약 0.6 s에 닫으므로, 시뮬의 손가락이 빨라서 생기는 문제는 아닙니다.
 - 이로써 저자 장면 Marker in Cup에서 π0.5가 낮은 원인 후보에서 잡기 방식도 빠졌습니다. 빠진 것은 질량·카메라·지시문, 시작 격자·실행 지평, 톤매퍼, 배경 스캔의 로봇, 팔의 추적 지연, 충돌 메시의 입구, 잡기 방식입니다.
 
 ## 27. Cup in Bowl을 physical 잡기로 (2026-10-18)
