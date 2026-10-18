@@ -54,6 +54,7 @@ DESCRIBE = {
     ("marker_in_cup", "linear"): ("20.2", AUTHORS + ", 톤매퍼 linear"),
     ("serve_fruits", "linear"): ("20.2", AUTHORS + ", 톤매퍼 linear"),
     ("marker_in_cup", "norobot"): ("23", AUTHORS + ", 배경 스캔의 로봇을 가림"),
+    ("marker_in_cup_kp4", "main"): ("26", AUTHORS + ", 팔 관절 stiffness ×4 (추적 지연 0.2 → 0.04 s)"),
     ("cup_in_bowl_ours", "ours"): ("19", "우리 복원"),
     ("cup_in_bowl_ours", "main"): ("19", "우리 복원"),
     ("cup_in_bowl_ours_near", "near"): ("19", "우리 복원, 가까운 배치"),
@@ -77,6 +78,9 @@ SETS = [
                                 "gr00t": ("marker_in_cup", "main")}),
     ("marker_in_cup", AUTHORS + ", 로봇 가림", {"pi0": ("marker_in_cup", "norobot"), "pi05": ("marker_in_cup", "norobot"),
                                               "gr00t": ("marker_in_cup", "norobot")}),
+    ("marker_in_cup", AUTHORS + ", 팔 stiffness ×4", {"pi0": ("marker_in_cup_kp4", "main"),
+                                                    "pi05": ("marker_in_cup_kp4", "main"),
+                                                    "gr00t": ("marker_in_cup_kp4", "main")}),
     ("serve_fruits", AUTHORS, {"pi0": ("serve_fruits", "main"), "pi05": ("serve_fruits", "main"),
                                "gr00t": ("serve_fruits", "main")}),
     ("cup_in_bowl", "우리 복원", {"pi0": ("cup_in_bowl_ours", "ours"), "pi05": ("cup_in_bowl_ours", "ours"),
@@ -105,7 +109,7 @@ SETS = [
 
 def task_of(scene):
     """The Table G.1 row a scene belongs to: marker_in_cup_ours_mass -> marker_in_cup."""
-    return scene.split("_ours")[0].replace("_tight", "")
+    return max((k for k in TABLE_G1 if scene.startswith(k)), key=len, default=scene.split("_ours")[0])
 
 
 def find_runs():
