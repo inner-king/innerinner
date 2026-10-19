@@ -1,0 +1,87 @@
+# Serve Fruits on our reconstruction (ours_serve_fruits.yaml) with GAINS' finger velocity and effort limits set
+# on every reset (reapply_joint_limits; repro/README.md, chapter 28). Everything else is ours_serve_fruits.yaml.
+task_name: ours_serve_fruits_limits
+og_task_config:
+  reapply_joint_limits: true
+  type: PickPlaceTask
+  activity_name: ${task_name}
+  semantic_group_mapping:
+    robot: [agent]
+    pear: [yellow_pear]
+    apple: [red_apple]
+    banana: [yellow_banana]
+    orange: [orange_fruit, orange]
+    orange_plate: [orange_square_plate]
+    teal_plate: [teal_tray, teal_plate]
+  init_predicates_all: null
+  init_predicates_any: null
+  init_predicates_specific: null
+  goal_predicates_all:
+    - state: OnTop
+      state_kwargs: null
+      value: true
+      group: banana
+      other_group: teal_plate
+    - state: OnTop
+      state_kwargs: null
+      value: true
+      group: apple
+      other_group: teal_plate
+  goal_predicates_any:
+    - state: Touching
+      state_kwargs: null
+      value: false
+      group: robot
+      other_group: banana
+    - state: Touching
+      state_kwargs: null
+      value: false
+      group: robot
+      other_group: apple
+  goal_predicates_specific: null
+  milestone_predicates:
+    - name: picked_banana
+      state: IsGrasping
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: banana
+      requires: []
+    - name: placed_banana_on_teal_plate
+      state: OnTop
+      state_kwargs: null
+      value: true
+      group: banana
+      other_group: teal_plate
+      requires: []
+    - name: picked_apple
+      state: IsGrasping
+      state_kwargs: null
+      value: true
+      group: robot
+      other_group: apple
+      requires: []
+    - name: placed_apple_on_teal_plate
+      state: OnTop
+      state_kwargs: null
+      value: true
+      group: apple
+      other_group: teal_plate
+      requires: []
+  robot_pose: null
+  robot_xyz_randomization: null
+  robot_z_rot_randomization: null
+  robot_joint_randomization: null
+  camera_look_at_point: null
+  group_init_relative_poses: null
+  group_xyz_randomization: null
+  group_z_rot_randomization: null
+  group_predicate_placement: null
+  workspace_bounds: null
+  additional_objects: null
+  termination_config:
+    max_steps: 1000
+  reward_config:
+    r_potential: 1.0
+  include_obs: false
+  hdr_background_name: null
