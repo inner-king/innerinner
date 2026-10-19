@@ -203,6 +203,32 @@ tasks:
         - {name: red_marker_nvnysj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
         - {name: white_paper_cup_owccwy_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
 
+  # marker_in_cup_ours_mass with the same fixes as cup_in_bowl_ours_real (README chapter 30): the masses stage 11
+  # now estimates for Data/put_marker_in_cup_v2_mass (chapter 29: marker 11.8 g, cup 12.5 g), GAINS' finger limits
+  # (chapter 28), and physical grasping, given at run time (GRASPING_MODE=physical). Same starts (a copy of the
+  # init-state file).
+  marker_in_cup_ours_real:
+    scene: scenes/DROID/droid_desk_put_marker_in_cup_ours_real/droid_desk_put_marker_in_cup_ours_real_scene_state_latest.json
+    task: ours_marker_in_cup_limits
+    prompt: "pick up the marker, and put the marker in the cup"
+    timeout_s: 90
+    execute_horizon: 8
+    paper: {pi0: 40, pi05: 88, gr00t: 28, dreamzero: 80}
+    paper_real: {pi0: 40, pi05: 92, gr00t: 28, dreamzero: 88}
+    build:
+      source: put_marker_in_cup_v2
+      objects:
+        red_marker: {from: iter_2, xy: [0.605, -0.189], align_to: red_marker_undupl_2, mass: 0.0118}
+        white_paper_cup: {from: iter_1, xy: [0.599, 0.273], mass: 0.0125}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: null
+      objects:
+        - {name: red_marker_nvnysj_1, grid_size: [0.25, 0.25], z_rot_range: [0.0, 0.0]}
+        - {name: white_paper_cup_owccwy_1, grid_size: [0.10, 0.10], z_rot_range: [0.0, 0.0]}
+
   # Serve Fruits from our reconstruction of the repository's example video Fruits.mp4 (Data/serve_fruits): the
   # same six objects as the authors' scene droid_desk_serve_fruits, which is the template here. Each of ours
   # takes the authors' category and sits where the authors' object of that category sits; the banana and the
