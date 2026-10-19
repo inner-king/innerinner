@@ -26,6 +26,18 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
 PY="${SIMFOUNDRY_PY:-${HOME}/miniforge3/envs/simfoundry/bin/python}"
+# GR00T_VERSION=n17 serves GR00T N1.7-DROID instead (README 30.8): repro/policy_eval_ours/gr00t_n17_server.py, run in an
+# Isaac-GR00T checkout at the N1.7 release (1a1837f, its own uv env), on port 5556; its runs are s15_eval_gr00t17_<tag>,
+# which correlate.py reads as Table G.1's GR00T N1.7 column.
+GR00T_VERSION="${GR00T_VERSION:-n16}"
+if [[ ${GR00T_VERSION} == n17 ]]; then
+  GR00T_DIR="${GR00T_DIR:-/home/inner/real2sim/tools/Isaac-GR00T-n17}"
+  GR00T_PORT="${GR00T_PORT:-5556}"
+  GR00T_MODEL="${GR00T_MODEL:-/data/models/gr00t/GR00T-N1.7-DROID}"
+  GR00T_NAME=gr00t17 GR00T_CHECKPOINT=gr00t_n17_droid
+else
+  GR00T_NAME=gr00t GR00T_CHECKPOINT=gr00t_n16_droid
+fi
 GR00T_DIR="${GR00T_DIR:-/home/inner/real2sim/tools/Isaac-GR00T}"
 GR00T_PORT="${GR00T_PORT:-5555}"
 # A local copy: this link stalls on large Hugging Face files, so the shards were fetched with curl -C -.
@@ -73,14 +85,19 @@ server() {
   if (cd "${REPO}" && server_up); then echo "[gr00t] server already up on ${GR00T_PORT}"; return 0; fi
   gpu_idle || echo "[gr00t] $(date +%T) waiting for the GPU to be free"
   until gpu_idle; do sleep 30; done
-  (cd "${GR00T_DIR}" && setsid nohup .venv/bin/python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID \
-    --use_sim_policy_wrapper --model-path "${GR00T_MODEL}" --device cuda --host 127.0.0.1 \
-    --port "${GR00T_PORT}" > "${EVAL_ROOT}/logs/server_gr00t.log" 2>&1 < /dev/null &)
+  if [[ ${GR00T_VERSION} == n17 ]]; then
+    (cd "${GR00T_DIR}" && setsid nohup .venv/bin/python "${REPO}/repro/policy_eval_ours/gr00t_n17_server.py" \
+      --model-path "${GR00T_MODEL}" --port "${GR00T_PORT}" > "${EVAL_ROOT}/logs/server_${GR00T_NAME}.log" 2>&1 < /dev/null &)
+  else
+    (cd "${GR00T_DIR}" && setsid nohup .venv/bin/python gr00t/eval/run_gr00t_server.py --embodiment-tag OXE_DROID \
+      --use_sim_policy_wrapper --model-path "${GR00T_MODEL}" --device cuda --host 127.0.0.1 \
+      --port "${GR00T_PORT}" > "${EVAL_ROOT}/logs/server_gr00t.log" 2>&1 < /dev/null &)
+  fi
   for _ in $(seq 180); do (cd "${REPO}" && server_up) && { echo "[gr00t] server up on ${GR00T_PORT}"; return 0; }; sleep 5; done
   echo "[gr00t] server did not come up, see ${EVAL_ROOT}/logs/server_gr00t.log"; return 1
 }
 
-stop() { pkill -f "run_gr00t_server.py .*--port ${GR00T_PORT}" && echo "[gr00t] stopped"; sleep 5; }
+stop() { pkill -f "(run_gr00t_server|gr00t_n17_server).py .*--port ${GR00T_PORT}" && echo "[gr00t] stopped"; sleep 5; }
 
 eval_one() {  # eval_one SPEC TASK [N] [TAG]
   local sp="$1" t="$2" n="${3:-25}" tag="${4:-main}"
@@ -101,15 +118,15 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
   # The eval stage reads the task YAML from scripts/cfg/task; the copy is for this run only (untracked).
   mkdir -p "${REPO}/scripts/cfg/task/policy_eval"
   cp "$(dirname "${sp}")/tasks/${task}.yaml" "${REPO}/scripts/cfg/task/policy_eval/"
-  work="${EVAL_ROOT}/work/${t}_gr00t_${tag}"
-  log="${EVAL_ROOT}/logs/eval_${t}_gr00t_${tag}.log"
+  work="${EVAL_ROOT}/work/${t}_${GR00T_NAME}_${tag}"
+  log="${EVAL_ROOT}/logs/eval_${t}_${GR00T_NAME}_${tag}.log"
   mkdir -p "${work}"
-  echo "[eval] $(date +%T) gr00t ${t} n=${n} tag=${tag} -> ${log}"
+  echo "[eval] $(date +%T) ${GR00T_NAME} ${t} n=${n} tag=${tag} -> ${log}"
   (cd "${work}" && PYTHONPATH="${REPO}:${OPENPI_STUBS}" "${PY}" \
     "${REPO}/scripts/pipeline/C_application/stages/1_eval_policy_og_scene.py" \
     --config-name=real2sim_cfg "task=policy_eval/${task}" \
-    "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_gr00t_${tag}" \
-    s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" s15_eval.checkpoint=gr00t_n16_droid \
+    "root_dir=${EVAL_ROOT}/out" "scene_name=${t}" "s15_eval.out_dirname=s15_eval_${GR00T_NAME}_${tag}" \
+    s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" "s15_eval.checkpoint=${GR00T_CHECKPOINT}" \
     "s15_eval.external_sensors_cfg=${EXTERNAL_SENSORS:-nv_franka_droid}" "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     ${GRASPING_MODE:+"++s15_eval.grasping_mode=${GRASPING_MODE}"} \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" \
@@ -118,7 +135,7 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
     s15_eval.save_video=true s15_eval.video_fps=10 "+s15_eval.video_resolution=[180,320]" \
     > "${log}" 2>&1)
   local rc=$?
-  echo "[eval] $(date +%T) gr00t ${t} rc=${rc}: $(grep -a 'Success rate:' "${log}" | tail -1)"
+  echo "[eval] $(date +%T) ${GR00T_NAME} ${t} rc=${rc}: $(grep -a 'Success rate:' "${log}" | tail -1)"
   return ${rc}
 }
 

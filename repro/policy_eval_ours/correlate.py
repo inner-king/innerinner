@@ -71,7 +71,7 @@ def mmrv(sim, real):
 
 
 # Our policy names (run directories) -> Table G.1 columns.
-POLICY_COLUMN = {"pi0": "pi0", "pi05": "pi05", "gr00t": "gr00t_n16"}
+POLICY_COLUMN = {"pi0": "pi0", "pi05": "pi05", "gr00t": "gr00t_n16", "gr00t17": "gr00t_n17"}
 
 
 def collect_results(root_tag):

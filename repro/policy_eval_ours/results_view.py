@@ -154,7 +154,7 @@ def find_runs():
                 continue
             scene = parts[parts.index(run_dir) - 1]
             rest = run_dir[len("s15_eval_"):]
-            policy = next((p for p in ("pi05", "pi0", "gr00t") if rest.startswith(p + "_")), None)
+            policy = next((p for p in ("pi05", "pi0", "gr00t17", "gr00t") if rest.startswith(p + "_")), None)
             tag = rest[len(policy) + 1:] if policy else rest
             if policy is None or "smoke" in tag or "check" in tag:
                 continue
