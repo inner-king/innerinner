@@ -69,6 +69,8 @@ DESCRIBE = {
     ("cup_in_bowl_ours_cfg", "physical"): ("27", "우리 복원, 질량 수정, 저장소 태스크 설정의 배치, physical 잡기"),
     ("cup_in_bowl_ours_real", "main"): ("30", "우리 복원, 11단계 새 질량, 손가락 제한, physical 잡기"),
     ("cup_in_bowl_ours_real", "rep2"): ("30", "우리 복원, 11단계 새 질량, 손가락 제한, physical 잡기, 반복 2"),
+    ("cup_in_bowl_ours_real", "rep3"): ("30", "우리 복원, 11단계 새 질량, 손가락 제한, physical 잡기, 반복 3"),
+    ("cup_in_bowl_ours_real", "rep4"): ("30", "우리 복원, 11단계 새 질량, 손가락 제한, physical 잡기, 반복 4"),
     ("marker_in_cup_ours_mass", "mass"): ("21", "우리 복원, 질량을 실물에 가깝게"),
     ("marker_in_cup_ours_real", "main"): ("30", "우리 복원, 11단계 새 질량, 손가락 제한, physical 잡기"),
     ("marker_in_cup_ours_real", "rep2"): ("30", "우리 복원, 11단계 새 질량, 손가락 제한, physical 잡기, 반복 2"),
