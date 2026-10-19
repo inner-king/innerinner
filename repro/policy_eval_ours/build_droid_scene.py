@@ -25,7 +25,9 @@ removed and ours are added:
     its USD, and the USD is never rewritten (rule 1).
 
 `keep` lists template objects that stay where they are, loaded from the template's own folder: one of ours can be
-swapped for the authors' object of the same category to see which object a policy's result depends on.
+swapped for the authors' object of the same category to see which object a policy's result depends on. An object
+given `from_scene` and `from_name` instead of `from` is taken from another authors' scene (authors_object), for a
+category the template does not have.
 
 Velocities are zeroed (AGENTS.md rule 3). The output is a new scene; nothing existing is modified.
 
@@ -69,6 +71,29 @@ def md5(path):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def authors_object(asset_dir, scene_rel, name):
+    """An object of another authors' scene, to stand in for one of ours (`from_scene`, `from_name` in the spec).
+
+    Its folder is the one that scene loads it from, and it keeps the orientation it has there, which must be upright
+    (turned about z only): it then rests on this scene's ground plane with the lowest point of its bounding box
+    (misc/metadata.json) on it. The returned root pose has that resting height as z, as our stage 12 poses have.
+
+    Returns:
+        3-tuple: (its args in that scene, its folder, {"pos", "ori"} of its root link)
+    """
+    scene_path = os.path.join(asset_dir, scene_rel)
+    other = json.load(open(scene_path))
+    a = other["objects_info"]["init_info"][name]["args"]
+    root = other["state"]["registry"]["object_registry"][name]["root_link"]
+    ori = np.asarray(root["ori"], dtype=float)
+    if np.linalg.norm(ori[:2]) > 1e-3:
+        raise SystemExit(f"{scene_rel}:{name} is not upright in its scene (ori {ori.tolist()})")
+    src_dir = os.path.normpath(os.path.join(os.path.dirname(scene_path), os.path.dirname(os.path.dirname(a["usd_path"]))))
+    meta = json.load(open(os.path.join(src_dir, "misc", "metadata.json")))
+    rest_z = meta["bbox_size"][2] / 2 - meta["base_link_offset"][2]
+    return a, src_dir, {"pos": [float(root["pos"][0]), float(root["pos"][1]), float(rest_z)], "ori": ori.tolist()}
 
 
 def main():
@@ -115,18 +140,24 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     report = []
     for category, obj in build["objects"].items():
-        a = src_init[obj["from"]]["args"]
-        model = a["model"]
-        src_dir = os.path.join(args.dataset_dir, "objects", a["category"], model)
+        if obj.get("from_scene"):
+            a, src_dir, root = authors_object(args.asset_dir, obj["from_scene"], obj["from_name"])
+            model = os.path.basename(src_dir)
+            origin = f"{obj['from_scene']}:{obj['from_name']}"
+        else:
+            a = src_init[obj["from"]]["args"]
+            model = a["model"]
+            src_dir = os.path.join(args.dataset_dir, "objects", a["category"], model)
+            root = src_reg[obj["from"]]["root_link"]
+            origin = f"{build['source']}:{obj['from']}"
         dst_rel = os.path.join("objects", category, model)
         shutil.copytree(src_dir, os.path.join(out_dir, dst_rel), dirs_exist_ok=True)
         usd_rel = os.path.join(dst_rel, "usd", f"{model}.usd")
         file_hash = md5(os.path.join(out_dir, usd_rel))
         if a.get("expected_file_hash") and a["expected_file_hash"] != file_hash:
-            raise SystemExit(f"{obj['from']}: {usd_rel} hashes to {file_hash}, the source scene expects "
-                             f"{a['expected_file_hash']}; the dataset copy is not the one stage 13 wrote")
+            raise SystemExit(f"{origin}: {usd_rel} hashes to {file_hash}, the source scene expects "
+                             f"{a['expected_file_hash']}; the copy is not the asset that scene was saved with")
 
-        root = src_reg[obj["from"]]["root_link"]
         ori = np.asarray(root["ori"], dtype=float)
         turn = 0.0
         if obj.get("align_to"):
@@ -142,13 +173,13 @@ def main():
         name = f"{category}_{model}_1"
         init[name] = {"class_module": "omnigibson.objects.usd_object", "class_name": "USDObject",
                       "args": {"name": name, "usd_path": usd_rel, "category": category,
-                               "scale": a.get("scale", [1.0, 1.0, 1.0]), "expected_file_hash": file_hash}}
+                               "scale": a.get("scale") or [1.0, 1.0, 1.0], "expected_file_hash": file_hash}}
         if obj.get("mass") is not None:
             init[name]["args"]["mass"] = float(obj["mass"])
         reg[name] = {"is_asleep": False, "non_kin": {},
                      "root_link": {"pos": pos, "ori": [float(x) for x in ori],
                                    "lin_vel": [0.0, 0.0, 0.0], "ang_vel": [0.0, 0.0, 0.0]}}
-        report.append(f"  {name} <- {build['source']}:{obj['from']} ({a['category']}/{model}) "
+        report.append(f"  {name} <- {origin} ({a['category']}/{model}) "
                       f"pos {np.round(pos, 3).tolist()} turned {np.degrees(turn):.1f} deg"
                       + (f", mass {obj['mass'] * 1000:g} g" if obj.get("mass") is not None else ""))
 
