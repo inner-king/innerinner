@@ -2226,3 +2226,35 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
   - GR00T 47번: 두 단계 21, 한 단계 13, 세 단계 8, 없음 2, 네 단계를 다 거쳤지만 마지막 판정에서 실패 3
   - π0 50번: 없음 32, 두 단계 11, 한 단계 7
 - 결과는 Drive `results/policy_eval_ours/openpi_local/out/serve_fruits_ours_real/`(π0·π0.5), `results/policy_eval_ours/gr00t/out/serve_fruits_ours_real/`(GR00T)에 있습니다.
+
+### 30.9 넷째 정책 GR00T N1.7
+
+- 논문 Table G.1의 제로샷 열은 정책 다섯 개(π0, π0.5, GR00T N1.6, GR00T N1.7, DreamZero)입니다. 19장에서는 N1.7의 DROID 체크포인트를 찾지 못해 넷(DreamZero 포함)으로 비교했습니다. 이번에 `nvidia/GR00T-N1.7-DROID`(2026-03 공개)를 찾아 넣었습니다. DreamZero는 46 GB라 12 GB 카드에서는 돌릴 수 없습니다.
+- **연결 방법.** 저장소의 평가 단계(`simfoundry/policies/gr00t.py`)는 N1.7을 이미 지원합니다. 그러나 그 클라이언트는 공개되지 않은 저자 서버(`Gr00tG1RealPolicyWrapper`)에 맞춰져 있습니다.
+  - 클라이언트는 이미지를 JPEG로, 배열은 npy로 보내고, 배치 차원 없는 동작을 받습니다.
+  - 공개 N1.7 서버는 배열을 msgpack_numpy로 주고받고, 그런 래퍼가 없습니다. 그래서 둘은 서로 통하지 않습니다.
+  - `repro/policy_eval_ours/gr00t_n17_server.py`가 공개 정책(Isaac-GR00T N1.7 릴리스 `1a1837f`의 `Gr00tPolicy`와 `Gr00tSimPolicyWrapper`)을 클라이언트의 형식으로 내놓습니다. JPEG를 풀고, 동작에서 배치 차원을 뺍니다. 평가 단계는 고치지 않았습니다.
+  - `run_local_gr00t.sh`에 `GR00T_VERSION=n17`을 주면 이 서버를 포트 5556에 띄우고, 결과를 `s15_eval_gr00t17_<tag>`로 씁니다. `correlate.py`는 이것을 N1.7 열로 읽습니다.
+- **환경.** N1.7은 Python 3.12, torch 2.9.0, flash-attn 2.8.3 공식 휠을 씁니다(`uv sync --frozen`).
+  - 저장소에 든 aarch64용 휠이 git-lfs 포인터라서 잠금 파일 없이 풀면 실패합니다.
+  - 큰 CUDA 휠은 `UV_HTTP_TIMEOUT=600`으로 받았습니다.
+  - 모델(6.9 GB)은 파일마다 curl로 이어받았습니다.
+- **메모리와 속도.** 외부 카메라 하나(`nv_franka_droid_single_cam`, N1.7도 외부 카메라 하나와 손목 화면만 읽음)로 서버와 Isaac Sim을 합쳐 10.5 GB입니다. 시뮬레이션은 초당 9–11스텝으로 돕니다.
+- **점검.** 1회 점검 영상에서 정책은 컵 위로 가서 자세를 맞추고 집으려 했습니다. 동작이 엉뚱하지 않아 통신과 좌표가 맞는다고 봤습니다.
+
+| 과제 (우리 장면, 모든 수정, 25회 ×2) | GR00T N1.7 | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|
+| Marker in Cup | 23, 23 → **46/50 = 92%** | 88% | 88% |
+| Cup in Bowl | 13, 13 → **26/50 = 52%** | 92% | 92% |
+
+- **Marker in Cup에서는 N1.7이 논문 수준입니다.** 실패 4번 중 3번은 마커를 집은 뒤 컵에 넣지 못했고, 1번은 단계는 다 거쳤지만 마지막 판정에서 실패했습니다. 같은 장면에서 π0.5는 58%였습니다. 그래서 physical 잡기가 강한 정책을 모두 낮추는 것은 아닙니다.
+- **Cup in Bowl에서는 논문보다 크게 낮습니다.** 실패 24번은 컵에 닿았지만 못 집음 14번, 집은 뒤 못 넣음 10번입니다. 잡기만 assisted로 바꾼 비교 실행을 super2의 대기열에 넣었습니다.
+
+| 과제 (우리 장면, 모든 수정) | 정책 넷의 r | r 95% 구간 | MMRV | 논문, 같은 넷 | 논문, 다섯 |
+|---|---|---|---|---|---|
+| Marker in Cup | **0.891** | +0.77..+0.96 | 0.020 | 0.999, 0.010 | 0.995, 0.008 |
+| Cup in Bowl | **0.183** | −0.14..+0.53 | 0.170 | 0.889, 0.020 | 0.907, 0.016 |
+
+- Marker in Cup은 정책 넷으로도 논문에 가깝습니다. 어긋남은 π0.5(우리 58%, 실제 92%) 하나입니다.
+- Cup in Bowl은 N1.7을 더하자 더 멀어졌습니다. 실제로 92%인 N1.7이 우리 시뮬에서 52%이기 때문입니다.
+- Serve Fruits(우리 장면)와 저자 장면 두 과제의 N1.7은 아직 돌고 있습니다.
