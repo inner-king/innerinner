@@ -437,7 +437,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
 | `vlm_compare/` | 로컬 VLM 비교: 파이프라인의 VLM 호출 재생·채점, 좌표 순서 시험, 11단계 질량 프롬프트 변형(`MASS_PROMPT`)과 부피 후보(`mass_volumes.py`) | 16, 20.1, 20.5 |
 | `policy_eval/` | Table G.1 시뮬 평가: Colab 런타임 준비, openpi·DreamZero 서버와 평가 드라이버, DreamZero 클라이언트 점검, 평가용 태스크 설정과 시작 상태, 시작 상태 생성기, 요약·롤아웃 분석, 비교 실험(`ablations/`) | 18, 19.4 |
-| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`), 평가 결과 요약 폴더(`results_view.py`) | 19, 21, 22, 23 |
+| `policy_eval_ours/` | 우리 복원 장면을 저자 DROID 책상에 올리기(물체 질량·과제별 틀 장면 지정 포함), 장면 점검, GR00T N1.6 로컬 실행, π0·π0.5 로컬 실행(`run_local_openpi.sh`, 체크포인트 받기 `fetch_openpi_ckpt.py`), 과제별 r·MMRV와 그 95% 구간, 배경 스캔의 로봇 가리기(`mask_scanned_robot.py`)와 배경만 바꾼 장면 사본(`use_background.py`), 평가 결과 요약 폴더(`results_view.py`) | 19, 21, 22, 23, 30 |
 | `friction/check_friction.py` | 물체 마찰이 PhysX에 들어가는지 점검: 붙이기 전후의 shape 재질, 미끄럼 시험(바닥 결합 방식 포함), `link_physics_materials` 저장, PhysX 질량 | 20.4, 29.5 |
 | `mass_friction/` | 11단계 질량 벤치마크: YCB 받기·렌더(`ycb_fetch.sh`, `render_ycb.py`), 방법별 채점(`bench_mass.py`) | 29 |
 | `friction/check_saved_scene.py`, `friction/check_finger_friction.py` | 마찰을 기록한 장면을 텔레옵처럼 로드해 PhysX 재질과 다시 저장을 점검, 로봇 손가락 마찰 점검 | 20.4 |
@@ -2071,3 +2071,19 @@ PYTHONPATH=$PWD python repro/friction/check_friction.py --scene-dir Data/put_cup
   - 손목 카메라가 내려다보는 책상 윗면은 서서 찍은 휴대폰 영상이 위에서 본 곳입니다. 그래서 책상 높이에서 옆으로 보는 외부 카메라보다 학습 시점에 가깝습니다.
   - 그래도 손목 카메라는 책상에서 10–30 cm 위라 영상보다 훨씬 가깝습니다. 그래서 질감이 흐리고 가우시안의 결이 줄무늬로 보입니다.
 - 정책 평가에 미치는 영향: π0·π0.5는 외부 카메라 한 대와 손목 화면을 함께 봅니다. 외부 카메라 화면이 무너지는 한(17.7), 손목 화면이 낫더라도 이 배경으로 평가할 수는 없습니다. Table G.1 평가(18장 이후)는 3DGS를 거치지 않습니다. 저자 DROID 장면 5개와 우리 복원 장면은 모두 메시 배경(`droid_v1.usd`, Stack Dishware는 `droid_v2.usd`)을 씁니다.
+
+### 30.3 π0·π0.5를 이 머신에서
+
+Colab을 더 쓰지 않기로 해서(2026-10-19), Colab에서 돌리던 π0·π0.5 평가를 이 머신으로 옮겼습니다. 에피소드는 Colab 때와 같은 `run_table_g1.sh`의 평가 함수로 돌리므로 평가 단계, 설정, 출력 구조가 같습니다. 다른 것은 경로와 서버를 띄우는 방법입니다(`repro/policy_eval_ours/run_local_openpi.sh`).
+
+- openpi는 Colab과 같은 커밋 `15a9616`을 `/home/inner/real2sim/tools/openpi`에 uv 환경으로 두었습니다. 서버는 그 환경의 python으로 직접 띄웁니다. `uv run`은 띄울 때마다 환경을 다시 맞추려 하기 때문입니다. simfoundry 환경은 `openpi_client`를 설치하지 않고 openpi 소스에서 읽습니다(`PYTHONPATH`).
+- 체크포인트(π0.5 12.4 GB, π0 12.0 GB)는 공개 버킷에서 익명으로 받았습니다.
+  - openpi의 내려받기(gcsfs)는 11 GB 근처에서 두 번 멈췄습니다. 연결은 열려 있는데 바이트가 오지 않았습니다.
+  - `repro/policy_eval_ours/fetch_openpi_ckpt.py`는 gcsfs로 목록만 받고, 파일마다 curl로 받습니다. 끊긴 곳에서 이어받고, 30 s 동안 100 kB/s 아래면 끊고 다시 받습니다. π0을 받을 때도 한 번 멈췄고, 이어받아 끝났습니다.
+- **메모리.** 12 GB에 정책 서버와 Isaac Sim이 같이 올라가야 합니다.
+  - JAX는 기본으로 카드의 75%를 미리 잡습니다. 비율을 0.6(7.3 GB)으로 줄이면 서버는 뜨지만, Isaac Sim이 첫 화면에서 장치 메모리 부족으로 죽었습니다. 0.52(6.4 GB)에서는 π0.5가 올라가다가 1 GB짜리 배열(임베딩 표)을 잡지 못했습니다.
+  - JAX의 platform 할당기(`XLA_PYTHON_CLIENT_ALLOCATOR=platform`, 미리 잡지 않음)는 모델을 올리며 쓰고 버린 메모리를 돌려줍니다. 그러면 π0.5 서버는 예열 뒤 6.6 GB를 쥐고, 호출 시간은 0.34 s로 고정 비율일 때와 같습니다. 스크립트의 기본값입니다.
+  - 평가 쪽은 두 번째 외부 카메라와 깊이 출력을 뺐습니다(`nv_franka_droid_single_cam`: 첫 외부 카메라를 같은 자세·렌즈로 두고 rgb만). π0·π0.5는 그 카메라를 읽지 않으므로(30.1) 정책 입력은 같고, 저장되는 영상에서만 빠집니다.
+  - 이렇게 하면 서버와 평가를 합쳐 10.9–11.1 GB입니다.
+- **속도.** π0.5로 Cup in Bowl 25회(성공 22번)가 Isaac Sim 시작을 포함해 18분 걸렸습니다. 시뮬레이션은 초당 7.6–9.3스텝(제어 15 Hz)으로 돕니다.
+- GPU는 다른 세션과 같이 씁니다. 그래서 서버는 다른 세션의 파이프라인 단계나 VLM 재생이 없고, Ollama에 올라간 모델이 없고, GPU 메모리가 1 GB 미만일 때만 띄웁니다.
