@@ -17,6 +17,8 @@
 #                                  TONEMAP_OP=<op> another RTX tone mapper (1 = linear; default Isaac Sim's ACES)
 #                                  GRASPING_MODE=physical|assisted overrides the scene robot's grasping
 #                                  (s15_eval.grasping_mode; the scenes' own is assisted)
+#                                  BASE_CAMERA_1=<external camera name> is what the policy gets as
+#                                  exterior_image_1_left (s15_eval.base_camera_1_name; default external_cam0_left)
 #   all POLICY [JOBS] [N] [TAG]    every task for one policy, JOBS eval processes at a time (default 2)
 #   summary [TAG]                  summarize.py over the runs
 #
@@ -181,6 +183,7 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" "s15_eval.external_sensors_cfg=${sensors}" \
     "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     ${GRASPING_MODE:+"++s15_eval.grasping_mode=${GRASPING_MODE}"} \
+    ${BASE_CAMERA_1:+"s15_eval.base_camera_1_name=${BASE_CAMERA_1}"} \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
     "s15_eval.init_states_path=${init}" \
     s15_eval.save_video=true s15_eval.video_fps=10 "+s15_eval.video_resolution=[180,320]" \
