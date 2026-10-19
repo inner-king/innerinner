@@ -2174,3 +2174,27 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
 - 실패는 대부분 마커를 집은 뒤 컵에 넣지 못한 경우입니다. π0 40번 중 34번, π0.5 21번 중 18번, GR00T 41번 중 40번입니다.
 - 바뀐 것 가운데 physical 잡기는 저자 장면에서도 π0.5를 낮췄습니다(26.4: 55→44%). 다른 수정은 그대로 두고 잡기만 assisted로 돌린 π0.5 비교 실행을 대기열에 넣었습니다.
 - 결과는 Drive `results/policy_eval_ours/openpi_local/out/marker_in_cup_ours_real/`(π0·π0.5), `results/policy_eval_ours/gr00t/out/marker_in_cup_ours_real/`(GR00T)에 있습니다. 집계와 판정표는 `diagnostics/policy_eval_ours/ours_real/`에 있습니다.
+
+### 30.7 Cup in Bowl: 저자 그릇으로 바꿔 보기
+
+- 30.4에서 남은 어긋남은 GR00T가 논문 시뮬(40%)보다 높다는 것입니다. 22.4에서는 방해물 접시 하나를 저자 것으로 바꾸자 GR00T가 52%에서 16%로 떨어졌습니다.
+- Cup in Bowl은 저자 장면이 공개되지 않았습니다. 대신 저자의 YAM `bowls` 장면(공개 자산)에 주황 그릇이 두 개 있습니다.
+  - 큰 그릇 `ubzmrk`(26×25×11 cm)은 논문 Cup in Bowl 사진의 그릇과 색(붉은 주황)과 높이/너비 비(0.43)가 맞습니다.
+  - 우리 그릇(26×26×14 cm)은 0.53이고 더 노랗습니다.
+- `cup_in_bowl_ours_real_authbowl`은 30.4의 장면에서 그릇만 이것으로 바꾼 장면입니다(`build_droid_scene.py`의 `from_scene`·`from_name`).
+  - 질량은 우리 값(293 g)으로 두었습니다.
+  - 시작 상태는 에피소드마다 그릇의 xy를 그대로 두고, 높이와 자세만 새 그릇에 맞췄습니다(`swap_init_object.py`).
+  - 첫 에피소드 영상에서 그릇이 검은 사각형 위에 제대로 놓인 것을 확인했습니다.
+
+| 정책 | 우리 그릇 (30.4) | 저자 그릇 (25회 ×2) | 차이 (Fisher p) | 논문 시뮬 |
+|---|---|---|---|---|
+| π0 | 72/100 = 72% | 19, 14 → **33/50 = 66%** | 0.46 | 56% |
+| GR00T N1.6 | 74/100 = 74% | 19, 18 → **37/50 = 74%** | 1.00 | 40% |
+
+- **그릇은 원인이 아닙니다.** GR00T는 저자 그릇에서도 74%로 그대로이고, 논문 시뮬 40%와 다릅니다(p = 0.006). π0.5는 super2의 대기열에 있습니다.
+- 실패 양상:
+  - GR00T 13번: 못 집음 6, 집은 뒤 못 넣음 7
+  - π0 17번: 컵에 닿지도 않음 7, 못 집음 9, 못 넣음 1
+- 컵은 논문 사진의 컵처럼 초록 잎 무늬가 있는 흰 종이컵입니다. 우리가 복원한 저장소 예제 영상(PutCupInBowl.mp4)의 컵이 논문의 컵과 같은 물건으로 보입니다.
+- 그래서 남은 후보는 물체 배치와 30.5의 시뮬레이터 차이입니다. 지금 가진 자료로는 Cup in Bowl에서 GR00T가 높은 이유를 더 좁힐 수 없습니다.
+- 결과는 Drive `results/policy_eval_ours/gr00t/out/cup_in_bowl_ours_real_authbowl/`(GR00T), `results/policy_eval_ours/openpi_local/out/cup_in_bowl_ours_real_authbowl/`(π0)에 있습니다.
