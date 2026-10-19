@@ -18,6 +18,9 @@ Modes:
 The pipeline places the robot base arbitrarily for a video shot without a robot (here 0.87 m from the
 objects, beyond the Franka's reach); --standoff moves it in front of the objects first, which is the
 manual scene-editing step SimFoundry expects between pipelines B and C.
+
+--wrist also records the robot's own camera on the hand into <out>.wrist.mp4: the view a DROID policy gets
+next to the external ones, and the one furthest from anything a handheld sweep filmed (repro/README.md, 30).
 """
 import argparse
 import json
@@ -82,9 +85,13 @@ class Demo:
         self.real_cam_sensor = None
         self.masks = []
         self.empty_depth = None
+        self.wrist_key = None
+        self.wrist_frames = []
 
     # ------------------------------------------------------------------ observation / video
     def record(self, obs):
+        if self.wrist_key is not None:
+            self.wrist_frames.append(np_(obs[self.robot.name][self.wrist_key]["rgb"])[:, :, :3].astype(np.uint8))
         if self.real_cam_sensor is not None:
             # Foreground = anything nearer than the empty floor. (Instance segmentation would need the
             # BEHAVIOR-1K asset dataset's semantic class list, which is not installed here.)
@@ -254,6 +261,14 @@ def run(args):
                                          "root_link": {"pos": bg_pos, "ori": bg_pose["orientation"],
                                                        "lin_vel": [0.0, 0.0, 0.0], "ang_vel": [0.0, 0.0, 0.0]}}
         print(f"background {side['id']} at {np.round(bg_pos, 3)}, robot base z {new_base[2]:.3f}", flush=True)
+    if args.wrist:
+        # The hand camera with the lens the policy-evaluation stage gives it (1_eval_policy_og_scene.py sets
+        # 2.8 mm over a 5.376 mm aperture on every robot camera: 88 degrees across, against 82 for a DROID
+        # wrist camera), at the DROID scenes' 16:9 but half their 1280 x 720, which would only cost memory.
+        robot_args = scene_json["objects_info"]["init_info"]["robot0"]["args"]
+        robot_args.setdefault("sensor_config", {}).setdefault("VisionSensor", {}).setdefault(
+            "sensor_kwargs", {}).update({"image_height": 360, "image_width": 640, "focal_length": 2.8,
+                                         "horizontal_aperture": 5.376})
     registry["robot0"]["root_link"]["pos"] = new_base.tolist()
     registry["robot0"]["root_link"]["ori"] = [0.0, 0.0, 0.0, 1.0]
     for k in ("lin_vel", "ang_vel"):
@@ -280,6 +295,9 @@ def run(args):
         print(f"real-view camera: frame {real_cam['frame_idx']}, pos {np.round(real_cam['position'], 3)}, "
               f"hfov {real_cam['hfov_deg']:.1f} deg", flush=True)
     demo = Demo(env, video_scale=1.0 if real_cam is not None else 0.5)
+    if args.wrist:
+        demo.wrist_key = next(k for k in obs[demo.robot.name] if "Camera" in k)
+        print(f"wrist camera: {demo.wrist_key}", flush=True)
     empty_ref = None
     if real_cam is not None:
         sensor = env.external_sensors["real_view_cam"]
@@ -424,6 +442,9 @@ def run(args):
                    "aperture": real_cam["aperture"]}, open(out.with_suffix(".json"), "w"), indent=1)
         np.savez_compressed(out.with_suffix(".masks.npz"), fg=np.stack(demo.masks), empty_floor=empty_ref)
     print(f"saved {out} ({len(demo.frames)} frames)", flush=True)
+    if demo.wrist_frames:
+        imageio.mimwrite(out.with_suffix(".wrist.mp4"), demo.wrist_frames, fps=15, macro_block_size=2)
+        print(f"saved {out.with_suffix('.wrist.mp4')} ({len(demo.wrist_frames)} frames)", flush=True)
     og.shutdown()
 
 
@@ -444,6 +465,7 @@ if __name__ == "__main__":
                     help="widen the real-view lens (deg); default matches the real camera")
     ap.add_argument("--real-view", action="store_true",
                     help="render only from the real video camera the reconstruction was anchored to")
+    ap.add_argument("--wrist", action="store_true", help="also record the hand camera into <out>.wrist.mp4")
     ap.add_argument("--grasp-dz", type=float, default=0.0, help="eef height above the object centre at grasp")
     ap.add_argument("--wall-inset", type=float, default=0.004)
     ap.add_argument("--rim-depth", type=float, default=0.025)

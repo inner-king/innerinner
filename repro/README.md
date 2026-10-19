@@ -16,7 +16,7 @@
 | 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정. 3060(7장)과 96 GB G4(17장) |
 | 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽은 재현: 저자 공개 장면 5개에서 공개 π0·π0.5-DROID(18장), 우리 복원 장면과 GR00T N1.6·DreamZero(19장) |
 | 기하 정확도 Chamfer/F1 (Table L.2) | 불가 | YCB 장면의 준정답(quasi-GT) 스캔 미공개 |
-| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
+| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 손목 카메라에서는 기본 배경이 깨지고, 17.7의 배경은 책상을 내려다볼 때만 알아볼 만함(30.2). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
 
 ## 2. 원본과 다른 점 (대체·조정)
 
@@ -431,7 +431,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `compare_s5_runs.py` | 두 5단계 결과를 반복마다 비교: 기록, 마스크·이미지의 픽셀 일치, 깊이 차이 | 24 |
 | `q21/compare_image_backends.py` | 이미지 백엔드 비교 | 10 |
 | `rerun_v2.sh` | v2 재실행 | 11 |
-| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크 | 12, 13, 17 |
+| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크. `--wrist`는 손 카메라도 녹화 | 12, 13, 17, 30 |
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
@@ -450,6 +450,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `g4/eval_splat.sh`, `g4/ns_run.sh` | 배경 splat의 학습 제외 프레임 PSNR·SSIM·LPIPS (`ns-eval`) | 17 |
 | `g4/render_bg_views.py`, `g4/check_bg_variant.sh` | 배경 장면을 실제 카메라와 로봇 카메라 4대로 렌더 | 17.7 |
 | `g4/retrain_bg.sh`, `g4/scale_void_da3.py`, `g4/crop_bg_splat.py`, `g4/carve_bg_splat.py` | 배경 splat 재학습(A100)과 후처리 | 17.7 |
+| `g4/wrist_sheet.py` | 배경별 시연 영상의 외부·손목 카메라 화면을 나란히 놓은 그림 | 30.2 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
 | `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래) | |
 
@@ -2037,3 +2038,36 @@ repro/run_local_pipeline.sh A_reconstruction --scene-name put_cup_in_bowl_v2_mas
 PYTHONPATH=$PWD python repro/friction/check_friction.py --scene-dir Data/put_cup_in_bowl_v2_mass --slide-object iter_0 \
   --out results/diagnostics/friction/put_cup_in_bowl_v2_mass.json
 ```
+
+## 30. 손목 카메라 확인과 로컬 π0·π0.5 평가 (2026-10-19)
+
+이 장에는 세 가지가 있습니다. 먼저 손목 카메라의 렌즈를 다시 확인했고, 앞서 의심한 불일치는 없었습니다. 다음으로 17장의 3DGS 배경을 로봇 손목 카메라 시점에서 확인했습니다. 마지막으로 Colab을 더 쓰지 않기로 해서 π0·π0.5를 이 머신(RTX 3060 12 GB)에서 돌리게 했고, 지금까지 찾은 수정을 모두 넣은 Cup in Bowl 장면을 세 정책으로 평가했습니다.
+
+### 30.1 손목 카메라의 렌즈: 불일치 없음
+
+- 장면 파일에는 손목 카메라의 렌즈 값이 없어서, 장면을 열면 OmniGibson 기본값(초점 17 mm, 조리개 폭 20.995 mm, 가로 63°)이 들어갑니다. 이 값만 보고 손목 화면이 DROID 손목 카메라(ZED Mini)보다 좁다고 의심했습니다. DROID `intrinsics.json`의 에피소드 72,467개에서 1280×720 기준 fx 중앙값은 731.8 px(가로 82°)입니다.
+- 그런데 평가 단계는 장면을 연 뒤 로봇의 모든 카메라를 초점 2.8 mm, 조리개 폭 5.376 mm로 바꿉니다(`1_eval_policy_og_scene.py:404-410`). 그러면 가로 87.7°, 1280 폭에서 fx 666.7 px입니다. 정책이 보는 손목 화면은 DROID보다 약 9% 넓습니다. 좁지 않습니다.
+- 그래서 손목 렌즈를 12 mm로 바꾼 장면 사본으로 π0.5를 돌리려던 계획은 취소했습니다. 그 사본도 평가 단계가 덮어써서 기본 장면과 같았을 것입니다. 사본과 그 스크립트는 지웠습니다.
+- 같이 확인한 것:
+  - openpi의 DROID 정책(π0·π0.5)은 외부 카메라 중 `exterior_image_1_left` 하나와 손목 화면만 읽습니다(openpi `src/openpi/policies/droid_policy.py`). 두 번째 외부 카메라는 영상에만 남습니다.
+  - 그리퍼 상태 입력. 평가 단계는 마지막 두 관절의 평균을 구동 관절 상한(0.785 rad)으로 나누고 2를 곱합니다. 둘 중 하나는 범위가 ±0.02 rad인 바깥 손가락 관절이라 거의 0이므로, 결과는 구동 관절 각도의 비율이 됩니다. 롤아웃에서 읽으면 열림 0, 마커를 쥐면 0.72, 다 닫으면 약 1.0으로 DROID의 0(열림)–1(닫힘) 규약과 맞습니다.
+  - PolaRiS용 π0.5. 버킷에는 시뮬 데이터 10%를 섞어 1,000단계 미세조정한 `checkpoints/polaris/pi05_droid_jointpos_polaris`가 따로 있습니다. 논문 부록(`supp/A-realtosimevals.tex`)은 이 체크포인트가 시뮬에서 더 높았지만, 정책을 시뮬레이터에 맞추지 않는다는 원칙에 따라 비교에서 뺐다고 적습니다. Table G.1은 기본 체크포인트의 값이고, 우리도 같은 것을 썼습니다(18.2).
+
+### 30.2 3DGS 배경을 손목 카메라에서 보기
+
+- 질문: 17장의 3DGS 배경은 로봇 외부 카메라 시점에서 무너졌는데(17.4, 17.7), 로봇 팔에 달린 손목 카메라에서는 어떤가.
+- 방법
+  - `repro/scripted_pick_place.py --wrist`가 스크립트 집기 시연 동안 손 카메라를 따로 녹화합니다(`<out>.wrist.mp4`). 렌즈는 평가 단계와 같은 2.8 mm / 5.376 mm(87.7°)이고, 해상도는 640×360입니다.
+  - 17.4의 기본 배경과 17.7의 sreg+carve 배경에서 두 장면을 같은 동작으로 돌렸습니다. 네 번 모두 과제에 성공했습니다(Cup in Bowl 699스텝, Marker in Cup 857스텝). 배경만 다르고 동작은 같으므로 같은 스텝은 같은 팔 자세입니다.
+  - 이 장면들의 로봇은 Panda 그리퍼입니다. 카메라가 손에 붙은 위치는 DROID의 Robotiq 장착과 조금 다릅니다.
+- 그림: Drive `results/wrist_3dgs/{cup_in_bowl,marker_in_cup}_wrist_sheet.jpg`(`repro/g4/wrist_sheet.py`). 행은 동작의 8–92% 시점이고, 열은 배경마다 외부 카메라(teleop 배치의 첫 카메라)와 손목 카메라입니다. 영상도 같은 폴더에 있습니다.
+
+| 배경 | 손목 카메라가 책상을 내려다볼 때 | 손목 카메라가 옆을 볼 때 (Marker in Cup에서 마커를 세운 뒤) |
+|---|---|---|
+| 17.4 기본 | 무너짐. 갈색·보라·청록 얼룩, 화면을 가로지르는 검은 바늘 모양, 그릇 안에 떠 있는 갈색 파편 | 무너짐. 흰 얼룩과 무지개색 줄 |
+| 17.7 sreg+carve | 흐리지만 나무 책상으로 보임. 결 방향 줄무늬가 있고, 책상 가장자리 쪽에 흰 띠와 검은 파편이 보임. 그릇 안은 깨끗함 | 벽은 흐린 베이지 얼룩이고, 왼쪽에 큰 검은 덩어리가 있음 |
+
+- **답: 17.4의 기본 배경은 손목 카메라에서도 깨집니다. 17.7의 sreg+carve는 손목 카메라가 책상을 내려다보는 동안에는 알아볼 만하지만, 옆을 보면 무너집니다.**
+  - 손목 카메라가 내려다보는 책상 윗면은 서서 찍은 휴대폰 영상이 위에서 본 곳입니다. 그래서 책상 높이에서 옆으로 보는 외부 카메라보다 학습 시점에 가깝습니다.
+  - 그래도 손목 카메라는 책상에서 10–30 cm 위라 영상보다 훨씬 가깝습니다. 그래서 질감이 흐리고 가우시안의 결이 줄무늬로 보입니다.
+- 정책 평가에 미치는 영향: π0·π0.5는 외부 카메라 한 대와 손목 화면을 함께 봅니다. 외부 카메라 화면이 무너지는 한(17.7), 손목 화면이 낫더라도 이 배경으로 평가할 수는 없습니다. Table G.1 평가(18장 이후)는 3DGS를 거치지 않습니다. 저자 DROID 장면 5개와 우리 복원 장면은 모두 메시 배경(`droid_v1.usd`, Stack Dishware는 `droid_v2.usd`)을 씁니다.
