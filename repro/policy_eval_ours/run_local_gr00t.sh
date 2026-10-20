@@ -106,7 +106,7 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
   scene="${SCENE_JSON:-$(spec "${sp}" "s['tasks']['${t}']['scene']")}"
   task=$(spec "${sp}" "s['tasks']['${t}']['task']")
   prompt=$(spec "${sp}" "s['tasks']['${t}']['prompt']")
-  timeout=$(spec "${sp}" "s['tasks']['${t}']['timeout_s']")
+  timeout="${TIMEOUT_S:-$(spec "${sp}" "s['tasks']['${t}']['timeout_s']")}"  # TIMEOUT_S: README 30.12
   horizon=$(spec "${sp}" "s['tasks']['${t}']['execute_horizon']")
   init="${EVAL_ROOT}/init_states/${t}.json"
   [[ -s "${init}" ]] || { echo "[eval] no init states for ${t} at ${init}"; return 1; }

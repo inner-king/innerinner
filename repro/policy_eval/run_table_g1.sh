@@ -159,7 +159,8 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
   # PROMPT and SENSORS_CFG replace the task's instruction and the external-camera config (ablations).
   prompt="${PROMPT:-$(spec "s['tasks']['${t}']['prompt']")}"
   local sensors="${SENSORS_CFG:-nv_franka_droid}"
-  timeout=$(spec "s['tasks']['${t}']['timeout_s']")
+  # TIMEOUT_S replaces the task's episode time limit (an ablation; README 30.12).
+  timeout="${TIMEOUT_S:-$(spec "s['tasks']['${t}']['timeout_s']")}"
   horizon=$(spec "s['tasks']['${t}']['execute_horizon']")
   local init="${EVAL_ROOT}/init_states/${t}.json"
   [[ -s "${init}" ]] || { echo "[eval] no init states for ${t}; run init first"; return 1; }
