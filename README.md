@@ -14,7 +14,7 @@ SimFoundry는 real-world scene을 찍은 RGB video 한 편으로 sim-ready simul
 
 ## Input
 
-[![PutCupInBowl.mp4, the repository's example input video: a desk with an orange bowl, a paper cup and a pen, filmed handheld for 15 s](repro/figures/pipeline_overview/input_video.jpg)](docs/assets/example_videos/PutCupInBowl.mp4)
+[![PutCupInBowl.mp4, the repository's example input video: a desk with an orange bowl, a paper cup and a pen, filmed handheld for 15 s](repro/figures/pipeline_overview/input_video.gif)](docs/assets/example_videos/PutCupInBowl.mp4)
 
 Real-world scene을 찍은 raw RGB video 한 편입니다(예: cup과 bowl이 놓인 desk). Stereo camera image도 입력으로 받습니다. 별도의 human annotation은 필요 없습니다.
 
@@ -64,7 +64,7 @@ Object마다 sim-ready asset을 만들고, 하나의 scene으로 compose하는 s
 
    *Mesh: Hunyuan3D-2.1이 만든 textured mesh를 세 방향에서 본 것입니다. 사진에 보이지 않던 뒷면도 채워져 있습니다.*
 
-   [![The generated bowl and cup orbited from the side, from above into the inside, and from below at the bottom](repro/figures/pipeline_overview/mesh_inside_bottom.jpg)](repro/figures/pipeline_overview/mesh_inside_bottom.mp4)
+   [![The generated bowl and cup orbited from the side, from above into the inside, and from below at the bottom](repro/figures/pipeline_overview/mesh_inside_bottom.gif)](repro/figures/pipeline_overview/mesh_inside_bottom.mp4)
 
    *Inside·bottom: bowl과 cup mesh를 옆 → 안쪽(위에서) → 바닥(아래에서) 순서로 돌려 본 영상입니다(13초). Cup 바닥처럼 사진에 없던 면은 Hunyuan3D가 추정해 채운 것입니다.*
 
@@ -95,9 +95,9 @@ Object마다 sim-ready asset을 만들고, 하나의 scene으로 compose하는 s
 
     *Background(3DGS나 mesh)는 export한 scene과 같은 좌표계에 붙입니다. 그래서 object가 영상 속 원래 자리에 있어야 책상·robot과 맞고, real-world와 같은 배치여야 sim에서 잰 성공률을 실제와 비교할 수 있습니다. Scene cousins도 이 배치에서 출발합니다.*
 
-    [![The same scene with a desk mesh background, seen by the two cameras beside the robot while Franka puts the cup into the bowl](repro/figures/pipeline_overview/demo_background.jpg)](repro/figures/pipeline_overview/demo_background.mp4)
+    [![The same scene with a desk mesh background, seen by the two cameras beside the robot while Franka puts the cup into the bowl](repro/figures/pipeline_overview/demo_background.gif)](repro/figures/pipeline_overview/demo_background.mp4)
 
-    *Background: 같은 scene에 DROID 작업대 mesh background를 붙여, robot 양옆의 camera 두 대로 찍은 영상입니다(45초). 이 background는 이 영상에서 복원한 것이 아니라 저자들이 미리 scan해 공개한 것입니다(재현 기록 12장).*
+    *Background: 같은 scene에 DROID 작업대 mesh background를 붙여, robot 양옆의 camera 두 대로 찍은 영상입니다(45초, GIF는 3배속). 이 background는 이 영상에서 복원한 것이 아니라 저자들이 미리 scan해 공개한 것입니다(재현 기록 12장).*
 
 ## Background Reconstruction
 
