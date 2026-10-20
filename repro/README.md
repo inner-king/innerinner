@@ -1626,6 +1626,19 @@ SCENE_JSON=scenes/DROID/droid_desk_put_marker_in_cup/droid_desk_put_marker_in_cu
   repro/policy_eval_ours/run_local_gr00t.sh all 25 norobot repro/policy_eval/table_g1.yaml:marker_in_cup
 ```
 
+### 23.4 배경 시연 영상 다시 찍기 (2026-10-21)
+
+- 12장의 배경 시연(`results_view/demo_cup_in_bowl_bg.mp4`)을 가린 레이어로 다시 찍었습니다(`results_view/demo_cup_in_bowl_bg_norobot.mp4`). 원래처럼 681스텝에 성공했고, 두 외부 카메라에서 스캔 팔이 사라졌습니다.
+- 사이드카 `assets/backgrounds/mesh_backgrounds/droid_v1_norobot.background.json`은 `droid_v1.background.json`에서 `usd_path`만 `droid_v1_norobot.usd`로 바꾼 것입니다(등록 기준은 같음).
+- 첫 화면 README의 배경 영상(`assets/readme/demo_background.*`)이 이것입니다.
+
+```bash
+python repro/scripted_pick_place.py --scene put_cup_in_bowl_v2 \
+  --task "$PWD/repro/tasks/put_cup_in_bowl_v2_place_cup_in_bowl.yaml" --pick iter_2 --place iter_0 --mode rim_pinch \
+  --background "$PWD/assets/backgrounds/mesh_backgrounds/droid_v1_norobot.background.json" --cams nv_franka_droid_high_res \
+  --out "$PWD/results/results_view/demo_cup_in_bowl_bg_norobot.mp4"
+```
+
 ## 24. 5단계 유령 물체 수정 (2026-10-17)
 
 22.1에서 5단계가 실제 물체 6개에 "초록 바나나" 둘을 더해 8개를 떼어 냈습니다. 5단계를 고친 뒤 세 장면의 5단계만 새 폴더에 다시 돌려 확인했습니다. 6–14단계는 돌리지 않았습니다.

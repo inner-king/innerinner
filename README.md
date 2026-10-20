@@ -97,7 +97,7 @@ Object마다 sim-ready asset을 만들고, 하나의 scene으로 compose하는 s
 
     [![The same scene with a desk mesh background, seen by the two cameras beside the robot while Franka puts the cup into the bowl](assets/readme/demo_background.gif)](assets/readme/demo_background.mp4)
 
-    *Background: 같은 scene에 DROID 작업대 mesh background를 붙여, robot 양옆의 camera 두 대로 찍은 영상입니다(45초, GIF는 3배속). 이 background는 이 영상에서 복원한 것이 아니라 저자들이 미리 scan해 공개한 것입니다(재현 기록 12장).*
+    *Background: 같은 scene에 DROID 작업대 mesh background를 붙여, robot 양옆의 camera 두 대로 찍은 영상입니다(45초, GIF는 3배속). 이 background는 이 영상에서 복원한 것이 아니라 저자들이 미리 scan해 공개한 것이고, scan에 함께 찍힌 실제 Franka는 가렸습니다(재현 기록 12장, 23장).*
 
 ## Background Reconstruction
 
