@@ -92,6 +92,8 @@ DESCRIBE = {
     ("serve_fruits_ours_authmass", "main"): ("22", "우리 복원, 저자 물체의 질량"),
     ("serve_fruits_ours_authplate", "main"): ("22", "우리 복원, 주황 접시만 저자 것"),
     ("serve_fruits_ours_authplate", "rep2"): ("30.11", "우리 복원, 주황 접시만 저자 것, 반복 2"),
+    ("serve_fruits_ours_real_authfruit", "assisted"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 바나나와 사과만 저자 것"),
+    ("serve_fruits_ours_real_authtray", "assisted"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 청록 쟁반만 저자 것"),
     ("serve_fruits_ours_real_authplate_nolimits", "assisted"): ("30.11", "우리 복원, 새 질량, 손가락 제한 없음, assisted 잡기, 주황 접시만 저자 것"),
     ("serve_fruits_ours_real_authplate", "assisted"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것"),
     ("serve_fruits_ours_real_authplate", "assisted_rep2"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것, 반복 2"),
