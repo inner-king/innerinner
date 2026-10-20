@@ -426,6 +426,19 @@ tasks:
         - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
         - {name: orange_square_plate_rfnrye_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
 
+  # serve_fruits_ours_real_authplate without GAINS' finger limits (task ours_serve_fruits, as chapter 22 ran): the
+  # same scene file and starts. Chapter 22's plate swap dropped GR00T N1.6 to 4/25 without the limits and with the
+  # old stage 11 masses; with both fixes it stays at 24/50 (README 30.11). This isolates the limits.
+  serve_fruits_ours_real_authplate_nolimits:
+    template: scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+    scene: scenes/DROID/droid_desk_serve_fruits_ours_real_authplate/droid_desk_serve_fruits_ours_real_authplate_scene_state_latest.json
+    task: ours_serve_fruits
+    prompt: "put both the banana and the apple on the green plate"
+    timeout_s: 120
+    execute_horizon: 24
+    paper: {pi0: 4, pi05: 80, gr00t: 20, dreamzero: 12}
+    paper_real: {pi0: 0, pi05: 72, gr00t: 4, dreamzero: 8}
+
   # The authors' own Marker in Cup scene with the arm's joint stiffness x4 (arm_kp_scale; README chapter 26): the
   # tuned gains make every joint trail its command by 0.2 s, and the paper says the simulated gains were tuned
   # higher to minimize the tracking error. Same scene and 25 starts as table_g1.yaml's marker_in_cup (copied
