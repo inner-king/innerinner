@@ -1,364 +1,156 @@
-<div align="center">
+# SimFoundry Pipeline Overview
 
-  <img src="docs/pull_figure.png" alt="SimFoundry: Modular and Automated Scene Generation for Policy Learning and Evaluation" width="100%">
+SimFoundry는 real-world scene을 찍은 RGB video 한 편으로 sim-ready simulation scene을 자동으로 만들고, 이를 robot policy의 evaluation과 training에 쓰는 real-to-sim pipeline입니다. 논문은 Extraction → Generation → Augmentation의 세 stage와 Background Reconstruction으로 설명하고, 저장소는 이를 Pipeline A·B·C로 나눕니다.
 
-</div>
+## Overview
 
-<div align="center">
+- [Input](#input): real-world scene을 찍은 RGB video
+- [1. Extraction](#1-extraction-pipeline-a-stage-15) (Pipeline A, stage 1–5): depth와 ground plane을 추정해 scene을 simulator world frame에 맞추고, object를 하나씩 segment함
+- [2. Generation](#2-generation-pipeline-a-stage-614) (Pipeline A, stage 6–14): object마다 mesh를 생성해 scene에 align하고, collision geometry·mass·friction을 붙여 OmniGibson scene으로 export함
+- [Background Reconstruction](#background-reconstruction): object 밖의 room과 desk를 따로 복원해 scene에 붙임
+- [3. Augmentation](#3-augmentation-digital-cousins-pipeline-b) (Pipeline B): digital cousins로 object·scene·task variation을 늘림
+- [Human-in-the-loop Scene Editing](#human-in-the-loop-scene-editing): pipeline이 틀린 object pose·scale과 camera를 사람이 고침
+- [4. Applications](#4-applications-pipeline-c) (Pipeline C): demonstration을 모아 증강한 data로 policy를 training하고, simulation에서 policy를 evaluation해 real-world success rate를 예측함
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-76B900.svg)](LICENSE)
-[![Project Website](https://img.shields.io/badge/Project-Website-blue.svg)](https://research.nvidia.com/labs/gear/simfoundry/)
-[![Paper](https://img.shields.io/badge/arXiv-2606.28276-b31b1b.svg)](https://arxiv.org/abs/2606.28276)
+## Input
 
-</div>
+[![PutCupInBowl.mp4, the repository's example input video: a desk with an orange bowl, a paper cup and a pen, filmed handheld for 15 s](repro/figures/pipeline_overview/input_video.jpg)](docs/assets/example_videos/PutCupInBowl.mp4)
 
----
+Real-world scene을 찍은 raw RGB video 한 편입니다(예: cup과 bowl이 놓인 desk). Stereo camera image도 입력으로 받습니다. 별도의 human annotation은 필요 없습니다.
 
-# SimFoundry
+## 1. Extraction (Pipeline A, stage 1–5)
 
-SimFoundry turns a short real-world video into a physics-ready simulation scene in under an hour, with no manual annotation required. Point it at a tabletop, and it automatically segments every object, reconstructs geometry, generates textured 3D meshes, and compiles the result into an OmniGibson scene complete with physical parameters, digital cousin variations, and task proposals.
+Video에서 object별 RGB-D crop과 segmentation mask를 얻는 stage입니다.
 
-Unlike prior scene reconstruction approaches, SimFoundry is fully modular: each stage is an independently swappable component. As foundation models improve, the SimFoundry pipeline improves with them.
+1. Video에서 representative RGB frame 하나를 고릅니다.
+2. FoundationStereo 또는 Depth Anything으로 depth map을 추정하고, camera intrinsics로 scene point cloud를 만듭니다.
 
-## News
+   ![Representative RGB frame of PutCupInBowl.mp4 and its depth map from Depth Anything 3, in our run](repro/figures/pipeline_overview/depth.jpg)
 
-| Date | Update |
-|------|--------|
-| **2026-08-14** | 🚀 Initial open-source release: V0 rigid-body and articulation generation |
-| **2026-08-26** | 📦 Example scenes and assets published — see [Example Scenes & Assets](#example-scenes--assets) |
-| **Coming Soon** | Automated background generation |
-| **Coming Soon** | Robotics data generation, training, and evaluation |
+   *Depth map: 우리 재현에서 PutCupInBowl.mp4의 representative frame을 Depth Anything 3로 추정한 것(0.56–1.22 m).*
 
-## Table of Contents
+   ![Scene point cloud lifted from that depth map, seen from an oblique viewpoint](repro/figures/pipeline_overview/point_cloud.jpg)
 
-- [Quick Start](#quick-start)
-- [Common Examples](#common-examples)
-- [Pipeline Overview](#pipeline-overview)
-- [Scene Gallery](#scene-gallery)
-- [Digital Cousins](#digital-cousins)
-- [Scene Editors](#scene-editors)
-- [Sim-to-Real Policy Training](#sim-to-real-policy-training)
-- [Example Scenes & Assets](#example-scenes--assets)
-- [Outputs](#outputs)
-- [What's Included](#whats-included)
-- [Documentation](#documentation)
-- [Citation](#citation)
-- [Acknowledgments](#acknowledgments)
-- [License](#license)
-- [Contact](#contact)
+   *Scene point cloud: 이 depth map을 camera intrinsics로 lift한 112,896 points를 비스듬한 시점에서 본 것. Single view라서 object 뒤쪽(흰 영역)은 비어 있습니다.*
 
-## Requirements
+3. SAM3로 ground plane(desk surface)을 찾습니다.
 
-- Linux with an NVIDIA GPU and CUDA
-- Mamba or Conda with `mamba`
-- `ffmpeg`
-- ~250 GB of free disk space for a full install
-- Hugging Face account
-- Google Cloud project or Gemini API key
+   *SAM3 text prompt는 설정의 후보(desk → table → counter)를 차례로 시도해 score 0.5를 처음 넘는 것을 쓰고, 셋 다 실패하면 VLM이 이미지 속 support surface 이름을 제안해 다시 시도합니다.*
 
-## Quick Start
+   ![SAM3 table detection and the fitted ground plane on the same frame, in our run](repro/figures/pipeline_overview/ground_plane.jpg)
 
-**1.** Build the conda environments (takes a while) or ask your agent to do with [AGENT_INSTALL.md](docs/AGENT_INSTALL.md):
+   *Ground plane: SAM3가 table을 찾고(왼쪽), 그 영역의 point에 RANSAC으로 plane을 맞춘 결과(오른쪽). Plane에서 1 cm 안에 드는 point(전체의 71%)를 파랑색으로 칠했고, bowl과 cup은 plane 위에 있어 빠집니다.*
 
-```bash
-bash scripts/installation/install_everything.sh
-```
+4. Ground plane을 기준으로 scene을 simulator world frame(ground가 z = 0)에 align합니다.
+5. Iterative decomposition: scene-understanding VLM이 object를 detect하고 SAM3가 mask를 딴 뒤, 그 object를 image·depth inpainting으로 지우고 다시 찾습니다. Foreground object가 남지 않을 때까지 반복합니다.
 
-**2.** Set up service access. Request access to these gated Hugging Face models (approval can take time):
+   ![Stage 5 outputs per iteration in our run: detection, removal mask, object crop, inpainted image and depth after removal](repro/figures/pipeline_overview/decomposition.jpg)
 
-- [facebook/sam3](https://huggingface.co/facebook/sam3)
-- [facebook/dinov3-vitl16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m)
-- [briaai/RMBG-2.0](https://huggingface.co/briaai/RMBG-2.0)
-- Optional: [black-forest-labs/FLUX.1-Kontext-dev](https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev)
+   *Iterative decomposition: 우리 재현에서 VLM이 object 3개(orange bowl, white cup, black pen)를 찾고, iteration마다 하나씩 SAM3 mask로 잘라 낸 뒤 image·depth에서 지웠습니다(bowl → pen → cup). 열이 iteration이고, 위에서부터 detection, image model에 준 removal mask, object crop, inpainting 결과, 지운 뒤 다시 추정한 depth입니다. Bowl 자리에는 inpainting 흔적이 남았습니다.*
 
-VLM stages run on **Google Cloud Vertex AI (Gemini)**. Set up a [gcloud project](https://console.cloud.google.com/welcome/new) with [Vertex AI enabled](https://docs.vectorize.io/build-deploy/external-service-setup/how-to/google-vertex-ai/create-a-gcp-service-account-for-google-vertex-ai/), then authenticate:
+## 2. Generation (Pipeline A, stage 6–14)
 
-```bash
-export GCLOUD_PROJECT=<your-gcp-project>
-gcloud auth application-default login
-hf auth login
-```
+Object마다 sim-ready asset을 만들고, 하나의 scene으로 compose하는 stage입니다.
 
-> **No GCP project?** Generate a Gemini API key at [AI Studio](https://aistudio.google.com/api-keys) and run `export GEMINI_API_KEY=<your-key>` instead.
+6. Object crop을 image generation model로 깨끗하게 upsample합니다.
 
-Alternatively, run the interactive login helper which covers all services at once:
+   ![Object crops from stage 5 and their upsampled images from stage 6, in our run](repro/figures/pipeline_overview/upsample.jpg)
 
-```bash
-bash scripts/installation/login_services.sh
-```
+   *Upsample: 위는 stage 5가 잘라 낸 object crop, 아래는 image model이 깨끗하게 다시 그린 결과입니다. Stage 7은 아래 사진에서 mesh를 만듭니다.*
 
-**3.** Download model checkpoints:
+7. Hunyuan3D-2.1로 upsample한 사진 한 장에서 textured mesh를 생성합니다(2D-to-3D).
 
-```bash
-bash scripts/installation/download_checkpoints.sh --default
-```
+   ![Textured meshes generated by Hunyuan3D-2.1, each seen from three sides](repro/figures/pipeline_overview/meshes.jpg)
 
-> Already logged in to Hugging Face? Fold this into step 1 with `bash scripts/installation/install_everything.sh --checkpoints`.
+   *Mesh: Hunyuan3D-2.1이 만든 textured mesh를 세 방향에서 본 것입니다. 사진에 보이지 않던 뒷면도 채워져 있습니다.*
 
-**4.** (Optional) Install the articulation pipeline:
+   [![The generated bowl and cup orbited from the side, from above into the inside, and from below at the bottom](repro/figures/pipeline_overview/mesh_inside_bottom.jpg)](repro/figures/pipeline_overview/mesh_inside_bottom.mp4)
 
-```bash
-bash scripts/installation/install_articulate.sh
-```
-
-
-Full installation details: [INSTALL.md](docs/INSTALL.md)
-
-## Common Examples
-
-Reconstruct a scene from video (example inputs in [`docs/assets/example_videos/`](docs/assets/example_videos),
-capture tips in [the pipeline README](scripts/pipeline/README.md#capturing-an-input-video)):
-
-```bash
-bash scripts/pipeline/A_reconstruction/run.sh \
-  --scene-name my_scene \
-  --video-fpath /path/to/video.mov
-```
-
-The streamed stages budget VRAM as a fraction of the card (90% by default), so this works
-unchanged on a 24 GiB or a 96 GiB GPU. Add `--max-vram-gb N` only to pin an absolute cap.
-On a 24 GiB card, also pass `-- s7_mesh.low_vram=true` — the default needs ~29 GiB for mesh
-shape generation at stage 7.
-
-Enable automatic articulation decomposition (requires the optional `articulate` environments — see [INSTALL.md](docs/INSTALL.md)):
-
-```bash
-bash scripts/pipeline/A_reconstruction/run.sh \
-  --scene-name my_scene \
-  --video-fpath /path/to/video.mov \
-  --detect-articulation
-```
-
-Generate digital cousins, scene variants, and task proposals:
-
-```bash
-bash scripts/pipeline/B_augmentation/run.sh \
-  --scene-name my_scene \
-  -- prompt_cousin_structured.max_objects=2 \
-       prompt_cousin_structured.max_generated_images_per_object=1
-```
-
-Smoke-test the reconstructed scene in OmniGibson:
-
-```bash
-bash scripts/pipeline/C_application/run.sh \
-  --scene-name my_scene \
-  --mode smoke-random
-```
-
-You can also use the unified dispatcher:
-
-```bash
-scripts/pipeline/run.sh A_reconstruction --help
-scripts/pipeline/run.sh B_augmentation --help
-scripts/pipeline/run.sh C_application --help
-```
-
-## Pipeline Overview
-
-<div align="center">
-  <img src="docs/pipeline_figure.png" alt="SimFoundry Pipeline" width="100%">
-</div>
-
-SimFoundry extracts per-object relevant information (segmentation masks, depth, etc.), generates 3D visual meshes via 2D-to-3D generation models, and compiles the final output scene by annotating relevant physical parameters and sanity checking the overall scene configuration in a physics simulator. SimFoundry additionally supports diverse simulated augmentations of objects, scenes, and tasks. SimFoundry's modular design ensures that as individual foundation models improve, the SimFoundry pipeline improves with them.
-
-SimFoundry is organized into three modular pipelines:
-
-| Pipeline | Description |
-|---|---|
-| **A: Reconstruction** | Reconstructs a simulation-ready scene from a real video across 13 stages: video processing, depth estimation, ground segmentation, object decomposition, mesh generation, pose estimation, physics compilation, and USD/OmniGibson export. |
-| **B: Augmentation** | Generates digital cousin variations of the reconstructed objects spanning geometry, topology, and visual appearance, and proposes manipulation tasks for each scene. |
-| **C: Application** | Loads the scene into OmniGibson for robot policy evaluation, teleoperation data collection, and pipeline smoke testing. |
-
-## Scene Gallery
-
-Each object in the simulation column was generated fully automatically from a single 2D crop using Hunyuan3D, compiled into a physics-ready simulation scene. 
-> Try it for yourself with [Pipeline A](scripts/pipeline/README.md#a-reconstruction).
-
-<table>
-  <tr>
-    <th align="center">Real World</th>
-    <th align="center">SimFoundry Reconstruction</th>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/gallery/bathroom_1_real.png" width="360" alt="Bathroom — Real"><br><sub>Bathroom</sub></td>
-    <td align="center"><img src="docs/gallery/bathroom_1_seq.gif" width="360" alt="Bathroom — SimFoundry"><br><sub>Bathroom Digital Twin</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/gallery/dining_1_real.png" width="360" alt="Dining Room — Real"><br><sub>Dining Room</sub></td>
-    <td align="center"><img src="docs/gallery/dining_1_seq.gif" width="360" alt="Dining Room — SimFoundry"><br><sub>Dining Room Digital Twin</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/gallery/home_coffee_4_real.png" width="360" alt="Home Coffee Table — Real"><br><sub>Home Coffee Table</sub></td>
-    <td align="center"><img src="docs/gallery/home_coffee_4_seq.gif" width="360" alt="Home Coffee Table — SimFoundry"><br><sub>Home Coffee Table Digital Twin</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/gallery/kitchen_2_real.png" width="360" alt="Kitchen — Real"><br><sub>Kitchen</sub></td>
-    <td align="center"><img src="docs/gallery/kitchen_2_seq.gif" width="360" alt="Kitchen — SimFoundry"><br><sub>Kitchen Digital Twin</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/gallery/outdoor_1_real.png" width="360" alt="Outdoor — Real"><br><sub>Outdoor</sub></td>
-    <td align="center"><img src="docs/gallery/outdoor_1_seq.gif" width="360" alt="Outdoor — SimFoundry"><br><sub>Outdoor Digital Twin</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/gallery/toys_1_real.png" width="360" alt="Toys — Real"><br><sub>Toys</sub></td>
-    <td align="center"><img src="docs/gallery/toys_1_seq.gif" width="360" alt="Toys — SimFoundry"><br><sub>Toys Digital Twin</sub></td>
-  </tr>
-</table>
-
-## Digital Cousins
-
-Given a reconstructed scene, SimFoundry uses a VLM to propose geometry, topology, and appearance variations of each object, then generates the resulting 3D assets automatically. 
-
-> This functionality is powered by [Pipeline B](scripts/pipeline/README.md#b-augmentation).
-
-
-<table>
-  <tr>
-    <th align="center">Dining Room</th>
-    <th align="center">Home Coffee</th>
-    <th align="center">Toys</th>
-  </tr>
-  <tr>
-    <td align="center" valign="top"><b>Digital Twin</b><br><img src="docs/gallery/dining_1_twin.png" width="240" alt="Dining Room — Digital Twin"></td>
-    <td align="center" valign="top"><b>Digital Twin</b><br><img src="docs/gallery/home_coffee_4_twin.png" width="240" alt="Home Coffee — Digital Twin"></td>
-    <td align="center" valign="top"><b>Digital Twin</b><br><img src="docs/gallery/toys_1_twin.png" width="240" alt="Toys — Digital Twin"></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top"><b>Digital Cousins</b><br><img src="docs/gallery/dining_1_cousin_static.png" width="240" alt="Dining Room — Digital Cousins"></td>
-    <td align="center" valign="top"><b>Digital Cousins</b><br><img src="docs/gallery/home_coffee_4_cousin_static.png" width="240" alt="Home Coffee — Digital Cousins"></td>
-    <td align="center" valign="top"><b>Digital Cousins</b><br><img src="docs/gallery/toys_1_cousin_static.png" width="240" alt="Toys — Digital Cousins"></td>
-  </tr>
-</table>
-
-## Scene Editors
-
-Two editors work with OmniGibson scene JSON — either a scene the editor saved
-(`*_scene_state_*.json`) or Pipeline A's own output (`s14_og/reconstructed_og_scene.json`):
-
-- **Light editor** — a browser-based scene editor (no OmniGibson required) for composing
-  scenes, placing and scaling props, editing camera rigs, associating tasks, and exporting a
-  runnable bundle:
-
-  ```bash
-  bash scripts/installation/install_light_editor.sh
-  python scripts/interactive/light_editor/server.py --scene <scene_state.json>
-  ```
-
-  Open <http://localhost:8770>, drag a prop (or press `M`/`R` to move/rotate it), then click
-  **Save scene JSON**. Full guide: [docs/INSTRUCTIONS_SCENE_EDITOR.md](docs/INSTRUCTIONS_SCENE_EDITOR.md).
-- **Interactive scene editor** — the OmniGibson-based editor
-  (`scripts/interactive/interactive_scene_editor.py`) for physics-accurate adjustments inside
-  the simulator. Start it with `bash scripts/interactive/run_editor.sh`.
-
-## Sim-to-Real Policy Training
-
-Policies trained entirely on SimFoundry data transfer zero-shot to real-world tasks. The table below shows simulation evaluation, real-world evaluation, and generalization to unseen digital cousin objects for two robot platforms:
-
-> [!IMPORTANT]
-> **Not yet released.** Data generation and policy training code is **not included** in this repository; the training / data-generation pipeline will ship in a future release.
-
-<table>
-  <tr>
-    <th align="center"></th>
-    <th align="center">Simulated Evaluation</th>
-    <th align="center">Real World Evaluation</th>
-    <th align="center">Real World Evaluation (Unseen Objects)</th>
-  </tr>
-  <tr>
-    <td align="center"><b>DROID</b></td>
-    <td align="center"><img src="docs/gallery/droid_sim.gif" width="220" alt="DROID Simulated Evaluation"></td>
-    <td align="center"><img src="docs/gallery/droid_real.gif" width="220" alt="DROID Real Evaluation"></td>
-    <td align="center"><img src="docs/gallery/droid_real_cousin.gif" width="220" alt="DROID Real Evaluation with Unseen Objects"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>YAM (Bimanual)</b></td>
-    <td align="center"><img src="docs/gallery/yam_sim.gif" width="220" alt="YAM Simulated Evaluation"></td>
-    <td align="center"><img src="docs/gallery/yam_real_twin.gif" width="220" alt="YAM Real Evaluation"></td>
-    <td align="center"><img src="docs/gallery/yam_real_cousin.gif" width="220" alt="YAM Real Evaluation with Unseen Objects"></td>
-  </tr>
-</table>
-
-## Example Scenes & Assets
-
-Example scenes are published on Hugging Face:
-[nadunRanawaka1/simfoundry-assets](https://huggingface.co/datasets/nadunRanawaka1/simfoundry-assets).
-
-```bash
-hf download nadunRanawaka1/simfoundry-assets --repo-type dataset --local-dir assets
-```
-
-Open one in the [light editor](#scene-editors):
-
-```bash
-python scripts/interactive/light_editor/server.py \
-  --scene assets/scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
-```
-
-## Outputs
-
-Pipeline data is written under `Data/<scene_name>/`. Key outputs:
-
-| Path | Description |
-|---|---|
-| `s14_og/reconstructed_og_scene.json` | Final OmniGibson scene descriptor |
-| `s14_og/reconstructed_scene.png` | Scene preview image |
-| `prompt_cousin_structured/` | Digital cousin image proposals |
-| `sim_cousins/` and `usd_cousins/` | Simulation-ready cousin assets |
-| `proposed_tasks/` | Generated task YAMLs |
-| `application_smoke/` | C pipeline smoke-test videos |
-
-## What's Included
-
-| Component | Description |
-|---|---|
-| `scripts/pipeline/A_reconstruction/` | 13-stage real-to-sim reconstruction pipeline |
-| `scripts/pipeline/B_augmentation/` | Digital cousin generation and task proposal |
-| `scripts/pipeline/C_application/` | OmniGibson scene loading, teleoperation, and evaluation |
-| `scripts/interactive/` | Browser light editor and OmniGibson scene editor |
-| `scripts/installation/` | Environment and checkpoint installers |
-| `scripts/cfg/` | Hydra config files for all pipeline stages |
-| `simfoundry/` | Core Python library (models, utils, pipeline orchestration) |
-
-## Documentation
-
-- [INSTALL.md](docs/INSTALL.md) — full installation and service setup guide
-- [scripts/pipeline/README.md](scripts/pipeline/README.md) — stage-by-stage pipeline reference
-- [Auto-background README](scripts/pipeline/A_reconstruction/stages/auto_bg_reconstruction/README.md) — optional 3D Gaussian Splat background reconstruction
-- [docs/INSTRUCTIONS_SCENE_EDITOR.md](docs/INSTRUCTIONS_SCENE_EDITOR.md) — light editor user guide
-- [AGENTS.md](AGENTS.md) — project guide for coding agents
-
-## Citation
-
-If you find SimFoundry useful in your research, please cite:
-
-```bibtex
-@article{ranawaka2026simfoundry,
-  title   = {SimFoundry: Modular and Automated Scene Generation for Policy Learning and Evaluation},
-  author  = {Ranawaka, Nadun and Wong, Josiah and Pai, Wei-Lin and Chu, Wei-Teng and
-             Dai, Tianyuan and Moghani, Masoud and Yin, Hang and Jiang, Yunfan and
-             Durbano, Wesley and Huynh, Brandon and Fang, Yu and Xu, Danfei and
-             Zhang, Ruohan and {Fei-Fei}, Li and Fan, Linxi and Wen, Bowen and
-             Mandlekar, Ajay and Zhu, Yuke},
-  journal = {arXiv preprint arXiv:2606.28276},
-  year    = {2026},
-}
-```
-
-## Acknowledgments
-
-SimFoundry builds on a number of excellent open-source projects. We thank the teams behind [OmniGibson](https://github.com/StanfordVL/OmniGibson), [BEHAVIOR-1K](https://github.com/StanfordVL/BEHAVIOR-1K), [Hunyuan3D-2](https://github.com/Tencent/Hunyuan3D-2), [Depth Anything 3](https://github.com/bytedance-seed/Depth-Anything-3), [SAM3](https://github.com/facebookresearch/sam3), [FoundationPose](https://github.com/NVlabs/FoundationPose), and the [digital-cousins](https://github.com/cremebrule/digital-cousins) project, on which portions of this codebase are based.
-
-## License
-
-NVIDIA-owned SimFoundry source code is licensed under the [Apache License 2.0](LICENSE).
-
-Portions of SimFoundry are derived from the [ACDC / digital-cousins](https://github.com/cremebrule/digital-cousins) project, Copyright (c) 2024 the ACDC authors, also licensed under Apache 2.0. Files containing derived code carry an attribution note in their header.
-
-SimFoundry can optionally download or integrate third-party source code, models, datasets, and SDKs governed by separate terms. The Apache 2.0 license does not apply to those materials. Several optional components are non-commercial, research-only, or otherwise restricted.
-
-See [Third-Party Licenses](THIRD_PARTY_LICENSES.md), [Third-Party Notices](THIRD_PARTY_NOTICES.md), [Patch Provenance](PATCH_PROVENANCE.md), and [INSTALL.md](docs/INSTALL.md) for component boundaries.
-
-## Contact
-
-For questions or support, reach out to Nadun Ranawaka at [nadun.ranawaka@gatech.edu](mailto:nadun.ranawaka@gatech.edu) or Ajay Mandlekar at [amandlekar@nvidia.com](mailto:amandlekar@nvidia.com).
+   *Inside·bottom: bowl과 cup mesh를 옆 → 안쪽(위에서) → 바닥(아래에서) 순서로 돌려 본 영상입니다(13초). Cup 바닥처럼 사진에 없던 면은 Hunyuan3D가 추정해 채운 것입니다.*
+
+8. Mesh를 scene point cloud에 align하고, FoundationPose로 object pose를 refine합니다.
+
+   ![The input frame, and the generated meshes drawn into its camera at their estimated poses](repro/figures/pipeline_overview/pose.jpg)
+
+   *Pose: 생성된 mesh를 추정한 pose로 input frame의 camera에 그린 것(오른쪽)입니다. 세 object 모두 실제 위치에 겹칩니다.*
+
+9. Articulated object(drawer, cabinet)는 articulation module이 movable part를 찾아 mesh를 나누고 joint parameter를 만듭니다. 이 scene에는 해당 object가 없습니다.
+10. Object들을 scene 하나로 compose합니다.
+11. CoACD로 collision geometry를 만들고, VLM에게 object별 mass와 friction을 묻습니다.
+
+    | Object | Size (cm) | Collision parts | Friction | Mass (원본) | Mass (Ch. 29) | 실물 참고 |
+    |---|---|---|---|---|---|---|
+    | orange bowl | 25.7 × 25.8 × 13.7 | 32 | 0.5 | 500 g | 293 g | 수백 g |
+    | black pen | 12.8 × 0.8 × 0.6 | 1 | 0.4 | 10 g | 4.5 g | 약 6 g |
+    | white cup | 9.4 × 9.1 × 11.0 | 32 | 0.5 | 70 g | 15 g | 약 10 g |
+
+    *Sim-ready: 우리 재현의 stage 11 출력입니다. Collision parts는 CoACD가 나눈 convex 조각 수입니다. Mass는 원본 방식(VLM에 한 번 물음)의 값과, 재현 기록 29장에서 고친 방식의 값을 함께 적었습니다.*
+
+12. PyBullet(물리 엔진)으로 object들을 책상 위에 안정되게 내려놓습니다.
+
+    *8번에서 추정한 pose는 조금씩 틀려서, object가 책상에 살짝 파묻히거나 서로 겹치거나 떠 있을 수 있습니다. 그래서 object들을 그 pose로 넣고 중력을 건 뒤, 겹친 부분이 밀려나고 가만히 놓일 때까지 simulation을 돌립니다. 멈춘 위치와 자세가 최종 pose가 되어, simulator에서 시작하자마자 object가 튀거나 떨어지지 않습니다.*
+
+13. Object(URDF)를 USD로 convert합니다.
+14. OmniGibson scene으로 export합니다.
+
+    *Background(3DGS나 mesh)는 export한 scene과 같은 좌표계에 붙입니다. 그래서 object가 영상 속 원래 자리에 있어야 책상·robot과 맞고, real-world와 같은 배치여야 sim에서 잰 성공률을 실제와 비교할 수 있습니다. Scene cousins도 이 배치에서 출발합니다.*
+
+    [![The same scene with a desk mesh background, seen by the two cameras beside the robot while Franka puts the cup into the bowl](repro/figures/pipeline_overview/demo_background.jpg)](repro/figures/pipeline_overview/demo_background.mp4)
+
+    *Background: 같은 scene에 DROID 작업대 mesh background를 붙여, robot 양옆의 camera 두 대로 찍은 영상입니다(45초). 이 background는 이 영상에서 복원한 것이 아니라 저자들이 미리 scan해 공개한 것입니다(재현 기록 12장).*
+
+## Background Reconstruction
+
+Object 밖의 room과 desk는 세 가지 방법 중 하나로 만듭니다. 논문의 robot experiment는 mesh background를 썼습니다.
+
+| Method | Input | Process |
+|---|---|---|
+| Automatic | Object reconstruction에 쓴 같은 video | Foreground object를 지운 video(VOID two-pass inpainting)와 metric depth·camera pose(DA3)로 depth-supervised 3DGS를 학습하고, rigid transform으로 simulator world frame에 붙임 |
+| Manual | Object를 치우고 따로 찍은 background-only video | 그 video로 3DGS를 학습하고 interactive editor에서 align |
+| Mesh | Scan app(Scaniverse)으로 찍은 room | Mesh background를 그대로 사용 (robot experiment의 `droid_v1`) |
+
+## 3. Augmentation: Digital Cousins (Pipeline B)
+
+복원한 scene을, task-relevant semantics는 유지하면서 object instance·scene layout·task specification을 바꾼 여러 variant로 늘립니다.
+
+- **Object cousins (stage 1–5)**: 기능(affordance)은 같고 모양이나 겉모습이 다른 object를 새로 만듭니다.
+  1. VLM이 object를 기능 부품으로 나눕니다(가위: Handle, Blade, Pivot Point).
+  2. 부품마다 geometry·topology·visual 변형 후보를 두 개씩 문장으로 냅니다(예: Handle의 geometry "finger loop를 길게").
+  3. 고른 변형을 편집 지시문으로 바꿔 image model이 cousin 사진을 그립니다. 원본은 Gemini 3 Pro Image, 우리 재현은 Qwen-Image-2.1-Turbo입니다.
+  4. VLM이 그 사진을 다시 보고 실제로 있을 법한지, 장면에 어울리는지 yes/no로 판정합니다. 통과한 사진만 다음 단계로 갑니다.
+  5. Hunyuan3D-2.1이 사진 한 장으로 mesh를 만들고(stage 3), collision·mass·friction을 붙여(stage 4) USD로 바꿉니다(stage 5).
+
+  ![Object cousins in our PutMarkerInCup run: the original object, the cousin image and the cousin mesh](repro/figures/pipeline_overview/object_cousins.jpg)
+
+  *PutMarkerInCup 재현에서 만든 object cousin입니다. VLM은 가위의 손잡이 고리를 길게, 컵의 높이와 지름 비율을 바꾸도록 제안했고, 컵만 눈에 띄게 달라졌습니다.*
+- **Scene cousins (stage 6)**: OnTop, RightOf 같은 spatial predicate로 layout을 바꾸고, distractor object를 추가합니다.
+- **Task cousins (stage 7)**: scene의 object로 가능한 다른 manipulation task를 VLM이 제안하고, simulator가 판정할 수 있는 goal specification으로 바꿉니다.
+
+## Human-in-the-loop Scene Editing
+
+Pipeline B와 C 사이에서 사람이 editor로 pipeline이 틀린 부분을 고칩니다. 주된 대상은 object pose·scale과 camera pose이고, 이후 stage는 모두 이 correction을 이어받습니다. 저장소에는 빠른 browser-based editor와, 실제 rendering과 physics를 보여 주는 OmniGibson editor가 있습니다.
+
+## 4. Applications (Pipeline C)
+
+만든 scene으로 demonstration data를 생성해 policy를 training하고, policy를 evaluation합니다.
+
+- **Demonstration collection (stage 2)**: teleoperation으로 위에서 생성한 장면마다 사람이 demonstration을 10–15개 모읍니다.
+- **Data generation (stage 3–6)**: demonstration에 subtask annotation을 하고 waypoint를 추출한 뒤, MimicGen으로 cousin scene들에 옮겨 demonstration 수를 늘립니다. Material, camera, lighting은 domain randomization으로 바꿉니다.
+
+  > **MimicGen**
+  >
+  > 사람이 만든 시연 몇 개를 수백 개로 늘리는 data generation 방법입니다(Mandlekar 외, CoRL 2023). 시연을 'cup 잡기', 'bowl에 놓기'처럼 object 기준의 subtask로 나누고, 구간마다 gripper 궤적을 그 object에 대한 상대 위치로 저장합니다. Object 위치나 종류가 다른 새 scene에서는 그 궤적을 새 위치에 맞춰 옮기고, 구간 사이는 motion planning(SimFoundry는 CuRobo)으로 잇습니다. Simulation에서 실행해 성공한 것만 dataset에 남깁니다.
+- **Sim-to-Real Policy Training**: 그 data로 training한 policy가 real robot에서 얼마나 나아지는지 봅니다(논문 +17/21/40%).
+- **Real-to-Sim Policy Evaluation (stage 1)**: π0, π0.5, GR00T 같은 공개 policy를 finetuning 없이(zero-shot) simulation scene에서 rollout해, sim success rate가 real-world success rate를 예측하는지 봅니다(논문 Table G.1의 Pearson r과 MMRV).
+
+## Reproduction Status
+
+단계별 재현 상태와 실험 기록은 [repro/README.md](repro/README.md)에 따로 정리했습니다.
+
+## References
+
+- [SimFoundry paper (arXiv 2606.28276)](https://arxiv.org/abs/2606.28276), Section 4와 Appendix
+- [NVlabs/SimFoundry code](https://github.com/NVlabs/SimFoundry), `scripts/pipeline/`의 Pipeline A·B·C
+- [Reproduction log](repro/README.md), `repro/README.md`
+
+SimFoundry 원래 README(설치, Quick Start, citation)는 [README_upstream.md](README_upstream.md)에 있습니다. NVIDIA의 SimFoundry 코드는 [Apache License 2.0](LICENSE)을 따릅니다.
