@@ -90,6 +90,8 @@ DESCRIBE = {
     ("serve_fruits_ours", "main"): ("22", "우리 복원"),
     ("serve_fruits_ours_authmass", "main"): ("22", "우리 복원, 저자 물체의 질량"),
     ("serve_fruits_ours_authplate", "main"): ("22", "우리 복원, 주황 접시만 저자 것"),
+    ("serve_fruits_ours_real_authplate", "assisted"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것"),
+    ("serve_fruits_ours_real_authplate", "assisted_rep2"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것, 반복 2"),
 }
 for rep in (2, 3, 4):
     DESCRIBE[("marker_in_cup", f"rep{rep}")] = ("18.4", AUTHORS + f", 기준 반복 {rep}")

@@ -390,6 +390,42 @@ tasks:
         - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
         - {name: orange_square_plate_rfnrye_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
 
+  # serve_fruits_ours_real with the authors' orange plate in place of ours, as serve_fruits_ours_authplate is for
+  # serve_fruits_ours: with the scenes' assisted grasping GR00T N1.6 succeeds on 58% of serve_fruits_ours_real (real
+  # robot 4%, README 30.10), and chapter 22.4 traced its excess there to this plate. The kept plate takes the mass
+  # stage 11 estimated for ours, so the two scenes differ in the plate's shape and look alone. The starts are
+  # serve_fruits_ours_authplate's (serve_fruits_ours_real uses serve_fruits_ours's, from which those are made).
+  serve_fruits_ours_real_authplate:
+    template: scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+    scene: scenes/DROID/droid_desk_serve_fruits_ours_real_authplate/droid_desk_serve_fruits_ours_real_authplate_scene_state_latest.json
+    task: ours_serve_fruits_limits
+    prompt: "put both the banana and the apple on the green plate"
+    timeout_s: 120
+    execute_horizon: 24
+    paper: {pi0: 4, pi05: 80, gr00t: 20, dreamzero: 12}
+    paper_real: {pi0: 0, pi05: 72, gr00t: 4, dreamzero: 8}
+    build:
+      source: serve_fruits
+      keep: {orange_square_plate_rfnrye_1: {mass: 0.036}}
+      objects:
+        yellow_pear: {from: iter_0, xy: [0.474, -0.062], mass: 0.1}
+        yellow_banana: {from: iter_1, xy: [0.483, 0.052], align_to: yellow_banana_yvjcfy_3, mass: 0.1354}
+        red_apple: {from: iter_2, xy: [0.666, -0.023], mass: 0.1375}
+        orange_fruit: {from: iter_5, xy: [0.657, 0.135], mass: 0.138}
+        teal_tray: {from: iter_7, xy: [0.576, 0.282], align_to: teal_tray_tdxtsb_5, mass: 0.18}
+    init_states:
+      grid_resolution: [5, 5]
+      seed: 42
+      randomize_pairings: true
+      pairing_anchor_object: teal_tray_kwmamu_1
+      objects:
+        - {name: yellow_banana_ymuxhn_1, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: red_apple_fuegro_1, grid_size: [0.15, 0.15], z_rot_range: [-0.174, 0.174]}
+        - {name: teal_tray_kwmamu_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+        - {name: yellow_pear_nnhfjs_1, grid_size: [0.25, 0.25], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_fruit_riflmn_1, grid_size: [0.33, 0.22], z_rot_range: [-0.174, 0.174]}
+        - {name: orange_square_plate_rfnrye_1, grid_size: [0.10, 0.10], z_rot_range: [-0.174, 0.174]}
+
   # The authors' own Marker in Cup scene with the arm's joint stiffness x4 (arm_kp_scale; README chapter 26): the
   # tuned gains make every joint trail its command by 0.2 s, and the paper says the simulated gains were tuned
   # higher to minimize the tracking error. Same scene and 25 starts as table_g1.yaml's marker_in_cup (copied

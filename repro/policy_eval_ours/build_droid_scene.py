@@ -25,7 +25,9 @@ removed and ours are added:
     its USD, and the USD is never rewritten (rule 1).
 
 `keep` lists template objects that stay where they are, loaded from the template's own folder: one of ours can be
-swapped for the authors' object of the same category to see which object a policy's result depends on. An object
+swapped for the authors' object of the same category to see which object a policy's result depends on. Given as a
+mapping instead, `{name: {mass: kg}}`, a kept object also takes that mass, so that it differs from ours in its shape
+and look alone. An object
 given `from_scene` and `from_name` instead of `from` is taken from another authors' scene (authors_object), for a
 category the template does not have.
 
@@ -120,13 +122,17 @@ def main():
     init = scene["objects_info"]["init_info"]
     reg = scene["state"]["registry"]["object_registry"]
     template_objects = {n: (init[n], reg[n]) for n in list(init) if not n.startswith(("robot", "mesh_background"))}
-    keep = set(build.get("keep", []))  # template objects that stay, e.g. to swap one of ours for the authors'
+    keep_spec = build.get("keep") or []  # template objects that stay, e.g. to swap one of ours for the authors'
+    keep = set(keep_spec)
     if keep - set(template_objects):
         raise SystemExit(f"keep names objects the template does not have: {sorted(keep - set(template_objects))}")
     for n in template_objects:
         if n not in keep:
             del init[n]
             reg.pop(n, None)
+    for n, opts in (keep_spec.items() if isinstance(keep_spec, dict) else []):
+        if (opts or {}).get("mass") is not None:
+            init[n]["args"]["mass"] = float(opts["mass"])
     ground_z = float((scene.get("ground_plane_info") or {}).get("position", [0.0, 0.0, 0.0])[2])
 
     # Keep the background's relative USD path valid from the new scene directory.
