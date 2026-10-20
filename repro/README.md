@@ -4,7 +4,7 @@
 - 코드: [NVlabs/SimFoundry](https://github.com/NVlabs/SimFoundry) @ `9e34ebe` (2026-08-26)
 - 재현 장비: i9-12900K, RAM 31 GiB, **RTX 3060 12 GB**. 논문은 RTX 3090 24 GB를 썼고, 저장소 최소 사양은 16 GB입니다. 12 GB 때문에 바꾸거나 못 한 실행은 Colab G4 런타임(**RTX PRO 6000 Blackwell 96 GB**)에서 저장소 기본값대로 다시 돌렸습니다(17장).
 - 이 폴더(`repro/`)에는 이 기록과 재현에 쓴 실행 래퍼와 스크립트가 모두 있습니다(목록은 15장). 아래 경로는 저장소 루트 기준입니다.
-- 결과 영상·이미지·로그, 장면 데이터(`Data/<scene>`), 체크포인트는 git에 넣지 않고 Google Drive [`Inner-King/innerinner/`](https://drive.google.com/drive/folders/1lmzFWqMATc52zW7gyiog0YZM3ewKDUzY)에 둡니다(14장). 이 기록의 `results_view/…`, `diagnostics/…`, `logs/…` 경로는 그 폴더의 `results/` 아래입니다. 첫 화면 README의 그림과 짧은 영상만 `repro/figures/pipeline_overview/`에 함께 넣었습니다.
+- 결과 영상·이미지·로그, 장면 데이터(`Data/<scene>`), 체크포인트는 git에 넣지 않고 Google Drive [`Inner-King/innerinner/`](https://drive.google.com/drive/folders/1lmzFWqMATc52zW7gyiog0YZM3ewKDUzY)에 둡니다(14장). 이 기록의 `results_view/…`, `diagnostics/…`, `logs/…` 경로는 그 폴더의 `results/` 아래입니다. 첫 화면 README의 그림과 짧은 영상만 `assets/readme/`에 함께 넣었습니다.
 
 ## 0. Reproduction Status
 

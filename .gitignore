@@ -4,7 +4,8 @@
 .cache/
 /cache
 /data
-/assets
+/assets/*
+!/assets/readme/
 /Data
 /results
 /exps
