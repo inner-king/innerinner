@@ -60,7 +60,8 @@ DESCRIBE = {
     ("marker_in_cup_limits", "rep2"): ("28", AUTHORS + ", 손가락 관절의 속도·힘 제한 적용, 반복 2"),
     ("marker_in_cup", "cam1"): ("30.9", AUTHORS + ", 정책에 반대쪽 외부 카메라"),
     ("marker_in_cup", "cam1_rep2"): ("30.9", AUTHORS + ", 정책에 반대쪽 외부 카메라, 반복 2"),
-    ("serve_fruits", "rep2"): ("30.9", AUTHORS + ", 반복 2"),
+    ("serve_fruits", "rep2"): ("30.9, 30.11", AUTHORS + ", 반복 2"),
+    ("serve_fruits", "rep3"): ("30.11", AUTHORS + ", 반복 3"),
     ("cup_in_bowl_ours", "ours"): ("19", "우리 복원"),
     ("cup_in_bowl_ours", "main"): ("19", "우리 복원"),
     ("cup_in_bowl_ours_near", "near"): ("19", "우리 복원, 가까운 배치"),
@@ -90,6 +91,8 @@ DESCRIBE = {
     ("serve_fruits_ours", "main"): ("22", "우리 복원"),
     ("serve_fruits_ours_authmass", "main"): ("22", "우리 복원, 저자 물체의 질량"),
     ("serve_fruits_ours_authplate", "main"): ("22", "우리 복원, 주황 접시만 저자 것"),
+    ("serve_fruits_ours_authplate", "rep2"): ("30.11", "우리 복원, 주황 접시만 저자 것, 반복 2"),
+    ("serve_fruits_ours_real_authplate_nolimits", "assisted"): ("30.11", "우리 복원, 새 질량, 손가락 제한 없음, assisted 잡기, 주황 접시만 저자 것"),
     ("serve_fruits_ours_real_authplate", "assisted"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것"),
     ("serve_fruits_ours_real_authplate", "assisted_rep2"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것, 반복 2"),
 }
