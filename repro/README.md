@@ -16,7 +16,7 @@
 | 복원 소요 시간·물체 수 (Table L.4) | 비교 | 같은 종류의 장면으로 측정. 3060(7장)과 96 GB G4(17장) |
 | 정책 학습·sim-real 상관계수 0.911, 성공률 +17/21/40% (Fig. 4·5, Table 2, G.x) | 불가 (학습) / 부분 가능 (평가) | README는 "Not yet released"라고 하지만, 저장소에 시연 생성·정책 평가 코드(π0/π0.5/GR00T/DreamZero 클라이언트)는 들어 있음. 빠진 것은 학습 설정·학습된 체크포인트·실제 로봇 데이터. Table G.1의 시뮬 쪽은 재현: 저자 공개 장면 5개에서 공개 π0·π0.5-DROID(18장), 우리 복원 장면과 GR00T N1.6·DreamZero(19장) |
 | 기하 정확도 Chamfer/F1 (Table L.2) | 불가 | YCB 장면의 준정답(quasi-GT) 스캔 미공개 |
-| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 손목 카메라에서는 기본 배경이 깨지고, 17.7의 배경은 책상을 내려다볼 때만 알아볼 만함(30.2). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
+| 자동 배경 복원 (Gaussian splat, App. E.5.1) | 부분 재현 | 저장소 auto_bg 7단계가 끝까지 돌고 촬영 시점에서는 맞지만, 로봇 카메라 시점에서는 배경이 무너짐(17.4). 재학습과 후처리로 책상과 물체는 보이게 됐지만, 영상에 없던 영역은 하늘과 파편으로 남음(17.7). 손목 카메라에서는 기본 배경이 깨지고, 17.7의 배경은 책상을 내려다볼 때만 알아볼 만함(30.2). 영상이 잘 본 책상 윗면만 남기고 나머지를 단순한 벽·바닥으로 바꾸면 옆을 볼 때도 무너지지 않지만, 방의 실제 모습은 잃음(31). 12 GB용 수정과 로컬 VLM 보완은 13장(PutMarkerInCup), 저장소 기본값(400프레임 등)으로 두 장면은 17장 |
 
 ## 2. 원본과 다른 점 (대체·조정)
 
@@ -431,7 +431,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `compare_s5_runs.py` | 두 5단계 결과를 반복마다 비교: 기록, 마스크·이미지의 픽셀 일치, 깊이 차이 | 24 |
 | `q21/compare_image_backends.py` | 이미지 백엔드 비교 | 10 |
 | `rerun_v2.sh` | v2 재실행 | 11 |
-| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크. `--wrist`는 손 카메라도 녹화 | 12, 13, 17, 30 |
+| `scripted_pick_place.py`, `tasks/` | 스크립트 조작 시연과 그 태스크. `--wrist`는 손 카메라도 녹화 | 12, 13, 17, 30, 31 |
 | `turntable.py`, `compose_real_vs_sim.py` | 물체 턴테이블 렌더, 3분할 비교 영상 | 12, 13 |
 | `run_auto_bg.sh`, `da3_anchored_stage.py` | 자동 3DGS 배경 (`VOID_DA3=canonical`, `AUTO_BG_STOP_BEFORE_ASSETS=1`은 17장) | 13, 17 |
 | `drive_sync.sh` | Drive로 올리고 받기 | 14 |
@@ -448,9 +448,10 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `g4/compare_runs.py` | 두 실행의 단계별 시간, 물체 크기·질량, 정합 잔차 비교 | 17 |
 | `g4/compare_da3_tracks.py`, `g4/splat_depth_scale.py` | void-DA3 궤적과 원본 DA3 비교, 배경 splat의 깊이 축척 | 17 |
 | `g4/eval_splat.sh`, `g4/ns_run.sh` | 배경 splat의 학습 제외 프레임 PSNR·SSIM·LPIPS (`ns-eval`) | 17 |
-| `g4/render_bg_views.py`, `g4/check_bg_variant.sh` | 배경 장면을 실제 카메라와 로봇 카메라 4대로 렌더 | 17.7 |
+| `g4/render_bg_views.py`, `g4/check_bg_variant.sh` | 배경 장면을 실제 카메라와 로봇 카메라 4대로 렌더. splat 옆에 방 사이드카(`.room.json`)가 있으면 단순한 방도 넣음 | 17.7, 31 |
 | `g4/retrain_bg.sh`, `g4/scale_void_da3.py`, `g4/crop_bg_splat.py`, `g4/carve_bg_splat.py` | 배경 splat 재학습(A100)과 후처리 | 17.7 |
-| `g4/wrist_sheet.py` | 배경별 시연 영상의 외부·손목 카메라 화면을 나란히 놓은 그림 | 30.2 |
+| `g4/desk_room_splat.py`, `g4/add_plain_room.py` | 배경 splat에서 영상이 잘 본 책상 윗면만 남기고 방의 벽·바닥 위치와 색을 잼, 그 방을 단순한 상자 물체로 장면 사본에 넣음 | 31 |
+| `g4/wrist_sheet.py` | 배경별 시연 영상의 외부·손목 카메라 화면을 나란히 놓은 그림 | 30.2, 31 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
 | `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래) | |
 
@@ -2071,6 +2072,7 @@ PYTHONPATH=$PWD python repro/friction/check_friction.py --scene-dir Data/put_cup
   - 손목 카메라가 내려다보는 책상 윗면은 서서 찍은 휴대폰 영상이 위에서 본 곳입니다. 그래서 책상 높이에서 옆으로 보는 외부 카메라보다 학습 시점에 가깝습니다.
   - 그래도 손목 카메라는 책상에서 10–30 cm 위라 영상보다 훨씬 가깝습니다. 그래서 질감이 흐리고 가우시안의 결이 줄무늬로 보입니다.
 - 정책 평가에 미치는 영향: π0·π0.5는 외부 카메라 한 대와 손목 화면을 함께 봅니다. 외부 카메라 화면이 무너지는 한(17.7), 손목 화면이 낫더라도 이 배경으로 평가할 수는 없습니다. Table G.1 평가(18장 이후)는 3DGS를 거치지 않습니다. 저자 DROID 장면 5개와 우리 복원 장면은 모두 메시 배경(`droid_v1.usd`, Stack Dishware는 `droid_v2.usd`)을 씁니다.
+- 책상 윗면만 splat으로 남기고 나머지를 단순한 방으로 바꾼 변형은 31장에 있습니다.
 
 ### 30.3 π0·π0.5를 이 머신에서
 
@@ -2324,3 +2326,106 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
 - Serve Fruits는 assisted에서 잡기가 쉬워져 약한 정책이 실제보다 많이 성공합니다(π0 32% 대 0%, N1.6 48% 대 4%). N1.7(88%)이 π0.5(84%)를 앞서는 것도 실제(40% 대 72%)와 반대라, MMRV가 0.160입니다. physical에서는 약한 정책이 실제처럼 거의 실패하지만, 강한 정책도 함께 떨어졌습니다.
 - 그래서 어느 잡기 방식도 모든 칸을 맞추지는 않습니다. 순위와 상관은 assisted가 논문에 더 가깝고, 이것이 공개 장면의 설정입니다.
 - 25회 한 번뿐인 칸(π0 셋, π0.5 Cup in Bowl, N1.6 셋, N1.7 Marker in Cup·Serve Fruits)은 super2에서 두 번째 실행을 돌리고 있습니다. 끝나면 표를 50회 기준으로 바꾸겠습니다.
+
+## 31. 3DGS 배경: 책상만 남기고 나머지는 단순한 방으로 (2026-10-20)
+
+30.2에서 17.7의 sreg+carve 배경은 손목 카메라가 책상을 내려다볼 때는 알아볼 만했습니다. 하지만 옆을 보면 큰 검은 덩어리와 번진 벽으로 무너졌습니다. 입력은 서서 책상을 내려다보며 찍은 15초 영상 하나뿐이라, 로봇 높이에서 본 방의 옆쪽은 찍힌 적이 없습니다. 제대로 고치려면 로봇 카메라 높이에서 새로 찍어야 하고, 그것은 사용자만 할 수 있습니다. 이 장은 새 촬영 없이 하는 완화입니다. 영상이 잘 본 책상 윗면만 splat으로 남기고, 나머지는 평범한 벽·바닥·천장으로 바꿨습니다.
+
+- **논문도 이 문제를 피해 갑니다.** 3DGS 배경은 촬영 영상과 같은 시점에서만 평가했고(부록 System Analysis, 장면마다 50프레임), 로봇 실험에는 Scaniverse 메시 배경을 썼습니다. 부록 Limitations는 그 이유로 "3DGS의 near-field clipping 문제와 렌더 지연"을 듭니다. 공개된 로봇 장면 8개(DROID 5, YAM 3)도 모두 메시 배경입니다.
+- **손목 카메라 영상은 어디에도 없습니다.** 저장소 예제 영상 6개는 모두 손으로 든 휴대폰 영상이고, 그중 5개가 이 책상을 서서 내려다보며 찍은 것입니다. 실제 로봇 데이터는 공개되지 않았습니다(1장). 저장소의 실제 로봇 자료는 README의 GIF 두 개(옆에 세운 카메라, 400×225)뿐입니다.
+
+### 31.1 방법
+
+**남길 가우시안** (`repro/g4/desk_room_splat.py`)
+- 17.7의 sreg+carve splat에서 시작합니다.
+- carve와 같은 판정을 씁니다. 가우시안마다 학습 프레임 400장 중 관측 표면 위(깊이 차가 max(3 cm, 5%) 이내)에 있던 프레임 수를 셉니다. 20프레임(5%) 이상이면 "잘 관측됨"입니다.
+- 남기는 것은 다음을 모두 맞는 가우시안입니다.
+  - 잘 관측됨. 책상 면 근처라도 어느 프레임에서나 관측 표면 뒤에 있던 것(책상 면 아래)은 빠집니다.
+  - 책상 면 근처: OG z −0.10~+0.05 m. 물체가 놓인 면이 z = 0입니다.
+  - 책상 직사각형 안(가장자리 밖 3 cm까지).
+  - 아래에서 찾은 벽에서 3 cm 넘게 떨어짐. 벽 바로 앞은 그 벽의 밑동(흰 벽 아래, 검은 칸막이 아래)이고, 로봇 카메라에서는 단순한 벽 앞에 구겨진 띠와 검은 털로 보였습니다.
+  - 벽이 없는 가장자리(책상 앞, 오른쪽 끝)의 5 cm 안이면 z −0.03 m보다 위. 책상 면 아래로 늘어진 가우시안은 낮은 카메라에서 가장자리 아래의 검은 털로 보였습니다.
+- 책상 직사각형도 잘 관측된 가우시안으로 찾습니다.
+  - 2 cm 격자에 놓고, 행·열로 투영했을 때 경계가 가장 날카로운 방향을 고릅니다.
+  - 그 방향에서 40% 이상 찬 행·열의 범위가 책상입니다.
+  - 책상 옆에 같은 높이로 찍힌 실제 로봇 카트는 행의 짧은 구간만 채우므로 빠집니다.
+
+**단순한 방** (`repro/g4/add_plain_room.py`)
+- splat이 없는 곳은 사각형으로 된 상자 하나로 채웁니다(바닥, 벽 넷, 천장). 이 상자를 새 물체 `plain_room`(고정, 보이기만)으로 장면 사본에 넣습니다. 기존 USD는 건드리지 않습니다.
+- 위치는 같은 가우시안에서 잽니다.
+  - 책상 뒤 벽: 책상 위(z 0.1~0.6 m)의 잘 관측된 가우시안이 책상 뒤 가장자리 근처에 가장 많이 모인 곳.
+  - 책상 왼쪽 끝의 검은 칸막이: 같은 방법. 잘 관측된 가우시안이 Marker in Cup에서 2,261개, Cup in Bowl에서 159개였습니다(벽으로 인정하는 기준은 100개). Cup in Bowl 쪽은 어두워서 깊이 신뢰도가 낮았습니다.
+  - 바닥: 책상 아래 가우시안 높이의 최빈값.
+  - 영상에 없는 쪽(책상 오른쪽 너머, 로봇 뒤): 책상과 촬영 궤적에서 1 m 밖. 천장도 영상에 없어서 바닥 위 2.7 m에 둡니다.
+- 로봇 받침과 외부 카메라 4대(teleop·DROID 배치)가 상자 안에 들도록 벽을 밀어냅니다. 상자 밖의 카메라는 벽 뒷면을 보기 때문입니다.
+  - teleop 배치의 첫 카메라(`external_cam0_opposite`)는 0.6 m 앞부터 그립니다(near clipping). 이런 카메라는 그 거리의 10분의 1까지 벽 뒤에 있어도 됩니다. 벽의 법선에서 84° 안쪽의 시선은 모두 벽에 닿기 전에 잘리기 때문입니다.
+  - Marker in Cup에서 이 카메라는 실제 벽보다 5 cm 뒤에 있습니다. 벽을 밀었다면 책상과 벽 사이가 벌어졌을 것입니다.
+- 같은 카메라가 벽에서 16 cm 앞에 있으면(Cup in Bowl), 잘린 벽 너머로 하늘이 보였습니다. 그래서 상자 1 m 바깥에 같은 색의 상자를 하나 더 둡니다.
+- 색은 splat이 학습한 벽색(sRGB 0.81/0.77/0.73)과 바닥색(0.35/0.33/0.31)입니다. 두 장면이 거의 같았습니다.
+- 모든 면에 `primvars:doNotCastShadows`를 켰습니다. 물체는 skybox의 돔 조명을 받는데, 닫힌 상자가 그 빛을 가리지 않게 하려는 것입니다.
+
+**장면**: `assets/scenes/<scene>_sreg_sh0_depth2_30k_carve_room/`. 17.7과 같이 `repro/g4/check_bg_variant.sh`로 7단계를 돌립니다. splat 옆에 `.room.json`이 있으면 이 스크립트가 방을 더합니다.
+
+| | Cup in Bowl | Marker in Cup |
+|---|---|---|
+| 책상 (잰 크기) | 2.04 × 0.96 m | 1.98 × 0.96 m |
+| 바닥 (책상 면 아래) | 0.975 m | 0.995 m |
+| 남은 가우시안 | 445k 중 278k (62%) | 266k 중 148k (56%) |
+| 벽 앞 / 열린 가장자리 아래에서 뺀 것 | 7.4k / 2.0k | 15.0k / 4.5k |
+| 방 (안쪽 상자) | 3.48 × 2.28 × 2.70 m | 3.52 × 2.27 × 2.70 m |
+| 배경 USDZ | 52 → 33 MB | 31 → 17 MB |
+
+- 두 영상은 같은 책상을 따로 찍은 것인데, 책상 크기와 바닥 높이가 몇 cm 안에서 같게 나왔습니다.
+
+### 31.2 결과
+
+30.2와 같은 명령, 같은 과제·물체·렌즈로 다시 돌렸습니다. 두 장면 모두 과제에 성공했고 스텝 수도 같습니다(Cup in Bowl 699, Marker in Cup 857). 배경은 보이기만 하는 물체라 동작이 그대로이고, 같은 스텝은 같은 팔 자세입니다.
+
+| 배경 | 손목 카메라가 책상을 내려다볼 때 | 손목 카메라가 옆을 볼 때 (Marker in Cup 642·787스텝) | 외부 카메라 |
+|---|---|---|---|
+| 17.7 sreg+carve | 흐리지만 나무 책상. 가장자리에 흰 띠와 검은 파편 | 번진 베이지 벽, 왼쪽에 큰 검은 덩어리 | 하늘, 로봇 카트 자리의 검고 파란 파편 |
+| **31 책상+단순한 방** | 17.7과 같음 (같은 가우시안) | **무너지지 않음.** 밝은 단색 벽 아래에 나무 책상, 그 사이에 가는 검은 선 | 하늘·파편 없음. 단색 벽·바닥 앞의 책상 판 |
+
+- **답: 손목 카메라가 옆을 봐도 더는 무너지지 않습니다.** 큰 검은 덩어리(칸막이)와 번진 벽 대신 단색 벽이 보입니다. 책상을 내려다보는 화면은 17.7과 같습니다.
+- 실제 카메라와 외부 카메라 4대에서도 하늘과 파편이 사라졌습니다(`views_*_carve_vs_room.jpg`).
+- 남은 흠
+  - 책상 뒤 가장자리의 밝은 띠: 영상에 보이는 실제 벽 밑 선반입니다. 위에서만 찍혀서 낮은 카메라에서는 구겨져 보입니다. 벽 쪽 7~9 cm가 이 띠라서, 더 자르면 책상과 벽 사이가 벌어집니다.
+  - 책상 판 위의 청록·흰 점: 17.7 splat에 원래 있던 것입니다.
+  - 책상 가장자리의 가는 검은 테두리.
+
+### 31.3 잃은 것
+
+- **방의 실제 모습.** 흰 벽과 선반, 검은 칸막이, 카펫, 책상 다리와 그 아래, 로봇 카트가 모두 단색 면이 됐습니다. 촬영 시점(실제 카메라)에서도 책상 뒤 벽은 단색 벽입니다.
+- **책상 판 밖의 splat 전부.** 17.7 가우시안의 38%(Cup in Bowl), 44%(Marker in Cup)를 지웠습니다.
+- **방의 크기와 천장 높이는 일부 추정입니다.** 잰 것은 책상 뒤 벽, 칸막이, 바닥뿐입니다. 책상 오른쪽 너머와 로봇 뒤의 벽, 천장 높이는 정한 값입니다.
+- **질감과 조명.** 벽과 바닥은 돔 조명을 받는 단색 면이라 질감이 없습니다. 책상 판(splat)은 학습한 색 그대로 보이고, 두 밝기는 맞추지 않았습니다.
+- **정책 평가에는 쓰지 않았습니다.** 18장 이후 평가는 모두 메시 배경입니다. 이 배경이 성공률에 주는 영향은 재지 않았습니다.
+
+다음 단계(미수행): 로봇 카메라 높이에서 새로 찍기(사용자), 메시 배경 평가에서 손목 화면만 망가뜨려 정책이 손목 화면에 얼마나 기대는지 재기, 로봇 카메라 시점의 렌더를 diffusion 모델로 고쳐 다시 학습하기(Difix3D+, arXiv 2503.01774).
+
+### 31.4 파일과 다시 실행
+
+- 그림: Drive `results/wrist_3dgs/`
+  - `{cup_in_bowl,marker_in_cup}_carve_room_wrist_sheet.jpg`: 30.2와 같은 형식입니다(행은 동작의 8~92% 시점, 열은 배경마다 외부 카메라와 손목 카메라). 17.7 sreg+carve와 이번 배경을 나란히 놓았습니다.
+  - `views_{cup_in_bowl,marker_in_cup}_carve_vs_room.jpg`: 실제 카메라와 로봇 외부 카메라 4대. 왼쪽이 17.7, 오른쪽이 이번 배경입니다.
+  - `put_{cup_in_bowl,marker_in_cup}_bg_g4_carve_room_top.png`: 남긴 가우시안(색)과 지운 것(흐림), 책상 직사각형, 방, 촬영 궤적을 위와 옆에서 본 그림입니다. 방은 벽을 밀기 전의 값입니다.
+  - 영상 `{cup_in_bowl,marker_in_cup}_carve_room{,.wrist}.mp4`와 로그(`logs/`).
+- 장면: 3060 컴퓨터의 `assets/scenes/{put_cup_in_bowl,put_marker_in_cup}_bg_g4_sreg_sh0_depth2_30k_carve_room/`. splat과 사이드카(`.pose.json`, `.room.json`)는 `Data/<scene>/auto_bg/splat_sreg_sh0_depth2_30k_carve_room/export/`에 있습니다.
+- 렌더는 GPU를 쓰는 다른 세션이 없을 때만 돌렸습니다(30.3의 `busy()`와 같은 조건). 7단계의 USDZ 변환과 카메라 5대 렌더가 함께 약 1.5분, 시연 하나가 Isaac Sim 시작을 포함해 3.5분 안팎 걸렸습니다.
+
+simfoundry 환경에서(`OMNI_KIT_ACCEPT_EULA=YES OMNIGIBSON_HEADLESS=1 GCLOUD_PROJECT=local`):
+
+```bash
+S=put_marker_in_cup_bg_g4
+python repro/g4/desk_room_splat.py Data/$S Data/$S/auto_bg/splat_sreg_sh0_depth2_30k_carve/export/${S}_bg.ply \
+  Data/$S/auto_bg/splat_sreg_sh0_depth2_30k_carve_room/export/${S}_bg.ply --plot top.png
+repro/g4/check_bg_variant.sh $S sreg_sh0_depth2_30k_carve_room iter_2 iter_0 views.jpg
+# scripted_pick_place.py는 시작할 때 scripts/cfg로 옮겨 가므로 경로는 절대 경로로 줍니다.
+python repro/scripted_pick_place.py --scene $S --task "$PWD/repro/tasks/${S}_pick_marker_and_place_in_cup.yaml" \
+  --scene-file "$PWD/assets/scenes/${S}_sreg_sh0_depth2_30k_carve_room/${S}_sreg_sh0_depth2_30k_carve_room_scene_state_auto_bg.json" \
+  --pick iter_2 --place iter_0 --mode insert_vertical --wrist --out "$PWD/results/wrist_3dgs/marker_in_cup_carve_room.mp4"
+python repro/g4/wrist_sheet.py --out sheet.jpg "17.7 sreg+carve=results/wrist_3dgs/marker_in_cup_carve.mp4" \
+  "31 desk+room=results/wrist_3dgs/marker_in_cup_carve_room.mp4"
+```
+
+Cup in Bowl은 장면 이름과 과제(`put_cup_in_bowl_bg_g4_place_cup_in_bowl.yaml`), `--mode rim_pinch`만 바꿉니다.

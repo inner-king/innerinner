@@ -4,7 +4,9 @@
 # the real camera and the robot's cameras (render_bg_views.py), on a machine with the 3dgrut and
 # simfoundry envs. Expects Data/<scene>/auto_bg/splat_<variant>/export/<scene>_bg.ply and its step-6
 # sidecar (.pose.json) copied from the runtime. Writes assets/scenes/<scene>_<variant>/ (step 7, with
-# its own out dir so the scene's default background stays as it was) and the view grid.
+# its own out dir so the scene's default background stays as it was) and the view grid. A splat cut down to the
+# desk by desk_room_splat.py carries a third sidecar (.room.json); its plain room is then added to the scene
+# (add_plain_room.py), sized for the robot where the views put it.
 # Usage: repro/g4/check_bg_variant.sh <scene> <variant> <pick> <place> <out.jpg>
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -23,5 +25,8 @@ STATE="${REPO}/assets/scenes/${SCENE}_${V}/${SCENE}_${V}_scene_state_auto_bg.jso
   scene_name="${SCENE}" num_frames="${N}" s7_build_assets.bg_splat_ply="${PLY}" \
   s7_build_assets.out_scene_dir="${REPO}/assets/scenes/${SCENE}_${V}" \
   s7_build_assets.out_state_name="$(basename "${STATE}")"
+if [[ -s "${PLY}.room.json" ]]; then
+  "${PY}" "${HERE}/add_plain_room.py" "${STATE}" "${PLY}.room.json" --pick "${PICK}" --place "${PLACE}"
+fi
 "${PY}" "${HERE}/render_bg_views.py" --scene "${SCENE}" --scene-file "${STATE}" \
   --pick "${PICK}" --place "${PLACE}" --out "${OUT}" --label "${SCENE} ${V}"
