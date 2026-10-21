@@ -2579,6 +2579,34 @@ GR00T_VERSION=n17 EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_
   repro/policy_eval_ours/ours.yaml:serve_fruits_ours_real_authfruit
 ```
 
+### 30.15 Marker in Cup: 실제 평가의 머그와 우리 종이컵 (2026-10-21)
+
+30.13의 감마 1.4 뒤에도 Marker in Cup은 π0(24%, 실제 40%)와 π0.5(78%, 실제 92%)가 낮습니다. 네 정책 모두 마커는 거의 항상 집고(46/50–50/50), 갈리는 것은 컵에 넣는 마지막 단계입니다.
+
+- **실제 평가와 받는 물체가 다릅니다.** 논문의 실제 평가 사진(`figs/imgs/DROID_tasks/MarkerInCup.jpg`)에서 컵은 손잡이가 달린 크림색 머그이고, 저자 장면도 `cream_mug`입니다. 우리가 복원한 저장소 예제 영상 `PutMarkerInCup.mp4`에는 녹색 무늬 종이컵이 있습니다. 5장 비교에서 같은 촬영본이 아니라고 본 차이가, 실제 로봇 결과(Table G.1의 실제 값)와 비교할 때도 남습니다.
+  - Cup in Bowl은 실제 평가 사진(`CupInBowl.jpg`)의 종이컵과 주황 그릇이 예제 영상과 같습니다.
+- **우리 종이컵은 12.5 g이라 로봇이 스치면 넘어집니다.** 기록된 상태에서 컵 축이 45° 넘게 기운 에피소드를 셌습니다(γ 1, 30.10의 50회씩).
+
+| 정책 | 성공 | 실패 | 실패 가운데 컵이 넘어진 것 |
+|---|---|---|---|
+| π0 | 12/50 | 38 | 10 |
+| π0.5 | 34/50 | 16 | 6 |
+| GR00T N1.6 | 12/50 | 38 | 3 |
+| GR00T N1.7 | 49/50 | 1 | 0 |
+
+- 넘어진 컵은 openpi 두 정책의 실패 가운데 일부(π0 26%, π0.5 38%)입니다. 나머지는 컵이 선 채로 마커를 넣지 못한 경우입니다.
+  - 무거운 머그였다면 이 실패의 일부는 성공이 됐을 수 있습니다. 모두 성공이 되더라도 π0는 44%, π0.5는 80%가 상한입니다.
+  - 컵 질량만 150 g에서 15 g으로 바꾼 21장에서는 성공률이 바뀌지 않았습니다(π0 28 → 32%, π0.5 80 → 80%). 그래서 이것을 Marker in Cup 차이의 주원인으로 보지는 않습니다.
+- 감마 1.4에서는 넘어지는 일이 줄었습니다(π0 실패 19번 중 2번, π0.5 실패 11번 중 1번).
+- 상태 벡터에는 이름이 없어서, 각 에피소드 첫 프레임에서 시작 상태의 컵 방향과 같은 값 네 개를 찾아 그 자리를 씁니다.
+
+```bash
+python repro/policy_eval_ours/object_tilt.py --object white_paper_cup_owccwy_1 \
+  --init results/policy_eval_ours/openpi_local/init_states/marker_in_cup_ours_real.json \
+  marker_in_cup_ours_real:pi0:assisted,assisted_rep2 marker_in_cup_ours_real:pi05:assisted,assisted_rep2 \
+  marker_in_cup_ours_real:gr00t:assisted,assisted_rep2 marker_in_cup_ours_real:gr00t17:assisted,assisted_rep2
+```
+
 ## 31. 3DGS 배경: 책상만 남기고 나머지는 단순한 방으로 (2026-10-20)
 
 30.2에서 17.7의 sreg+carve 배경은 손목 카메라가 책상을 내려다볼 때는 알아볼 만했습니다. 하지만 옆을 보면 큰 검은 덩어리와 번진 벽으로 무너졌습니다. 입력은 서서 책상을 내려다보며 찍은 15초 영상 하나뿐이라, 로봇 높이에서 본 방의 옆쪽은 찍힌 적이 없습니다. 제대로 고치려면 로봇 카메라 높이에서 새로 찍어야 하고, 그것은 사용자만 할 수 있습니다. 이 장은 새 촬영 없이 하는 완화입니다. 영상이 잘 본 책상 윗면만 splat으로 남기고, 나머지는 평범한 벽·바닥·천장으로 바꿨습니다.
