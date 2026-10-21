@@ -482,6 +482,28 @@ tasks:
         orange_square_plate: {from: iter_4, xy: [0.593, -0.211], align_to: orange_square_plate_rfnrye_1, mass: 0.036}
         orange_fruit: {from: iter_5, xy: [0.657, 0.135], mass: 0.138}
 
+  # serve_fruits_ours_real with the authors' pear and orange, the two fruits the task leaves alone, in place of ours
+  # (README 30.14): the last of the six objects not yet swapped. In the authors' scene GR00T N1.6 picks the apple
+  # after the banana in 36 of 56 episodes, in ours in 40 of 43, and 22.4's videos show it carrying the pear. The
+  # kept fruits take our estimated masses. Starts as for serve_fruits_ours_real_authfruit (swap_init_object.py).
+  serve_fruits_ours_real_authdistract:
+    scene: scenes/DROID/droid_desk_serve_fruits_ours_real_authdistract/droid_desk_serve_fruits_ours_real_authdistract_scene_state_latest.json
+    template: scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+    task: ours_serve_fruits_limits
+    prompt: "put both the banana and the apple on the green plate"
+    timeout_s: 120
+    execute_horizon: 24
+    paper: {pi0: 4, pi05: 80, gr00t: 20, dreamzero: 12}
+    paper_real: {pi0: 0, pi05: 72, gr00t: 4, dreamzero: 8}
+    build:
+      source: serve_fruits
+      keep: {yellow_pear_uckunr_0: {mass: 0.1}, orange_fruit_rofqtq_4: {mass: 0.138}}
+      objects:
+        yellow_banana: {from: iter_1, xy: [0.483, 0.052], align_to: yellow_banana_yvjcfy_3, mass: 0.1354}
+        red_apple: {from: iter_2, xy: [0.666, -0.023], mass: 0.1375}
+        orange_square_plate: {from: iter_4, xy: [0.593, -0.211], align_to: orange_square_plate_rfnrye_1, mass: 0.036}
+        teal_tray: {from: iter_7, xy: [0.576, 0.282], align_to: teal_tray_tdxtsb_5, mass: 0.18}
+
   # The authors' own Marker in Cup scene with the arm's joint stiffness x4 (arm_kp_scale; README chapter 26): the
   # tuned gains make every joint trail its command by 0.2 s, and the paper says the simulated gains were tuned
   # higher to minimize the tracking error. Same scene and 25 starts as table_g1.yaml's marker_in_cup (copied
