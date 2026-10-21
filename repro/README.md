@@ -17,7 +17,7 @@
 | Extraction · Generation (A) | Reproduced | Gemini 대신 local model을 쓰고 12 GB GPU에 맞게 조정. Stage 11 mass estimation은 원본보다 개선 (3, 6, 16, 17, 20, 29장) |
 | Automatic 3DGS background | Partial | Capture viewpoint에서는 맞지만 robot camera viewpoint에서 무너짐. Desk만 남기고 나머지를 plain room으로 채워 완화 (13, 17, 30.2, 31장) |
 | Augmentation (B) | Reproduced | Local model로 object·scene·task cousins 생성 (5, 11장) |
-| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장) |
+| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 1차(cell마다 25 episode) mean r 0.935이고, Serve Fruits가 0.802에서 0.972로 오름 (30.13, 2차 진행 중) |
 | Sim-to-Real Policy Training (C) | Not possible | Training code와 real-robot data가 공개되지 않음 (1장) |
 
 ## 1. 재현 범위
@@ -2456,19 +2456,37 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
 - 30.10의 장면(우리 복원, 모든 수정, assisted 잡기), 시작 상태, 정책별 카메라 설정을 그대로 두고 γ만 바꿉니다.
 - 먼저 칸마다 25회씩 돌립니다. Marker in Cup의 결과와 관계없이 세 과제를 모두 돌립니다. 한 과제만 보고 고르면 같은 잘못을 되풀이하기 때문입니다.
 
-Marker in Cup이 먼저 끝났습니다(1차, 2026-10-21 12:00. π0.5만 25회 ×2).
+**1차 결과** (2026-10-21 14:10, 칸마다 25회, Marker in Cup의 π0.5만 25회 ×2). 칸은 γ 1(30.10, 50회) → γ 1.4이고, 굵은 칸은 실제와 구별되는 값입니다(p < 0.05, 실제를 25회로 봄).
 
-| 정책 | γ 1 (30.10) | γ 1.4 | 차이 (p) | 논문 실제 |
-|---|---|---|---|---|
-| π0 | 12/50 = 24% | 6/25 = 24% | 1.00 | 40% |
-| π0.5 | 34/50 = 68% | 22, 17 → 39/50 = 78% | 0.37 | 92% |
-| GR00T N1.6 | 12/50 = 24% | 7/25 = 28% | 0.78 | 28% |
-| GR00T N1.7 | 49/50 = 98% | 24/25 = 96% | 1.00 | 88% |
-| r (95% 구간) / MMRV | 0.912 (+0.80..+0.97) / 0.050 | **0.949** (+0.83..+0.99) / 0.080 | | 같은 넷 0.999 / 0.010 |
+| 과제 / 정책 | γ 1 → γ 1.4 | 논문 실제 |
+|---|---|---|
+| Cup in Bowl / π0 | 80% → 21/25 = 84% | 88% |
+| Cup in Bowl / π0.5 | 98% → 25/25 = 100% | 100% |
+| Cup in Bowl / GR00T N1.6 | 68% → 20/25 = 80% | 68% |
+| Cup in Bowl / GR00T N1.7 | 90% → 24/25 = 96% | 92% |
+| Marker in Cup / π0 | 24% → 6/25 = 24% | 40% |
+| Marker in Cup / π0.5 | **68%** → 22, 17 → 39/50 = 78% | 92% |
+| Marker in Cup / GR00T N1.6 | 24% → 7/25 = 28% | 28% |
+| Marker in Cup / GR00T N1.7 | 98% → 24/25 = 96% | 88% |
+| Serve Fruits / π0 | **20%** → 1/25 = 4% | 0% |
+| Serve Fruits / π0.5 | 84% → **25/25 = 100%** | 72% |
+| Serve Fruits / GR00T N1.6 | **58%** → **8/25 = 32%** | 4% |
+| Serve Fruits / GR00T N1.7 | **88%** → 17/25 = 68% | 40% |
 
-- r은 0.912에서 0.949로 올랐습니다. π0.5가 오르고 나머지 셋은 그대로인 결과입니다. 다만 칸 하나하나의 변화는 유의하지 않고, π0.5도 우리 장면에서는 기준이 이미 68%였습니다(p = 0.37).
-- MMRV는 0.080으로 조금 나빠졌습니다. π0(24%)가 N1.6(28%)보다 낮아 실제 순서(40% 대 28%)와 어긋나기 때문입니다.
-- 다른 두 과제는 진행 중입니다. 먼저 끝난 N1.7은 Serve Fruits가 88%에서 **68%**(17/25, p = 0.06)로 실제 40% 쪽으로 내려왔고, Cup in Bowl은 90%에서 96%로 그대로입니다.
+| 과제 (정책 넷) | γ 1 r / MMRV | γ 1.4 r (95% 구간) / MMRV | 논문 r (같은 넷) / MMRV |
+|---|---|---|---|
+| Cup in Bowl | 0.967 / 0.000 | 0.885 (+0.13..+1.00) / 0.000 | 0.889 / 0.020 |
+| Marker in Cup | 0.912 / 0.050 | 0.949 (+0.83..+0.99) / 0.080 | 0.999 / 0.010 |
+| Serve Fruits | 0.802 / 0.160 | **0.972** (+0.88..+1.00) / **0.000** | 0.955 / 0.000 |
+| 세 과제 평균 | 0.894 / 0.070 | **0.935** / 0.027 | 0.948 / 0.010 |
+
+- **Serve Fruits가 크게 나아졌습니다.** 실제보다 높던 약한 정책 셋이 모두 실제 쪽으로 내려왔습니다(π0 20 → 4%, N1.6 58 → 32%, N1.7 88 → 68%). r은 0.802에서 0.972로, MMRV는 0.160에서 0으로 바뀌었습니다.
+  - γ 1.4는 저자 Marker in Cup의 π0.5만 보고 고른 값입니다. Serve Fruits와 Cup in Bowl은 그 선택에 쓰지 않은 데이터입니다.
+  - N1.6은 32%로 여전히 실제 4%보다 높습니다(p = 0.02). π0.5는 100%로 실제 72%보다 높아졌습니다(p = 0.01).
+- **Cup in Bowl은 나빠졌습니다.** N1.6이 68%에서 80%로 올라 실제(68%)에서 멀어졌고, r은 0.967에서 0.885가 됐습니다. 네 정책이 80–100%에 몰려 있어 r의 구간이 넓습니다(+0.13..+1.00). 순서는 그대로여서 MMRV는 0입니다.
+- **Marker in Cup**은 π0.5가 올라 r이 0.912에서 0.949가 됐습니다. MMRV는 π0(24%)가 N1.6(28%)보다 낮아져 0.080입니다(실제 40% 대 28%).
+- **실제와 구별되는 칸은 넷에서 둘로 줄었습니다.** 세 과제 평균 r은 0.935로, 논문의 같은 넷 0.948에 가까워졌습니다.
+- 칸마다 25회라 칸 하나의 변화는 대부분 유의하지 않습니다(Serve Fruits의 네 칸이 p = 0.046–0.088). 칸마다 25회를 더 돌리고 있습니다(2차).
 - 모든 조건에서 π0.5는 마커를 100% 집습니다(기준 100/100, γ 1.4 50/50). 실패는 모두 마커를 쥔 채 제한 시간까지 컵에 넣지 못한 경우입니다. γ 1.4가 바꾼 것은 마지막에 컵에 넣는 동작입니다.
 
 ### 30.14 Serve Fruits: 저자 장면과 우리 장면이 갈리는 단계 (2026-10-21)
