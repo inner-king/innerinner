@@ -17,7 +17,7 @@
 | Extraction · Generation (A) | Reproduced | Gemini 대신 local model을 쓰고 12 GB GPU에 맞게 조정. Stage 11 mass estimation은 원본보다 개선 (3, 6, 16, 17, 20, 29장) |
 | Automatic 3DGS background | Partial | Capture viewpoint에서는 맞지만 robot camera viewpoint에서 무너짐. Desk만 남기고 나머지를 plain room으로 채워 완화 (13, 17, 30.2, 31장) |
 | Augmentation (B) | Reproduced | Local model로 object·scene·task cousins 생성 (5, 11장) |
-| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 mean r 0.924, MMRV 0.027 (cell마다 50 episode). Serve Fruits가 0.802에서 0.926으로 오르고, real-world와 구별되는 cell이 4개에서 2개로 줆 (30.13) |
+| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 mean r 0.924, MMRV 0.027 (cell마다 50 episode). Serve Fruits가 0.802에서 0.926으로 오르고, real-world와 구별되는 cell이 4개에서 2개로 줆 (30.13). 두 값 모두 cell마다 25–50 episode의 잡음 안에서 논문과 구별되지 않고, 남은 차이는 저자 scene을 우리 평가로 돌려도 같은 자리에 나옴 (30.17) |
 | Sim-to-Real Policy Training (C) | Not possible | Training code와 real-robot data가 공개되지 않음 (1장) |
 
 ## 1. 재현 범위
@@ -2642,6 +2642,32 @@ repro/policy_eval_ours/run_local_openpi.sh all pi0 25 g14 $T:marker_in_cup $T:se
 repro/policy_eval_ours/run_local_gr00t.sh all 25 g14 $T:marker_in_cup
 EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_ours/run_local_gr00t.sh all 25 g14 $T:serve_fruits
 ```
+
+### 30.17 지금까지의 일치와 남은 차이 (2026-10-22)
+
+**세 과제 평균 r은 논문과 통계적으로 구별되지 않습니다.** 칸마다 성공 횟수를 이항분포로 다시 뽑아 평균 r을 20,000번 냈습니다. 논문 쪽도 시뮬 칸(25회)을 같은 방식으로 다시 뽑았습니다.
+
+| | 평균 r | 다시 뽑은 95% 범위 | 논문과의 차이 95% 범위 | 논문 이상일 확률 |
+|---|---|---|---|---|
+| 논문 (같은 넷, 시뮬 칸 25회) | 0.948 | 0.838–0.979 | | |
+| 우리 세 장면, γ 1 (30.10) | 0.894 | 0.776–0.932 | −0.164..+0.054 | 0.15 |
+| 우리 세 장면, γ 1.4 (30.13) | 0.924 | 0.692–0.961 | −0.241..+0.082 | 0.29 |
+
+- 두 경우 모두 차이의 범위가 0을 포함합니다. 칸마다 25–50회로는 논문 값 0.948과 우리 값을 가를 수 없습니다. 논문 값도 같은 잡음으로 0.84–0.98 사이를 오갑니다.
+- 점추정은 여전히 논문보다 낮습니다(0.894, 0.924 대 0.948).
+
+**남은 차이 상당 부분은 복원이 아니라 평가 쪽에 있습니다.** 저자 장면을 우리 평가로 돌리면 논문 시뮬과 어긋나는 칸이 같은 자리에 나옵니다(30.9, 30.16).
+
+| 칸 | 우리 장면 (γ 1.4) | 저자 장면, 우리 평가 (γ 1 / γ 1.4) | 논문 시뮬 | 논문 실제 |
+|---|---|---|---|---|
+| Marker in Cup / π0 | 22% | 16% / 10% | 40% | 40% |
+| Serve Fruits / GR00T N1.7 | 70% | 64% / 52% | 32% | 40% |
+| Serve Fruits / GR00T N1.6 | 40% | 29% / 38% | 20% | 4% |
+
+- 저자 장면의 정책 넷 r은 우리 평가로 Marker in Cup 0.890(γ 1.4에서 0.954), Serve Fruits 0.957(0.928)입니다. 논문의 같은 넷(0.999, 0.955)보다 대체로 낮습니다. 우리 복원 장면(γ 1.4에서 0.935, 0.926)은 이 값들과 비슷합니다.
+- 평가 쪽 후보 가운데 확인해서 뺀 것: 지시문(18), 카메라 보정값·반대쪽 카메라(18, 30.9), 물체 질량(18, 21), 시작 격자와 실행 지평(18.4), 톤매퍼(20.2), 배경의 스캔 로봇(23), 팔 stiffness(26), physical 잡기(26.4, 27), 손가락 제한(28), 손목 렌즈와 그리퍼 상태 입력(30.1), 시작 자세와 제한 시간(30.12), GPU 종류(30.13).
+- 시험할 수 없는 후보: 저자 장면은 공개되지 않은 OmniGibson 커밋으로 저장됐습니다(30.5). 저장소 평가 설정(`PutMarkerInCup.yaml`, `ServeFruitsOnGreenPlate.yaml`)의 체크포인트 이름은 `n17_cs_er2`로, 우리가 쓴 공개 `GR00T-N1.7-DROID`와 같은 것인지 알 수 없습니다. 논문의 시뮬 화면(`figs/imgs/polaris/SF_stackdishware_frame.jpg`, 부록에 따르면 정책이 보는 외부 시점)은 우리 렌더보다 책상이 밝습니다(30.13).
+- 그래서 지금의 재현은 이렇게 요약됩니다. 우리 파이프라인으로 복원한 세 장면은, 같은 평가에서 저자 장면과 비슷한 수준으로 실제 로봇과 맞습니다. 논문 수치와의 남은 간격은 대부분 저자 평가 환경과의 차이에서 오며, 그 차이는 칸마다 25–50회의 잡음 안에 있습니다.
 
 ## 31. 3DGS 배경: 책상만 남기고 나머지는 단순한 방으로 (2026-10-20)
 
