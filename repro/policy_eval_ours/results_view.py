@@ -114,6 +114,8 @@ for s in ("marker_in_cup", "serve_fruits"):
 DESCRIBE[("marker_in_cup", "ctrl3060")] =("30.13", AUTHORS + ", 감마 없이 RTX 3060에서 (Colab L4 기준의 대조)")
 DESCRIBE[("marker_in_cup", "ctrl3060_rep2")] = ("30.13", AUTHORS + ", 감마 없이 RTX 3060에서 (Colab L4 기준의 대조), 반복 2")
 for s in ("cup_in_bowl_ours_real", "marker_in_cup_ours_real", "serve_fruits_ours_real"):
+    DESCRIBE[(s, "assisted_g14w1")] = ("30.18", "우리 복원, 모든 수정, assisted 잡기, 외부 카메라 감마 1.4, 손목 1.0")
+    DESCRIBE[(s, "assisted_g14w1_rep2")] = ("30.18", "우리 복원, 모든 수정, assisted 잡기, 외부 카메라 감마 1.4, 손목 1.0, 반복 2")
     DESCRIBE[(s, "assisted_g14")] = ("30.13", "우리 복원, 모든 수정, assisted 잡기, 모든 정책 이미지 감마 1.4")
     DESCRIBE[(s, "assisted_g14_rep2")] = ("30.13", "우리 복원, 모든 수정, assisted 잡기, 모든 정책 이미지 감마 1.4, 반복 2")
 for rep in (2, 3, 4):

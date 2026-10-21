@@ -424,11 +424,16 @@ def main(cfg):
 
     # Tone correction of every camera image the policies see, applied after the render (s15_eval.image_gamma; null
     # = off). The authors' notes above list a colour correction of the render whose values were not published;
-    # pi0.5 on Marker in Cup follows the images' tone (repro/README.md 30.12), so this applies one to all policies
-    # alike. A pixel value v in [0, 1] becomes v ** image_gamma.
+    # pi0.5 on Marker in Cup follows the images' tone (repro/README.md 30.13), so this applies one to all policies
+    # alike. A pixel value v in [0, 1] becomes v ** image_gamma. The wrist camera can take its own value
+    # (s15_eval.image_gamma_wrist; null = image_gamma): against DROID's real images our exterior renders are
+    # brighter (gamma 1.41-1.44 matches their mean) and our wrist renders are not (0.89-1.03; README 30.18).
     image_gamma = cfg.s15_eval.get("image_gamma", None)
-    if image_gamma is not None:
-        print(f"[render] policy images raised to the power {float(image_gamma)}")
+    image_gamma_wrist = cfg.s15_eval.get("image_gamma_wrist", None)
+    if image_gamma_wrist is None:
+        image_gamma_wrist = image_gamma
+    if image_gamma is not None or image_gamma_wrist is not None:
+        print(f"[render] policy images raised to the power {image_gamma} (exterior), {image_gamma_wrist} (wrist)")
 
     # Load init states for deterministic evaluation if provided
     init_states_path = cfg.s15_eval.get("init_states_path", None)
@@ -646,10 +651,13 @@ def main(cfg):
             else:
                 base_2_rgb = base_1_rgb  # Use first external camera as fallback
 
-            if image_gamma is not None:
-                wrist_rgb, base_1_rgb, base_2_rgb = (
-                    (th.as_tensor(img).float().div(255.0).pow(float(image_gamma)) * 255.0).round().clamp(0, 255).to(th.uint8)
-                    for img in (wrist_rgb, base_1_rgb, base_2_rgb))
+            def tone(img, gamma):
+                if gamma is None:
+                    return img
+                return (th.as_tensor(img).float().div(255.0).pow(float(gamma)) * 255.0).round().clamp(0, 255).to(th.uint8)
+
+            base_1_rgb, base_2_rgb = tone(base_1_rgb, image_gamma), tone(base_2_rgb, image_gamma)
+            wrist_rgb = tone(wrist_rgb, image_gamma_wrist)
             
             # Convert joints to numpy and ensure correct dtype
             joints_np = qpos[:7].numpy() if hasattr(qpos, 'numpy') else np.array(qpos[:7])

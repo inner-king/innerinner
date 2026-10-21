@@ -129,6 +129,7 @@ eval_one() {  # eval_one SPEC TASK [N] [TAG]
     s15_eval.policy=gr00t s15_eval.host=localhost "s15_eval.port=${GR00T_PORT}" "s15_eval.checkpoint=${GR00T_CHECKPOINT}" \
     "s15_eval.external_sensors_cfg=${EXTERNAL_SENSORS:-nv_franka_droid}" "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     ${IMAGE_GAMMA:+"s15_eval.image_gamma=${IMAGE_GAMMA}"} \
+    ${IMAGE_GAMMA_WRIST:+"s15_eval.image_gamma_wrist=${IMAGE_GAMMA_WRIST}"} \
     ${GRASPING_MODE:+"++s15_eval.grasping_mode=${GRASPING_MODE}"} \
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \

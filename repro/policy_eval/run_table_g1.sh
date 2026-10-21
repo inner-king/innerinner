@@ -184,6 +184,7 @@ eval_one() {  # eval_one POLICY TASK [N] [TAG]
     "s15_eval.scene_json=${scene}" "s15_eval.prompt='${prompt}'" "s15_eval.external_sensors_cfg=${sensors}" \
     "s15_eval.tonemap_op=${TONEMAP_OP:-null}" \
     ${IMAGE_GAMMA:+"s15_eval.image_gamma=${IMAGE_GAMMA}"} \
+    ${IMAGE_GAMMA_WRIST:+"s15_eval.image_gamma_wrist=${IMAGE_GAMMA_WRIST}"} \
     ${GRASPING_MODE:+"++s15_eval.grasping_mode=${GRASPING_MODE}"} \
     ${BASE_CAMERA_1:+"s15_eval.base_camera_1_name=${BASE_CAMERA_1}"} \
     "s15_eval.timeout_s=${timeout}" "s15_eval.execute_horizon=${horizon}" "s15_eval.n_episodes=${n}" \
