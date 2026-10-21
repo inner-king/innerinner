@@ -102,6 +102,12 @@ DESCRIBE = {
     ("serve_fruits_ours_real_authplate", "assisted"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것"),
     ("serve_fruits_ours_real_authplate", "assisted_rep2"): ("30.11", "우리 복원, 모든 수정, assisted 잡기, 주황 접시만 저자 것, 반복 2"),
 }
+for g, label in (("07", "0.7"), ("14", "1.4"), ("18", "1.8")):
+    DESCRIBE[("marker_in_cup", f"gamma{g}")] = ("30.13", AUTHORS + f", 정책 이미지 감마 {label} (openpi 클라이언트에서)")
+DESCRIBE[("marker_in_cup", "gamma14_rep2")] = ("30.13", AUTHORS + ", 정책 이미지 감마 1.4 (openpi 클라이언트에서), 반복 2")
+for s in ("cup_in_bowl_ours_real", "marker_in_cup_ours_real", "serve_fruits_ours_real"):
+    DESCRIBE[(s, "assisted_g14")] = ("30.13", "우리 복원, 모든 수정, assisted 잡기, 모든 정책 이미지 감마 1.4")
+    DESCRIBE[(s, "assisted_g14_rep2")] = ("30.13", "우리 복원, 모든 수정, assisted 잡기, 모든 정책 이미지 감마 1.4, 반복 2")
 for rep in (2, 3, 4):
     DESCRIBE[("marker_in_cup", f"rep{rep}")] = ("18.4", AUTHORS + f", 기준 반복 {rep}")
     DESCRIBE[("marker_in_cup_kp4", f"rep{rep}")] = ("26.3", AUTHORS + f", 팔 stiffness ×4, 반복 {rep}")
