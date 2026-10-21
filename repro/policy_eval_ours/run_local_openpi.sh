@@ -21,8 +21,8 @@
 #   all POLICY N TAG SPEC:TASK...      one task after another, N episodes each, from <EVAL_ROOT>/init_states/<task>.json
 #                                      (copied from INIT_FROM when missing); a run that dies is retried once
 #
-# GRASPING_MODE, SCENE_JSON, PROMPT, SENSORS_CFG, TONEMAP_OP, BASE_CAMERA_1 and TIMEOUT_S pass through to
-# run_table_g1.sh.
+# GRASPING_MODE, SCENE_JSON, PROMPT, SENSORS_CFG, TONEMAP_OP, BASE_CAMERA_1, TIMEOUT_S and IMAGE_GAMMA pass
+# through to run_table_g1.sh.
 #   repro/policy_eval_ours/run_local_openpi.sh server pi05
 #   GRASPING_MODE=physical repro/policy_eval_ours/run_local_openpi.sh all pi05 25 main \
 #     repro/policy_eval_ours/ours.yaml:cup_in_bowl_ours_real

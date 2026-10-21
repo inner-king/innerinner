@@ -422,6 +422,14 @@ def main(cfg):
             og.sim.render()
         print(f"[render] tone mapper op {int(tonemap_op)}")
 
+    # Tone correction of every camera image the policies see, applied after the render (s15_eval.image_gamma; null
+    # = off). The authors' notes above list a colour correction of the render whose values were not published;
+    # pi0.5 on Marker in Cup follows the images' tone (repro/README.md 30.12), so this applies one to all policies
+    # alike. A pixel value v in [0, 1] becomes v ** image_gamma.
+    image_gamma = cfg.s15_eval.get("image_gamma", None)
+    if image_gamma is not None:
+        print(f"[render] policy images raised to the power {float(image_gamma)}")
+
     # Load init states for deterministic evaluation if provided
     init_states_path = cfg.s15_eval.get("init_states_path", None)
     init_states = None
@@ -637,7 +645,11 @@ def main(cfg):
                 base_2_rgb = external_obs[external_cams[1]]["rgb"][:, :, :3]
             else:
                 base_2_rgb = base_1_rgb  # Use first external camera as fallback
-            
+
+            if image_gamma is not None:
+                wrist_rgb, base_1_rgb, base_2_rgb = (
+                    (th.as_tensor(img).float().div(255.0).pow(float(image_gamma)) * 255.0).round().clamp(0, 255).to(th.uint8)
+                    for img in (wrist_rgb, base_1_rgb, base_2_rgb))
             
             # Convert joints to numpy and ensure correct dtype
             joints_np = qpos[:7].numpy() if hasattr(qpos, 'numpy') else np.array(qpos[:7])

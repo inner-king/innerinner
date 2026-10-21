@@ -478,6 +478,7 @@ s15_eval:       # env: b1k -- Evaluate Gr00t checkpoint on OmniGibson scene
   floor_plane_visible: false
   external_sensors_cfg: nv_franka_droid   # Located in <CFG_DIR>/external_sensors
   tonemap_op: null                        # RTX tone mapper for the policy's cameras (1 = linear); null = Isaac Sim's ACES
+  image_gamma: null                       # Raise every policy camera image to this power (>1 darker); null = off
   action_freq: 15                         # Action frequency in Hz
   timeout_s: 90                            # Maximum episode timeout in seconds
   execute_horizon: 8                     # Number of actions to execute per policy inference
