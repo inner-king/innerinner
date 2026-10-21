@@ -17,7 +17,7 @@
 | Extraction · Generation (A) | Reproduced | Gemini 대신 local model을 쓰고 12 GB GPU에 맞게 조정. Stage 11 mass estimation은 원본보다 개선 (3, 6, 16, 17, 20, 29장) |
 | Automatic 3DGS background | Partial | Capture viewpoint에서는 맞지만 robot camera viewpoint에서 무너짐. Desk만 남기고 나머지를 plain room으로 채워 완화 (13, 17, 30.2, 31장) |
 | Augmentation (B) | Reproduced | Local model로 object·scene·task cousins 생성 (5, 11장) |
-| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 1차(cell마다 25 episode) mean r 0.935이고, Serve Fruits가 0.802에서 0.972로 오름 (30.13, 2차 진행 중) |
+| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 mean r 0.924, MMRV 0.027 (cell마다 50 episode). Serve Fruits가 0.802에서 0.926으로 오르고, real-world와 구별되는 cell이 4개에서 2개로 줆 (30.13) |
 | Sim-to-Real Policy Training (C) | Not possible | Training code와 real-robot data가 공개되지 않음 (1장) |
 
 ## 1. 재현 범위
@@ -2457,37 +2457,39 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
 - 30.10의 장면(우리 복원, 모든 수정, assisted 잡기), 시작 상태, 정책별 카메라 설정을 그대로 두고 γ만 바꿉니다.
 - 먼저 칸마다 25회씩 돌립니다. Marker in Cup의 결과와 관계없이 세 과제를 모두 돌립니다. 한 과제만 보고 고르면 같은 잘못을 되풀이하기 때문입니다.
 
-**1차 결과** (2026-10-21 14:10, 칸마다 25회, Marker in Cup의 π0.5만 25회 ×2). 칸은 γ 1(30.10, 50회) → γ 1.4이고, 굵은 칸은 실제와 구별되는 값입니다(p < 0.05, 실제를 25회로 봄).
+**결과** (2026-10-21 21:00, 칸마다 25회 ×2 = 50회). 칸은 γ 1(30.10, 50회) → γ 1.4이고, 굵은 칸은 실제와 구별되는 값입니다(p < 0.05, 실제를 25회로 봄).
 
 | 과제 / 정책 | γ 1 → γ 1.4 | 논문 실제 |
 |---|---|---|
-| Cup in Bowl / π0 | 80% → 21/25 = 84% | 88% |
-| Cup in Bowl / π0.5 | 98% → 25/25 = 100% | 100% |
-| Cup in Bowl / GR00T N1.6 | 68% → 20/25 = 80% | 68% |
-| Cup in Bowl / GR00T N1.7 | 90% → 24/25 = 96% | 92% |
-| Marker in Cup / π0 | 24% → 6/25 = 24% | 40% |
-| Marker in Cup / π0.5 | **68%** → 22, 17 → 39/50 = 78% | 92% |
-| Marker in Cup / GR00T N1.6 | 24% → 7/25 = 28% | 28% |
-| Marker in Cup / GR00T N1.7 | 98% → 24/25 = 96% | 88% |
-| Serve Fruits / π0 | **20%** → 1/25 = 4% | 0% |
-| Serve Fruits / π0.5 | 84% → **25/25 = 100%** | 72% |
-| Serve Fruits / GR00T N1.6 | **58%** → **8/25 = 32%** | 4% |
-| Serve Fruits / GR00T N1.7 | **88%** → 17/25 = 68% | 40% |
+| Cup in Bowl / π0 | 80% → 42/50 = 84% | 88% |
+| Cup in Bowl / π0.5 | 98% → 48/50 = 96% | 100% |
+| Cup in Bowl / GR00T N1.6 | 68% → 40/50 = 80% | 68% |
+| Cup in Bowl / GR00T N1.7 | 90% → 46/50 = 92% | 92% |
+| Marker in Cup / π0 | 24% → 11/50 = 22% | 40% |
+| Marker in Cup / π0.5 | **68%** → 39/50 = 78% | 92% |
+| Marker in Cup / GR00T N1.6 | 24% → 15/50 = 30% | 28% |
+| Marker in Cup / GR00T N1.7 | 98% → 49/50 = 98% | 88% |
+| Serve Fruits / π0 | **20%** → 4/50 = 8% | 0% |
+| Serve Fruits / π0.5 | 84% → 43/50 = 86% | 72% |
+| Serve Fruits / GR00T N1.6 | **58%** → **20/50 = 40%** | 4% |
+| Serve Fruits / GR00T N1.7 | **88%** → **35/50 = 70%** | 40% |
 
 | 과제 (정책 넷) | γ 1 r / MMRV | γ 1.4 r (95% 구간) / MMRV | 논문 r (같은 넷) / MMRV |
 |---|---|---|---|
-| Cup in Bowl | 0.967 / 0.000 | 0.885 (+0.13..+1.00) / 0.000 | 0.889 / 0.020 |
-| Marker in Cup | 0.912 / 0.050 | 0.949 (+0.83..+0.99) / 0.080 | 0.999 / 0.010 |
-| Serve Fruits | 0.802 / 0.160 | **0.972** (+0.88..+1.00) / **0.000** | 0.955 / 0.000 |
-| 세 과제 평균 | 0.894 / 0.070 | **0.935** / 0.027 | 0.948 / 0.010 |
+| Cup in Bowl | 0.967 / 0.000 | 0.912 (+0.22..+1.00) / 0.000 | 0.889 / 0.020 |
+| Marker in Cup | 0.912 / 0.050 | 0.935 (+0.84..+0.98) / 0.080 | 0.999 / 0.010 |
+| Serve Fruits | 0.802 / 0.160 | **0.926** (+0.82..+0.98) / **0.000** | 0.955 / 0.000 |
+| 세 과제 평균 | 0.894 / 0.070 | **0.924** / 0.027 | 0.948 / 0.010 |
 
-- **Serve Fruits가 크게 나아졌습니다.** 실제보다 높던 약한 정책 셋이 모두 실제 쪽으로 내려왔습니다(π0 20 → 4%, N1.6 58 → 32%, N1.7 88 → 68%). r은 0.802에서 0.972로, MMRV는 0.160에서 0으로 바뀌었습니다.
+- **평균 r은 0.894에서 0.924로 오르고, MMRV는 0.070에서 0.027로 줄었습니다.** 논문의 같은 넷(0.948, 0.010)에 가까워졌지만 닿지는 않았습니다.
+- **Serve Fruits가 가장 나아졌습니다**(r 0.802 → 0.926, MMRV 0.160 → 0). 실제보다 높던 약한 정책 셋이 모두 실제 쪽으로 내려왔습니다(π0 20 → 8%, N1.6 58 → 40%, N1.7 88 → 70%).
+  - 칸 하나로 유의한 것은 N1.7입니다(p = 0.048). N1.6(40%)과 N1.7(70%)은 여전히 실제(4%, 40%)보다 높습니다.
   - γ 1.4는 저자 Marker in Cup의 π0.5만 보고 고른 값입니다. Serve Fruits와 Cup in Bowl은 그 선택에 쓰지 않은 데이터입니다.
-  - N1.6은 32%로 여전히 실제 4%보다 높습니다(p = 0.02). π0.5는 100%로 실제 72%보다 높아졌습니다(p = 0.01).
-- **Cup in Bowl은 나빠졌습니다.** N1.6이 68%에서 80%로 올라 실제(68%)에서 멀어졌고, r은 0.967에서 0.885가 됐습니다. 네 정책이 80–100%에 몰려 있어 r의 구간이 넓습니다(+0.13..+1.00). 순서는 그대로여서 MMRV는 0입니다.
-- **Marker in Cup**은 π0.5가 올라 r이 0.912에서 0.949가 됐습니다. MMRV는 π0(24%)가 N1.6(28%)보다 낮아져 0.080입니다(실제 40% 대 28%).
-- **실제와 구별되는 칸은 넷에서 둘로 줄었습니다.** 세 과제 평균 r은 0.935로, 논문의 같은 넷 0.948에 가까워졌습니다.
-- 칸마다 25회라 칸 하나의 변화는 대부분 유의하지 않습니다(Serve Fruits의 네 칸이 p = 0.046–0.088). 칸마다 25회를 더 돌리고 있습니다(2차).
+- **Cup in Bowl은 0.967에서 0.912가 됐습니다.** N1.6이 68%에서 80%로 올랐기 때문인데, 이 변화는 유의하지 않습니다(p = 0.25). 논문의 같은 넷(0.889)보다는 여전히 높습니다.
+- **Marker in Cup은 π0.5가 68%에서 78%로 올라 0.935가 됐습니다.** π0(22%)가 실제(40%)보다 낮은 것은 그대로입니다(30.15).
+- **실제와 구별되는 칸은 넷에서 둘로 줄었습니다**(Serve Fruits의 N1.6, N1.7).
+- 1차(25회)만으로는 평균이 0.935였습니다. 2차에서 Serve Fruits의 N1.6이 12/25(1차 8/25)로 나오면서 0.926으로 내려왔습니다. 25회 한 번으로 낸 r은 이만큼 흔들립니다.
+- **γ 1.4가 저자가 쓴 보정이라는 근거는 없습니다.** 성공률을 보고 고른 값이고, 사진의 밝기와도 맞지 않습니다. 이 결과가 보여 주는 것은, 우리 세 장면에서 모든 정책에 같은 보정을 주면 실제 로봇과 더 맞는다는 데까지입니다. 그래서 평가 단계의 기본값(`image_gamma: null`)은 그대로 둡니다.
 - 모든 조건에서 π0.5는 마커를 100% 집습니다(기준 100/100, γ 1.4 50/50). 실패는 모두 마커를 쥔 채 제한 시간까지 컵에 넣지 못한 경우입니다. γ 1.4가 바꾼 것은 마지막에 컵에 넣는 동작입니다.
 
 결과는 Drive `results/policy_eval_ours/openpi_local/out/`(π0, π0.5)과 `results/policy_eval_ours/gr00t/out/`(N1.6은 `s15_eval_gr00t_*`, N1.7은 `s15_eval_gr00t17_*`)의 `marker_in_cup/s15_eval_pi05_gamma*`와 `<장면>/s15_eval_<정책>_assisted_g14*`에 있습니다. 사진 비교 그림은 `diagnostics/policy_eval_ours/tonemap/`에 있습니다.
