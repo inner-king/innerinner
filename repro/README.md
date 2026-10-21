@@ -467,7 +467,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `g4/desk_room_splat.py`, `g4/add_plain_room.py` | 배경 splat에서 영상이 잘 본 책상 윗면만 남기고 방의 벽·바닥 위치와 색을 잼, 그 방을 단순한 상자 물체로 장면 사본에 넣음 | 31 |
 | `g4/wrist_sheet.py` | 배경별 시연 영상의 외부·손목 카메라 화면을 나란히 놓은 그림 | 30.2, 31 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
-| `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래) | |
+| `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래). 실행 중에 자르는 비용 측정: 평면 절단과 충돌체 변형(`prepare_cut_pieces.py`), 쿠킹(`bench_cooking.py`), OmniGibson 빼기·넣기와 기록(`bench_swap.py`), 다시 읽기·재생(`check_cut_reload.py`) | 15.1 |
 
 **중단한 시도: 물체를 마스크로 가리고 배경 splat 학습 (2026-10-11)**. 13장 전에, VOID로 물체를 지우는 대신 물체 픽셀을 SAM3 마스크로 가려 splat의 광도·깊이 손실과 seed 점구름에서 빼는 방식을 먼저 준비했습니다.
 - 스크립트: `masked_bg/make_object_masks.py`(프레임별 물체 마스크), `masked_bg/dense_da3_anchored.py`(조밀 DA3를 OmniGibson 월드에 앵커 정렬), `masked_bg/align_da3_to_og.py`(조밀 DA3 → OG 월드 Sim(3)과 책상 높이 점검).
@@ -477,6 +477,154 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 - 과일 4개를 평면으로 잘라 반쪽 메시를 만듭니다. 단면 캡과 충돌용 볼록 껍질이 포함됩니다.
 - 칼과 칼꽂이를 넣고, 장면 JSON과 자르기 계획(`cut_plan.json`)을 씁니다.
 - 아직 미완성입니다. 이 장면을 쓰는 시연 스크립트(`slice_fruits_demo.py`)는 없고, 출력 장면(`assets/scenes/DROID/droid_desk_fruit_slicing`)을 만든 흔적도 없습니다.
+
+### 15.1 과일 자르기: 실행 중에 자르는 비용 (2026-10-21)
+
+선행 연구(저장소 밖 보고서 「물체 절단 시뮬레이션 선행 연구」)의 결론은 이렇습니다. PhysX 5 안에는 물체를 물리적으로 자르는 기능이 없습니다. 그래서 칼이 닿는 순간 칼 자세로 평면을 정해 메시를 자르고, SimFoundry 쪽 전이 규칙(transition rule)이 원래 물체를 새 강체 둘로 바꾸고, 칼 링크에는 해석적 저항력을 겁니다. 보고서는 이 방식을 고르기 전에 재야 할 비용 세 가지를 남겼고, 이 절은 그 세 가지를 Isaac Sim 5.1에서 잰 결과입니다.
+
+1. **충돌체 쿠킹**: 시뮬레이션 중에 넣은 강체가 첫 물리 스텝을 밟기까지. 충돌체가 볼록 껍질 하나일 때, 4–16개일 때, SDF 삼각형 메시일 때.
+2. **OmniGibson 경로의 빼기·넣기**: 에피소드 중간에 물체 하나를 빼고 조각 둘을 넣는 시간(`simulator.py`의 `removing_objects`·`adding_objects`)과 그 전후의 스텝 시간.
+3. **저장과 기록**: 물체 구성이 바뀐 뒤에도 `og.sim.save()`·`scene.save()`와, 텔레옵·정책 평가가 기록하는 `HDF5CollectionWrapper`가 버티는지. 저장한 JSON을 다시 읽을 수 있는지.
+
+**조건**
+- 장면: 저자 공개 `droid_desk_serve_fruits`(DROID 책상, Robotiq 그리퍼를 단 Franka, 과일 넷·접시·쟁반, 메시 배경 `droid_v1`). 바닥은 장면의 `ground_plane_info`대로 z = −0.02 m입니다.
+- 소프트웨어: OmniGibson 3.8.0(BEHAVIOR-1K d89aae4), Isaac Sim 5.1.0, omni.physx 107.3.26. 쿠킹 설정은 기본값입니다(UJITSO 쿠킹 켬, 로컬 메시 캐시 1 GB).
+- 설정: 텔레옵과 같은 `apply_teleop_omnigibson_macros()`(GPU dynamics 끔 = CPU PhysX, CCD·Fabric·물체 상태·전이 규칙 켬). 물리 120 Hz, 행동·렌더 15 Hz, headless.
+- 머신: GPU 측정은 super2(i9-12900K, RTX 3060 12 GB)에서 했습니다.
+  - 이 머신(super3)의 GPU는 다른 세션의 정책 평가가 계속 쓰고 있었습니다. super2는 그 평가 대기열이 끝나 다른 GPU 작업이 없을 때 썼습니다(시작·끝의 `nvidia-smi`가 결과 JSON에 있음).
+  - 두 머신은 CPU·GPU·BEHAVIOR-1K 커밋이 같고, 장면 파일과 조각 데이터도 같습니다.
+- 표의 값은 중앙값입니다. 1은 변형마다 24회(과일 4개 × 평면 6개), 2는 방식마다 6회입니다.
+
+**조각 만들기 (오프라인, CPU)** `prepare_cut_pieces.py`
+- **시각 메시**: 과일 넷(사과·바나나·배·오렌지)은 283k–300k 삼각형입니다. 과일마다 무작위 평면 6개(시드 고정, 양쪽에 대리 메시 꼭짓점이 25% 이상)로 trimesh `slice_plane`을 하고, 잘린 테두리 고리마다 중심으로 부채꼴 뚜껑을 덮었습니다. 반쪽은 88k–221k 삼각형입니다.
+- **충돌용 대리 메시**: 과일을 복셀화(긴 변 96칸)·marching cubes·2,000 삼각형 decimation으로 닫힌 메시로 만들고 같은 평면으로 잘랐습니다(반쪽 790–1,682 삼각형). 반쪽 48개가 모두 닫혀 있고, 두 반쪽 부피의 합은 원래 부피와 같습니다.
+- **자산의 볼록 껍질**(사과 23, 배 10, 바나나 4, 오렌지 2개)도 같은 평면으로 잘랐습니다. 볼록 다면체는 평면으로 잘라도 볼록하므로 분해를 다시 할 필요가 없습니다.
+- **CPU 시간**: 반쪽당 중앙값입니다. super3에서 load average 4 안팎일 때 쟀습니다.
+
+  | 단계 | 시간 |
+  |---|---|
+  | 시각 메시 자르기 + 뚜껑 | 98 ms (한 번 자르면 반쪽 둘이라 약 0.2 s) |
+  | 대리 메시 자르기 + 뚜껑 | 1.3 ms |
+  | 자산 볼록 껍질 자르기 | 7.7 ms (사과 25 ms) |
+  | CoACD 분해 (최대 8개) | 사과 35 s, 배 22 s, 오렌지 11 s, 바나나 8 s |
+
+- **겪은 일**
+  - 시각 메시는 닫혀 있지만 manifold가 아닙니다. 면이 두 겹이라 부피가 0에 가깝게 나옵니다. 그래서 SDF와 V-HACD에는 대리 메시를 줬습니다.
+  - 뚜껑을 shapely의 constrained Delaunay로 삼각분할하면 구멍이 남았습니다. 평면이 표면을 스칠 때 생기는 0.3 mm²짜리 자기 접촉 고리를 GEOS가 받지 않았기 때문입니다. 그래서 고리마다 부채꼴로 덮습니다.
+  - CoACD는 manifold 전처리를 끄면 사과 반쪽 대부분(자른 뒤 genus 1–9)에서 segfault가 났고, 한 반쪽은 15분이 넘도록 끝나지 않았습니다. 전처리를 켜면 48개 모두 끝났습니다.
+
+**1. 충돌체 쿠킹** `bench_cooking.py`
+
+도는 장면에 반쪽 둘을 OmniGibson을 거치지 않고 USD 강체(시각 메시, 질량, 충돌 prim)로 바로 넣었습니다. 그리고 넣기 → `flush_changes()`(omni.physx가 prim을 읽고 쿠킹하는 곳) → 첫 물리 스텝을 따로 쟀습니다. 표의 값은 한 번 자를 때, 곧 반쪽 둘의 값입니다. 마지막 열은 넣은 뒤 물리 스텝 60번의 중앙값이고, 조각이 없을 때는 1.27 ms입니다.
+
+| 충돌체 | 컷당 PhysX shape | 쿠킹에 넘긴 삼각형 | 넣기 → 첫 물리 스텝 (최대) | 그중 `flush_changes` | 이후 물리 스텝 |
+|---|---|---|---|---|---|
+| 상자 (쿠킹 없음, 대조) | 2 | 0 | 26 ms (35) | 6.6 ms | 1.68 ms |
+| 볼록 껍질 1개 (대리 메시) | 2 | 2.5k | 29 ms (38) | 7.9 ms | 1.64 ms |
+| 볼록 껍질 1개 (시각 메시 그대로) | 2 | 298k | 62 ms (75) | 33 ms | 1.67 ms |
+| 자산 볼록 껍질을 자른 것 | 4–38 | 1.1k | 39 ms (74) | 11 ms | 1.73 ms |
+| CoACD 껍질 (오프라인, 최대 8) | 5–16 | 33k | 43 ms (73) | 13 ms | 1.75 ms |
+| V-HACD, PhysX 기본값 (오차 10%) | 2 (바나나 33–52) | 2.5k | 476 ms (599) | 454 ms | 1.69 ms |
+| V-HACD 최대 4, 오차 1% | 8 | 2.5k | 3.5 s (5.5) | 3.5 s | 1.76 ms |
+| V-HACD 최대 8, 오차 1% | 16 | 2.5k | 3.5 s (5.3) | 3.5 s | 1.76 ms |
+| V-HACD 최대 16, 오차 1% | 32 | 2.5k | 3.4 s (5.1) | 3.4 s | 1.82 ms |
+| SDF 128 | 2 | 2.5k | 149 ms (198) | 125 ms | 1.77 ms |
+| SDF 256 (기본) | 2 | 2.5k | 391 ms (541) | 369 ms | 1.73 ms |
+| 같은 메시를 다시 (볼록 1개·V-HACD 최대 8·SDF 256) | | | 25–26 ms | 6.8–6.9 ms | |
+
+- **쿠킹은 `flush_changes()` 안에서 끝납니다.** 336번 모두 flush 직후 남은 쿠킹 작업이 0이었고, 첫 물리 스텝 뒤에는 조각의 shape가 PhysX 장면에 있었습니다(장면 통계와 겹침 질의로 확인). 충돌체가 늦게 붙어 조각이 바닥을 뚫고 떨어지는 일은 없습니다. 대신 쿠킹하는 동안 시뮬레이션이 멈춥니다.
+- **볼록 껍질은 쌉니다.** 쿠킹이 없는 상자보다 대리 메시 껍질 1개는 1.3 ms, 자른 자산 껍질(사과는 34–38개)은 4 ms 더 듭니다. 29만 삼각형에서 바로 만든 껍질도 26 ms 더 들어, 모두 15 Hz 한 프레임(67 ms) 안입니다.
+- **실행 중 분해와 SDF는 비쌉니다.**
+  - PhysX의 V-HACD는 기본값이면 반쪽을 대개 껍질 하나로 두는데도 0.45 s가 듭니다.
+  - 4–16개로 나누게 하면(오차 1%) 바나나 1.3 s, 사과 4.3–4.6 s가 듭니다. 껍질 수 제한과는 거의 상관이 없습니다.
+  - SDF는 해상도 128에서 0.13 s, 256에서 0.37 s(사과 0.46 s)입니다.
+  - 자를 때마다 15 Hz로 2–80프레임을 멈추는 셈입니다.
+- **같은 메시는 다시 쿠킹하지 않습니다.** 메모리 캐시에서 바로 나와 쿠킹 작업 자체가 생기지 않습니다. 미리 만든 반쪽으로 바꾸는 방식(OmniGibson의 SlicingRule, `make_slicing_scene.py`)은 이 덕을 봅니다. 평면이 매번 다르면 소용이 없습니다.
+- **스텝 비용.** 조각 둘이 바닥에 놓인 동안 물리 스텝이 0.4–0.5 ms 늘었고, 상자·볼록·SDF 사이에 차이가 거의 없습니다. CPU PhysX에서도 SDF 조각이 바닥에 놓였습니다. 약 1초 뒤 가장 많이 내려간 조각도 3.7 cm였습니다(쓰러진 경우).
+- **시각 메시.** 반쪽 둘(약 29만 삼각형)을 stage에 쓰는 데 17–27 ms, 넣은 뒤 첫 렌더는 21 ms로 평소보다 느리지 않았습니다. 조각에는 UV와 재질을 넣지 않았으므로, 질감 있는 조각의 렌더 비용은 재지 않았습니다.
+
+**2. OmniGibson 경로로 바꿔 끼우기** `bench_swap.py`
+
+텔레옵처럼 만든 환경(손목 카메라 1280×720 RGB·깊이, 뷰어 카메라 1280×720)을 `HDF5CollectionWrapper`로 감쌌습니다. 래퍼 설정은 `real2sim_cfg.yaml`의 `data_env_kwargs`를 따랐고, 정책 평가처럼 카메라 렌더를 켰습니다. 에피소드마다 30스텝 뒤에 사과를 빼고 조각 둘을 넣었습니다.
+- **빼기**는 `og.sim.batch_remove_objects()`입니다. 상태 덤프, 묘지로 이동, 물리 한 스텝, 뷰 재구성, 상태 복원 순서입니다.
+- **넣기**는 두 방식을 번갈아 했습니다. "규칙식"은 OmniGibson 전이 규칙(`TransitionRuleAPI.execute_transition`)처럼 `scene.add_object()`를 조각마다 부르고, "일괄"은 `og.sim.batch_add_objects()`를 한 번 부릅니다.
+- **충돌체**는 자른 자산 껍질입니다. 사과라서 조각 둘에 충돌 prim이 34–38개입니다. 마지막 열은 비교용으로, 같은 조각을 대리 메시 볼록 껍질 하나씩으로 넣은 것입니다.
+
+| 단계 | 규칙식 | 일괄 | 볼록 껍질 1개씩 |
+|---|---|---|---|
+| 조각 USD 파일 둘 쓰기 (0.9–2.0 MB씩) | 60 ms | 59 ms | 51 ms |
+| 사과 빼기 | 55 ms | 49 ms | 51 ms |
+| 조각 둘 넣기 | 375 ms | 337 ms | 139 ms |
+| 넣은 뒤 첫 env 스텝 (조각 초기화 포함, 평소 48 ms) | 84 ms | 82 ms | 76 ms |
+| 합계 (최대) | 589 ms (727) | 524 ms (597) | 318 ms (346) |
+
+- **넣기 시간은 충돌 prim 수를 따라갑니다.**
+  - 넣기를 프로파일하면(`--profile`) 0.34–0.38 s 중 약 0.3 s가 OmniGibson이 메시 prim마다 하는 후처리입니다: `rigid_prim.update_meshes` → `_infer_meshes_recursively`, `geom_prim._post_load`, 질량 계산을 위해 메시마다 trimesh를 만드는 `get_mesh_volume_and_com`.
+  - 충돌 prim 하나에 약 6–8 ms입니다. 같은 조각을 볼록 껍질 하나씩으로 넣으면 넣기가 139 ms로 줄었습니다.
+  - PhysX 쿠킹(1에서 자른 자산 껍질 11 ms)은 이 중 작은 부분입니다.
+- **일괄 넣기**는 규칙식보다 약 40 ms 빠릅니다(뷰 재구성을 한 번 덜 함).
+- **전후 스텝 시간.** env 스텝(카메라 렌더 포함)은 47.7 → 47.5 ms로 그대로였고, 물리 스텝은 1.61 → 1.9 ms가 됐습니다.
+- **다음 에피소드의 `reset()`**은 조각을 빼고 사과를 다시 넣어 원래 구성으로 돌아갑니다. 1.0–1.7 s(중앙값 1.35 s)가 걸렸고, 자르지 않은 첫 reset은 1.08 s였습니다.
+
+**3. 저장과 기록** `bench_swap.py`, `check_cut_reload.py`
+
+| 점검 | 결과 |
+|---|---|
+| 자른 뒤 `scene.save()`, `og.sim.save()` | 모든 에피소드(32개)에서 성공, 9.5 ms·10 ms. 조각 둘(실행 중에 쓴 USD의 절대 경로와 파일 해시)이 들어가고 사과는 빠짐 |
+| 그 `og.sim.save()`를 래퍼의 dump filter가 켜진 채로 | 상태에 깨어 있는 물체만 들어감(9개 중 1–2개). 그 파일은 로드할 때 `KeyError: 'mesh_background_0'` |
+| dump filter를 끄고 저장 (래퍼의 `update_checkpoint()`가 하는 대로) | 9개 모두 상태가 들어감 |
+| 그 JSON을 텔레옵·평가처럼 `og.Environment`의 `scene_file`로 | 로드 ok. 조각 둘 있음, 사과 없음. 다시 저장 ok, reset 뒤에도 조각 유지. 자세 차이는 reset 직후 2.1–2.3 mm·3.5–3.9°, 4초 뒤 7–8 mm·12–14° (아래) |
+| 같은 JSON을 `og.sim.restore()`로 (라이트 에디터 `settle.py`처럼) | 로드 ok, 자세 차이 0.00001 mm·0°, 4초 동안 그대로. 다시 저장·reset ok |
+| `HDF5CollectionWrapper` 기록 | 12 에피소드 모두 쓰고 닫힘. 자른 단계(30)에 `remove: 사과`, `add: 조각 둘`이 transitions로 남고, 단계마다 길이가 다른 상태 벡터(121–226개 값)는 에피소드 안의 최대 길이로 채워 맞춤 |
+| OmniGibson 재생 (`DataPlaybackWrapper.playback_episode`. 6단계의 LeRobot 래퍼도 이것을 씀) | 12개 중 4개 성공(조각 자세가 기록과 0.25 mm·0.35° 이내), 8개 실패 (아래) |
+| SimFoundry `MinimalPlaybackWrapper` (3·3b·4단계) | 12개 모두 자른 다음 단계에서 `AssertionError: Could not find object while deserializing` |
+
+- **reset이 남긴 transition이 다음 에피소드에 붙습니다.**
+  - 래퍼의 `reset()`은 이전 에피소드를 파일에 쓰고 transition 버퍼를 비운 뒤 `env.reset()`을 부릅니다. 그 안에서 장면의 `reset()`이 조각을 빼고 사과를 다시 넣습니다.
+  - 이 빼기·넣기가 새 에피소드의 transitions에 들어갑니다. 단계 번호는 아직 0으로 돌아가지 않은 이전 에피소드의 마지막 번호입니다(`demo_1`의 `"61": remove ep0 조각, add 사과`).
+  - 새 에피소드가 그 번호까지 이어지면, 재생은 그 단계에서 없는 조각을 빼려다 `AttributeError: 'NoneType' object has no attribute 'set_position_orientation'`로 멈춥니다.
+  - 앞 에피소드보다 긴 8개가 이렇게 실패했고, 짧은 4개(0, 3, 6, 9)만 끝까지 갔습니다. 텔레옵처럼 에피소드 길이가 제각각이면, 자르기가 있었던 에피소드의 다음 에피소드는 반쯤 재생되지 않습니다.
+- **`MinimalPlaybackWrapper`는 transition을 건너뜁니다**(`# TODO: Handle transitions if needed`). 자른 뒤의 상태 벡터에는 사과 대신 조각의 UUID가 들어 있어, 그 상태를 처음 불러올 때 멈춥니다. 3·3b단계(주석)와 4단계(waypoint)는 자르기가 있는 시연을 하나도 읽지 못합니다.
+- **`og.Environment` 경로의 자세 차이는 자르기 탓이 아닙니다.** 자르지 않은 원래 장면을 같은 경로로 읽으면 4초 동안 사과가 15 mm·24°, 오렌지가 12 mm·16° 굴렀습니다. `og.sim.restore()`로 읽으면 4.9 mm 이하였습니다. 자른 파일 안의 다른 물체는 `og.Environment` 경로에서도 2.5 mm 이하였습니다.
+- **자르기와 무관하게 마주친 것 셋.**
+  - `og.sim.save()`는 SimFoundry의 `ground_plane_info`를 쓰지 않아, 다시 읽으면 바닥이 z = 0이 됩니다. 확인할 때는 원래 장면의 값을 따로 적용했습니다. DummyTask로 기록한 이 실험에서는 재생할 때 이를 적용하지 않으면 조각이 기록보다 20 mm 높았습니다.
+  - OmniGibson의 `HDF5PlaybackWrapper.create_from_hdf5`는 생성자에 `robot_grasping_mode`를 넘기는데, 이 클래스의 생성자는 그 인자를 받지 않아 `TypeError`가 납니다. 6단계의 LeRobot 래퍼는 받습니다. 점검 스크립트는 그 인자만 버리는 하위 클래스로 돌렸습니다.
+  - dump filter가 켜진 채 저장한 파일을 읽지 못하는 것은 자르지 않아도 같습니다. 다만 지금 SimFoundry의 어느 단계도 기록 중에 장면을 저장하지는 않습니다.
+
+**정리: 설계에 주는 것**
+- **충돌체.** 과일을 미리 볼록 분해해 두고(자산에 이미 있음) 자를 때 각 껍질을 평면으로 자르는 방식이 맞습니다. Python에서 8 ms(사과 25 ms), 쿠킹 4 ms면 끝납니다. 실행 중 분해(V-HACD 0.5–5.5 s, CoACD 반쪽당 8–35 s, 전처리 없이는 충돌)와 SDF(0.13–0.5 s)는 평면이 매번 다른 절단에 맞지 않습니다.
+- **멈춤 시간.** 한 번 자를 때 trimesh 시각 메시 자르기 0.2 s와 OmniGibson 교체 0.3–0.6 s, 합계 0.5–0.8 s가 걸립니다(15 Hz로 8–12프레임). 줄일 곳은 쿠킹이 아니라 이 둘입니다.
+  - OmniGibson의 메시 prim별 후처리: 충돌 prim 수를 줄이거나 작은 껍질을 합칩니다.
+  - 시각 메시 자르기: 시각 메시를 줄이거나 더 빠른 라이브러리를 씁니다.
+- **이대로 쓰면 깨지는 곳 둘.** 둘 다 deps/를 고치지 않고 SimFoundry 안에서 고칠 수 있습니다.
+  - 시연 기록: reset 중에 생긴 transition을 지우도록 `HDF5CollectionWrapper.reset()`을 감싸야 합니다.
+  - 3·3b·4단계 재생: `MinimalPlaybackWrapper`가 `DataPlaybackWrapper`처럼 transition을 실행해야 합니다.
+  - 에피소드 중에 장면을 저장하려면 dump filter를 끄고 저장해야 합니다.
+- **재지 않은 것.** 칼과 접촉 판정, 전이 규칙으로 감싸기, 질감 있는 조각, GPU dynamics, GUI 텔레옵.
+
+**파일과 다시 실행** (결과 `diagnostics/fruit_slicing/`, 로그 `logs/fruit_slicing/`)
+
+| 파일 | 내용 |
+|---|---|
+| `fruit_slicing/prepare_cut_pieces.py` | `export`(3dgrut env, pxr): 과일 메시와 충돌 껍질 읽기. `cut`(simfoundry env): 평면 절단, 대리 메시, 껍질 자르기, CoACD, 단계별 시간(`manifest.json`) |
+| `fruit_slicing/cut_common.py` | 충돌체 변형과 조각 USD 쓰기 |
+| `fruit_slicing/bench_cooking.py` | 1: 넣기·flush·첫 스텝·첫 렌더, 쿠킹 통계, shape 확인 |
+| `fruit_slicing/bench_swap.py` | 2와 3의 기록: 빼기·넣기, 전후 스텝, 저장, HDF5 (`--profile`, `--variant`) |
+| `fruit_slicing/check_cut_reload.py` | 3: `og.Environment`·`og.sim.restore()`로 다시 읽기, 두 재생 래퍼 |
+
+```bash
+S=/home/inner/real2sim/SimFoundry/assets/scenes/DROID/droid_desk_serve_fruits/droid_desk_serve_fruits_scene_state_latest.json
+P=results/diagnostics/fruit_slicing
+~/miniforge3/envs/3dgrut/bin/python -I repro/fruit_slicing/prepare_cut_pieces.py export --scene $S --out $P/pieces
+PYTHONPATH=$PWD python repro/fruit_slicing/prepare_cut_pieces.py cut --out $P/pieces   # CPU, 약 20분(대부분 CoACD)
+# 여기부터 Isaac Sim, GPU가 빈 뒤에 하나씩. deps/가 없는 체크아웃이면 OMNIGIBSON_DATA_PATH를 BEHAVIOR-1K의 datasets로
+PYTHONPATH=$PWD python repro/fruit_slicing/bench_cooking.py --scene $S --pieces $P/pieces --out $P/cooking.json   # 약 15분
+PYTHONPATH=$PWD python repro/fruit_slicing/bench_swap.py --scene $S --pieces $P/pieces --out-dir $P/swap          # 약 5분
+PYTHONPATH=$PWD python repro/fruit_slicing/bench_swap.py --scene $S --pieces $P/pieces --out-dir $P/swap_hull --variant hull --episodes 6
+PYTHONPATH=$PWD python repro/fruit_slicing/check_cut_reload.py env --saved $P/swap/saved_ep0.json --scene $S --out $P/swap/reload_env.json
+PYTHONPATH=$PWD python repro/fruit_slicing/check_cut_reload.py restore --saved $P/swap/saved_ep1.json --scene $S --out $P/swap/reload_restore.json
+PYTHONPATH=$PWD python repro/fruit_slicing/check_cut_reload.py replay --hdf5 $P/swap/rollouts.hdf5 --scene $S --out $P/swap/replay.json
+```
 
 ## 16. 로컬 VLM 비교: Pipeline A는 Qwen3.5-9B로 (2026-10-16)
 
