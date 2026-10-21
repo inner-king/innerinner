@@ -2489,6 +2489,38 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
 - 칸마다 25회라 칸 하나의 변화는 대부분 유의하지 않습니다(Serve Fruits의 네 칸이 p = 0.046–0.088). 칸마다 25회를 더 돌리고 있습니다(2차).
 - 모든 조건에서 π0.5는 마커를 100% 집습니다(기준 100/100, γ 1.4 50/50). 실패는 모두 마커를 쥔 채 제한 시간까지 컵에 넣지 못한 경우입니다. γ 1.4가 바꾼 것은 마지막에 컵에 넣는 동작입니다.
 
+결과는 Drive `results/policy_eval_ours/openpi_local/out/`(π0, π0.5)과 `results/policy_eval_ours/gr00t/out/`(N1.6은 `s15_eval_gr00t_*`, N1.7은 `s15_eval_gr00t17_*`)의 `marker_in_cup/s15_eval_pi05_gamma*`와 `<장면>/s15_eval_<정책>_assisted_g14*`에 있습니다. 사진 비교 그림은 `diagnostics/policy_eval_ours/tonemap/`에 있습니다.
+
+```bash
+# 첫 표: 저자 Marker in Cup의 π0.5. 그때는 openpi 클라이언트 안에서 바꿨고(지금은 없음), 지금은 평가 단계의
+# IMAGE_GAMMA가 같은 식을 정책 입력으로 줄이기 전에 적용합니다. γ = 1 대조는 IMAGE_GAMMA 없이 태그 ctrl3060.
+L=repro/policy_eval_ours/run_local_openpi.sh G=repro/policy_eval_ours/run_local_gr00t.sh Y=repro/policy_eval_ours/ours.yaml
+$L server pi05
+IMAGE_GAMMA=1.4 $L all pi05 25 gamma14 repro/policy_eval/table_g1.yaml:marker_in_cup
+
+# 네 정책 × 세 과제, 카메라는 30.10과 같게(N1.6은 Serve Fruits만, N1.7은 모두 외부 카메라 하나).
+# 태그 assisted_g14, 두 번째는 assisted_g14_rep2. π0는 $L server pi0 뒤에 같은 명령.
+export IMAGE_GAMMA=1.4
+$L all pi05 25 assisted_g14 $Y:marker_in_cup_ours_real $Y:cup_in_bowl_ours_real $Y:serve_fruits_ours_real
+$G server
+$G all 25 assisted_g14 $Y:marker_in_cup_ours_real $Y:cup_in_bowl_ours_real
+EXTERNAL_SENSORS=nv_franka_droid_single_cam $G all 25 assisted_g14 $Y:serve_fruits_ours_real
+$G stop; GR00T_VERSION=n17 $G server
+GR00T_VERSION=n17 EXTERNAL_SENSORS=nv_franka_droid_single_cam $G all 25 assisted_g14 \
+  $Y:marker_in_cup_ours_real $Y:cup_in_bowl_ours_real $Y:serve_fruits_ours_real
+
+# super2에서 돈 실행을 같은 results/ 아래로 모은 뒤, 칸마다 합쳐 r과 MMRV를 냄
+python repro/policy_eval_ours/pool_runs.py g14.json cup_in_bowl_ours_real,marker_in_cup_ours_real,serve_fruits_ours_real \
+  assisted_g14,assisted_g14_rep2
+python repro/policy_eval_ours/correlate.py --summary g14.json --draws 20000
+
+# 사진과 렌더의 밝기 비교(<paper>는 arXiv 2606.28276의 소스)
+python repro/policy_eval_ours/tone_compare.py \
+  --ours results/diagnostics/policy_eval_ours/tonemap/marker_authors_default/external__external_cam0_left.png \
+  --ref real_photo=<paper>/figs/imgs/DROID_tasks/MarkerInCup.jpg \
+  --ref authors_render=<paper>/figs/imgs/polaris/SF_stackdishware_frame.jpg
+```
+
 ### 30.14 Serve Fruits: 저자 장면과 우리 장면이 갈리는 단계 (2026-10-21)
 
 30.11에서 우리 Serve Fruits는 저자 장면보다 GR00T에 쉬웠지만, 물체를 하나씩 바꿔서는 원인이 나오지 않았습니다. 그래서 에피소드마다 기록되는 네 단계(바나나 집기, 바나나를 청록 쟁반에 놓기, 사과 집기, 사과 놓기)를 비교했습니다. 칸의 비율은 앞 단계를 모두 지난 에피소드 가운데 이 단계도 지난 비율입니다. 모두 assisted 잡기입니다.
@@ -2509,7 +2541,26 @@ python repro/policy_eval_ours/correlate.py --summary results/diagnostics/policy_
   - 저자 장면 N1.7의 실패는 바나나와 바로 옆의 배 사이를 오가다가 아무것도 집지 못하는 모양입니다(2, 3, 17, 23번은 두 실행 모두).
   - 우리 장면에서도 방해물을 옮기는 실패가 있습니다(`gr00t_n16_ours_real_ep0_strip.jpg`: 배를 쟁반에, 사과를 주황 접시에). 차이는 얼마나 자주 그러느냐입니다.
 - 지금까지 바꿔 보지 않은 물체는 배와 오렌지뿐입니다. 그래서 둘만 저자 것으로 바꾼 장면(`serve_fruits_ours_real_authdistract`)을 N1.6으로, 바나나·사과를 바꾼 장면을 N1.7로 돌립니다(진행 중, 25회 ×2씩).
-- 단계 집계는 `diagnostics/policy_eval_ours/serve_fruits/sf_milestones.py`가 각 실행의 `eval_results.json`에서 냅니다. `rollouts.hdf5`의 마일스톤은 일부 에피소드가 비어 있어 쓰지 않았습니다.
+- 단계 집계는 `repro/policy_eval_ours/milestones.py`가 각 실행의 `eval_results.json`에서 냅니다. `rollouts.hdf5`의 마일스톤은 일부 에피소드가 비어 있어 쓰지 않았습니다.
+
+```bash
+# 위 표 (저자 장면과 우리 장면, 두 버전)
+python repro/policy_eval_ours/milestones.py serve_fruits:gr00t:main,rep2,rep3 serve_fruits_ours_real:gr00t:assisted,assisted_rep2 \
+  serve_fruits:gr00t17:main,rep2 serve_fruits_ours_real:gr00t17:assisted,assisted_rep2
+
+# 배와 오렌지만 저자 것으로 바꾼 장면과 그 시작 상태(우리 xy에 저자 물체의 높이와 방향)
+python repro/policy_eval_ours/build_droid_scene.py --task serve_fruits_ours_real_authdistract
+I=results/policy_eval_ours/gr00t/init_states SC=assets/scenes/DROID/droid_desk_serve_fruits_ours_real_authdistract/droid_desk_serve_fruits_ours_real_authdistract_scene_state_latest.json
+python repro/policy_eval_ours/swap_init_object.py --init $I/serve_fruits_ours_real.json --scene $SC \
+  --old yellow_pear_nnhfjs_1 --new yellow_pear_uckunr_0 --task serve_fruits_ours_real_authdistract --out /tmp/step1.json
+python repro/policy_eval_ours/swap_init_object.py --init /tmp/step1.json --scene $SC \
+  --old orange_fruit_riflmn_1 --new orange_fruit_rofqtq_4 --task serve_fruits_ours_real_authdistract \
+  --out $I/serve_fruits_ours_real_authdistract.json
+EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_ours/run_local_gr00t.sh all 25 assisted \
+  repro/policy_eval_ours/ours.yaml:serve_fruits_ours_real_authdistract     # 반복은 assisted_rep2
+GR00T_VERSION=n17 EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_ours/run_local_gr00t.sh all 25 assisted \
+  repro/policy_eval_ours/ours.yaml:serve_fruits_ours_real_authfruit
+```
 
 ## 31. 3DGS 배경: 책상만 남기고 나머지는 단순한 방으로 (2026-10-20)
 

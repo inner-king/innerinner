@@ -8,6 +8,8 @@
 !/assets/readme/
 /Data
 /results
+# Task configs the policy-eval runners copy in from repro/policy_eval*/tasks/ before each run
+/scripts/cfg/task/policy_eval/
 /exps
 /deps
 *.pkl
