@@ -59,8 +59,10 @@ CFG_DIR = SIMFOUNDRY_CFG_DIR
 
 
 ### At the start of every script, we cd into the scripts/config directory
+# (scripts/cfg, which the config's relative paths such as root_dir are written against. "../cfg" from here is
+# scripts/pipeline/C_application/cfg, which does not exist, and the chdir failed every run at import.)
 scripts_dir = os.path.dirname(os.path.abspath(__file__))
-cfg_dir = os.path.join(scripts_dir, "..", "cfg")
+cfg_dir = CFG_DIR
 os.chdir(cfg_dir)
 
 
