@@ -546,8 +546,9 @@ class Check:
     def rail(self, force, speed=0.02, damping=5000.0):
         """Put the (dynamic) knife on a prismatic rail along its blade's up axis, anchored to the world where it is,
         with gravity off and a velocity drive pushing it down at ``speed`` with at most ``force`` (N): a hand that
-        holds the knife upright and presses with a bounded force. The joint is authored whole before the next step
-        (omni.physx ignored a drive added to a joint it had already parsed)."""
+        holds the knife upright and presses with a bounded force. The joint is authored whole before the next step,
+        and the caller wakes the knife every step: a drive added after create_joint() (which renders once) left the
+        knife still, without waking; which of the two mattered was not separated."""
         import omnigibson as og
         import omnigibson.lazy as lazy
 
