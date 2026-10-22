@@ -81,6 +81,8 @@ mass       objects_info.init_info[name].args.mass                (kg)
 joints     state.registry.object_registry[name].joint_pos         (the DOF array)
 limits     objects_info.init_info[name].args.joint_limits
                                        {<joint>: {lower, upper}}
+cutting    objects_info.init_info[name].args.cutting
+                                       {role: knife | cuttable, ...}
 ```
 
 `friction` and `mass` are written by the light editor's physics panel and are
@@ -121,6 +123,16 @@ metadata that this format does not record — `robot_pose.ROBOT_ARM_JOINTS` exis
 because it is not derivable — while the name is what a consumer addresses. The
 editor only offers named editing when the asset's degree-of-freedom count
 matches the array's length, and shows the raw array otherwise.
+
+`cutting` marks knives and the objects they may cut, for the transition rule in
+`simfoundry/cutting/rule.py` (repro/README.md §15.2). Like `mass`, it rides in
+`USDObject`'s `**kwargs`, so OmniGibson records it and every save writes it back.
+A cut replaces the object by pieces written as new USD files, never by editing
+its asset (rule 1); each piece carries `args.mass`,
+`args.expected_file_hash` (its file's MD5) and a `cutting` entry naming its
+`parent`. The rule runs only in a process that imports it before building the
+scene, with transition rules on; no pipeline stage imports it yet, and stages
+3–6b turn transition rules off.
 
 **Who may edit what.** The light editor authorizes three nested sets, not one, because the
 robot and the scanned room are each half-locked in a *different* half (`iter_objects`):

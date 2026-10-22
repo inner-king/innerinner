@@ -467,7 +467,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 | `g4/desk_room_splat.py`, `g4/add_plain_room.py` | 배경 splat에서 영상이 잘 본 책상 윗면만 남기고 방의 벽·바닥 위치와 색을 잼, 그 방을 단순한 상자 물체로 장면 사본에 넣음 | 31 |
 | `g4/wrist_sheet.py` | 배경별 시연 영상의 외부·손목 카메라 화면을 나란히 놓은 그림 | 30.2, 31 |
 | `masked_bg/` | 중단한 배경 시도 (아래) | |
-| `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래). 실행 중에 자르는 비용 측정: 평면 절단과 충돌체 변형(`prepare_cut_pieces.py`), 쿠킹(`bench_cooking.py`), OmniGibson 빼기·넣기와 기록(`bench_swap.py`), 다시 읽기·재생(`check_cut_reload.py`) | 15.1 |
+| `fruit_slicing/` | 진행 중인 과일 자르기 장면 (아래). 실행 중에 자르는 비용 측정: 평면 절단과 충돌체 변형(`prepare_cut_pieces.py`), 쿠킹(`bench_cooking.py`), OmniGibson 빼기·넣기와 기록(`bench_swap.py`), 다시 읽기·재생(`check_cut_reload.py`). 칼날 평면으로 실행 중에 자르는 규칙(`simfoundry/cutting/`)의 스크립트 점검(`check_runtime_cut.py`) | 15.1, 15.2 |
 
 **중단한 시도: 물체를 마스크로 가리고 배경 splat 학습 (2026-10-11)**. 13장 전에, VOID로 물체를 지우는 대신 물체 픽셀을 SAM3 마스크로 가려 splat의 광도·깊이 손실과 seed 점구름에서 빼는 방식을 먼저 준비했습니다.
 - 스크립트: `masked_bg/make_object_masks.py`(프레임별 물체 마스크), `masked_bg/dense_da3_anchored.py`(조밀 DA3를 OmniGibson 월드에 앵커 정렬), `masked_bg/align_da3_to_og.py`(조밀 DA3 → OG 월드 Sim(3)과 책상 높이 점검).
@@ -477,6 +477,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 - 과일 4개를 평면으로 잘라 반쪽 메시를 만듭니다. 단면 캡과 충돌용 볼록 껍질이 포함됩니다.
 - 칼과 칼꽂이를 넣고, 장면 JSON과 자르기 계획(`cut_plan.json`)을 씁니다.
 - 아직 미완성입니다. 이 장면을 쓰는 시연 스크립트(`slice_fruits_demo.py`)는 없고, 출력 장면(`assets/scenes/DROID/droid_desk_fruit_slicing`)을 만든 흔적도 없습니다.
+- 미리 정한 이 평면은 15.2에서 칼날이 실제로 누른 자리의 평면으로 바뀌었습니다.
 
 ### 15.1 과일 자르기: 실행 중에 자르는 비용 (2026-10-21)
 
@@ -624,6 +625,201 @@ PYTHONPATH=$PWD python repro/fruit_slicing/bench_swap.py --scene $S --pieces $P/
 PYTHONPATH=$PWD python repro/fruit_slicing/check_cut_reload.py env --saved $P/swap/saved_ep0.json --scene $S --out $P/swap/reload_env.json
 PYTHONPATH=$PWD python repro/fruit_slicing/check_cut_reload.py restore --saved $P/swap/saved_ep1.json --scene $S --out $P/swap/reload_restore.json
 PYTHONPATH=$PWD python repro/fruit_slicing/check_cut_reload.py replay --hdf5 $P/swap/rollouts.hdf5 --scene $S --out $P/swap/replay.json
+```
+
+### 15.2 과일 자르기: 칼날이 누른 자리에서 실행 중에 자르기 (2026-10-23)
+
+15.1이 잰 비용을 바탕으로 실행 중 절단의 첫 동작판을 만들었습니다. 칼날이 과일을 충분히 세게 누르면, 그 순간 칼날이 놓인 평면으로 과일을 잘라 강체 조각 둘로 바꿉니다. OmniGibson의 `SlicingRule`(미리 만든 반쪽으로 교체)과 `make_slicing_scene.py`의 오프라인 평면을 대신합니다. 코드는 `simfoundry/cutting/`에 있고 deps/는 고치지 않았습니다.
+
+| 파일 | 내용 |
+|---|---|
+| `simfoundry/cutting/geometry.py` | 칼 자세 → 절단 평면, 시각 메시 자르기, 단면 뚜껑, 볼록 껍질 자르기·합치기, 질량·속도 나누기. numpy·scipy·shapely만 씀 |
+| `simfoundry/cutting/usd_io.py` | 자를 물체의 USD 자산 읽기, 조각을 새 USD 자산으로 쓰기 (`pxr` 필요) |
+| `simfoundry/cutting/rule.py` | 전이 규칙 `PlaneCuttingRule`(`BaseTransitionRule` 하위 클래스)과 칼날 접촉 감시 |
+| `simfoundry/cutting/knife_asset.py` | 절차적 칼(16 × 4.5 cm 쐐기 칼날, 0.18 kg). collider 셋 `blade`·`bolster`·`handle` |
+| `tests/test_cutting_geometry.py` | 기하 단위 테스트 24개 (Isaac Sim 없이, simfoundry env) |
+| `tests/test_cutting_usd_io.py` | 조각 USD 왕복 테스트 4개 (독립 `pxr`가 있는 3dgrut env에서만 돌고 나머지에서는 건너뜀) |
+| `repro/fruit_slicing/check_runtime_cut.py` | 아래 스크립트 점검 (`cut`, `threshold`, `reload`, `reset_probe`) |
+
+**쓰는 법**
+- 물체 표시는 `objects_info.init_info[이름].args.cutting`에 둡니다. 칼은 `{"role": "knife", "blade": "blade"}`, 자를 물체는 `{"role": "cuttable"}`입니다.
+  - 이 키는 `USDObject` 생성자의 `**kwargs`로 들어가 init info에 기록됩니다. 그래서 `og.sim.save()`·`scene.save()`가 다시 씁니다(`args.mass`와 같은 경로). 선택적인 새 키라 규칙 2를 지킵니다.
+  - 사이드카 파일이나 최상위 키는 고르지 않았습니다. `og.sim.save()`가 `ground_plane_info`를 버리듯 그것도 버리고, 실행 중에 생긴 조각에 따라가지 않기 때문입니다.
+  - 표시 하나로 문턱값 등 설정을 물체마다 바꿀 수 있습니다(`rule.CuttingSettings`).
+- 장면을 만들기 전에 `simfoundry.cutting.rule`을 import하고 전이 규칙을 켜 둡니다(`apply_teleop_omnigibson_macros()`). `BaseTransitionRule`은 정의될 때 등록되고, 장면은 로드할 때 등록된 규칙만 만듭니다.
+- 조각 파일은 `rule.SETTINGS.pieces_dir`에 씁니다(기본 `~/.cache/simfoundry/cut_pieces`, 환경 변수 `SIMFOUNDRY_CUT_PIECES_DIR`). 저장된 장면은 이 파일을 절대 경로로 가리키므로 장면과 함께 옮겨야 합니다.
+
+**언제 자르나**
+- **칼날만 셉니다.** PhysX 접촉 보고(contact report)는 접촉마다 collider 경로를 줍니다. 그래서 칼이 강체 하나여도 칼날 collider와 손잡이·볼스터를 가릅니다. OmniGibson의 `RigidContactAPI`는 강체 단위로 합치고, 시뮬레이터 스텝 하나의 물리 스텝 8개 중 마지막 것만 보여 주므로 쓰지 않았습니다. 칼날을 별도 링크로 두는 방식은 버렸습니다. PhysX articulation 링크는 운동학적일 수 없어, 스크립트로 움직이는 칼을 만들 수 없기 때문입니다.
+- **힘.** 물리 스텝마다 칼날과 물체 사이 접촉점의 법선 충격량을 더해 dt로 나눈 법선력을 구합니다. 시뮬레이터 스텝 안의 최댓값이 10 N 이상이면 자릅니다(iGibson 2.0의 `slicer` 링크 기준).
+- **재무장.** 자른 칼은 칼날이 어떤 cuttable에도 1초 동안 닿지 않아야 다시 자릅니다(1 mm 안의 접촉도 닿은 것으로 셉니다). OmniGibson `SlicerActive`의 2초와 같은 구조이고, 한 번 내려치는 동안 한 번만 자릅니다. 자르기를 거부한 경우에도 칼을 해제해 같은 획에서 매 스텝 다시 계산하지 않습니다. 이 상태는 저장되지 않으므로 다시 로드하면 모든 칼이 무장 상태입니다.
+- **평면.** 칼날 collider 꼭짓점이 가장 얇게 퍼진 주축이 칼날 법선이고, 그 축 방향 바깥 꼭짓점 사이의 중간면이 절단면입니다. 그 순간 칼 링크의 자세(와 scale)로 월드에 놓고, 자를 물체의 링크 좌표(scale 이전)로 옮깁니다.
+- **얇은 조각 거부.** 한쪽이 물체 충돌체 부피의 3% 미만이면 자르지 않습니다. 칼날 옆면으로 누르면 중간면이 표면만 스치므로 이 규칙에 걸립니다(아래 관문).
+
+**설계 결정: 칼날이 과일을 어떻게 지나가나**
+
+PhysX에서 강체 칼날은 강체 과일 표면에서 멈춥니다. 그래서 **첫 유효 접촉에서 교체하고, 칼날이 차지하는 판을 빼고 자릅니다.** 조각은 절단면에서 (칼날 두께/2 + 0.5 mm) 떨어진 양쪽에 놓이므로, 이 칼(2.2 mm)이면 3.2 mm 판이 빠집니다. 칼날은 그 틈으로 획을 마치고 조각은 벌어집니다.
+- **대안은 획 동안 칼날–과일 충돌을 끄는 것**(PhysX filtered pairs)이었습니다. 두 가지 이유로 고르지 않았습니다.
+  - 자를 때마다 실행 중에 filtered pair를 바꿔야 합니다.
+  - 끈 동안 과일을 칼날에 붙잡아 둘 것이 없습니다. 손잡이 관문에서 칼이 누른 과일은 1.7–3.5 cm 밀려났습니다.
+  - 게다가 칼날이 과일 안에 들어간 채로 교체하면 조각이 칼날과 겹쳐 튕겨 나갑니다.
+- **대가.** 저항력이 없어서 자르는 순간부터 칼이 저항 없이 내려갑니다(해석적 저항력은 다음 단계입니다). 실제로는 획을 따라 점점 갈라지지만, 여기서는 첫 접촉에서 과일 전체가 갈라집니다.
+- **측정.** 칼날이 틈을 지나는 동안 조각을 밀지 않았습니다. 14번 모두 조각 최대 속도는 0.015–0.029 m/s였습니다(아래).
+
+**조각 만들기**
+- **시각 메시.** 삼각형을 평면에서 자릅니다(무게중심으로 배정하지 않음). face-varying `st`는 잘린 변을 따라 보간해, 껍질 질감이 자른 곳까지 그대로 남습니다. 정점 용접도 유지합니다.
+- **단면 뚜껑.** 평평한 OmniPBR 재질 하나입니다(기본 색 (0.93, 0.87, 0.72), 물체마다 바꿀 수 있음).
+  - 잘린 변을 닫힌 경로로 나누고, 경로마다 유효한 다각형(`make_valid`, structure)으로 만듭니다.
+  - 다각형 안의 점들을 물체 충돌체 안에 있는지로 투표해 고체와 구멍을 가른 뒤, constrained Delaunay로 삼각분할합니다.
+  - 고리 모양 단면과 초승달 모양 단면(바나나를 길게 자른 경우)도 그대로 덮습니다. 15.1에서 쓴 고리 중심 부채꼴은 둘 다 못 덮습니다.
+  - 겪은 일은 아래에 적었습니다.
+- **충돌체.** 자산의 볼록 껍질을 평면으로 각각 자릅니다. 볼록 껍질은 잘라도 볼록합니다. 조각마다 8개까지로 합칩니다(가장 작은 껍질을 가까운 이웃 넷 중 합친 부피가 가장 적게 느는 것과 합침). OmniGibson이 collider prim 하나에 6–8 ms를 쓰기 때문이고, 단면은 평평하게 남습니다.
+- **질량.** 부모의 실제 질량(PhysX)을 잘린 껍질 부피 비로 나눕니다. USD에는 `physics:mass`만 쓰고 무게중심·관성은 PhysX가 충돌체로 계산합니다. 부모 자산의 `centerOfMass`·`diagonalInertia`는 반쪽에 맞지 않습니다. `args.mass`에도 기록합니다.
+- **속도.** 조각 무게중심에서 부모 강체의 속도(선속도 + 각속도 × 거리)와 같은 각속도를 줍니다.
+- **파일.** 조각은 새 USD로 씁니다(규칙 1). 파일 이름은 `<조각 이름>_<자기 바이트의 MD5 앞 12자>.usd`이고, 그 MD5를 `args.expected_file_hash`로 기록합니다. 같은 절단은 같은 파일이 되고, 다른 절단은 서로 덮어쓰지 않습니다.
+  - 링크 이름은 부모 것을 써서 `link_physics_materials` 키가 그대로 맞습니다.
+  - 껍질 재질은 부모 파일의 재질 prim을 참조합니다. 텍스처 경로가 부모 파일 기준으로 풀리므로 복사본이 없습니다. 대신 조각을 쓰려면 부모 자산이 있어야 합니다.
+  - 조각 하나는 2.7–7.9 MB입니다.
+- **교체.**
+  - 부모는 `og.sim.batch_remove_objects`로 빼고, 조각 둘은 `og.sim.batch_add_objects` 한 번으로 넣습니다.
+  - 조각은 그 스텝 안에서 바로 초기화합니다. OmniGibson에 맡기면 조각이 다음 스텝의 물리 8번을 초기화되지 않은 채 돈 뒤 `keep_still()`로 속도를 잃습니다. 그 사이 `og.sim.save()`는 "There are still objects to initialize"로 저장을 거부합니다.
+  - 초기화는 `Simulator._non_physics_step()`의 초기화 부분을 그대로 따라 하고, private인 `_objects_to_initialize`를 건드립니다. OmniGibson 버전을 올리면 확인해야 합니다.
+- **이름과 범주.** `half_<원래 이름>_<n>`, 범주 `half_<원래 범주>`입니다(BEHAVIOR의 `half_` 관례). 조각의 `cutting`에는 `source`·`parent`·`generation`이 들어가 다시 자를 수 있습니다. `abilities`는 `{}`입니다. 분류 체계의 `half_*` 능력은 BEHAVIOR 자체 자산을 가정하기 때문입니다.
+
+**조건**
+- 장면: 저자 공개 `droid_desk_serve_fruits`에서 과일 넷에 `cutting`을 붙이고 칼을 더했습니다. 그 밖에는 그대로입니다(Franka 포함, 바닥 z = −0.02 m).
+- 실행: super2(i9-12900K, RTX 3060). 시작·끝 `nvidia-smi`에 다른 GPU 작업이 없었습니다. OmniGibson 3.8.0(BEHAVIOR-1K d89aae4), Isaac Sim 5.1.0이고, 설정은 텔레옵과 같은 `apply_teleop_omnigibson_macros()`입니다. 물리 120 Hz, 행동·렌더 15 Hz, headless이고, 손목 카메라 1280×720과 그림용 640×480 카메라가 렌더링합니다. 자르지 않는 env 스텝은 중앙값 62 ms입니다.
+- 칼: `cut` 모드에서는 운동학적 칼이 칼날 평면 안에서 칼날 쪽으로 5 cm/s로 내려갑니다.
+  - 자세는 (yaw, 칼날 법선 방향 오프셋, 칼날 평면 기울기)로 과일마다 셋입니다. 다른 물체와 부딪히지 않는 것만 골랐고, 오렌지는 둘만 남았습니다.
+  - 운동학적 물체는 자세를 바꿔도 잠든 과일을 깨우지 않습니다. PhysX는 잠든 물체와의 접촉을 보고하지 않으므로, 점검은 칼이 움직이는 매 스텝 cuttable을 깨웁니다(아래 겪은 일).
+
+**1. 자르기** (운동학적 칼, 획 11번 + 네 과일을 한 에피소드에서 모두 자르는 획 4번)
+
+| 과일 | 자세 (yaw°, 오프셋 mm, 기울기°) | 결과 | 자른 스텝의 env 시간 | 조각 질량 (g) | 조각 collider |
+|---|---|---|---|---|---|
+| 사과 | (135, 0, 0) | 자름 | 575 ms | 65.4 + 64.6 / 130 | 8 + 8 |
+| 사과 | (180, +8, 0) | 자름 | 514 ms | 39.8 + 90.2 | 5 + 8 |
+| 사과 | (225, −6, 20) | 자름 | 549 ms | 82.7 + 47.3 | 8 + 8 |
+| 바나나 | (0, 0, 0) | 자름 | 445 ms | 89.3 + 30.7 / 120 | 4 + 4 |
+| 바나나 | (45, +8, 0) | 자름 | 399 ms | 90.9 + 29.1 | 3 + 3 |
+| 바나나 | (135, −6, 20) | 자름 | 381 ms | 63.6 + 56.4 | 2 + 4 |
+| 배 | (0, 0, 0) | 자름 | 460 ms | 48.5 + 191.5 / 240 | 7 + 7 |
+| 배 | (45, +8, 0) | 자름 | 482 ms | 27.3 + 212.7 | 5 + 8 |
+| 배 | (225, −6, 20) | **거부** (0.0%) | | | |
+| 오렌지 | (45, 0, 0) | 자름 | 364 ms | 73.6 + 66.4 / 140 | 2 + 2 |
+| 오렌지 | (225, +8, 0) | 자름 | 406 ms | 42.3 + 97.7 | 2 + 2 |
+| 네 과일 한 에피소드 | 위의 첫 자세 (오렌지만 (180, 0, 0)) | 넷 다 자름 | 396–543 ms | | |
+
+- **칼이 있던 자리에서 잘립니다.**
+  - 규칙이 쓴 평면과 스크립트가 그 스텝에 명령한 칼날 평면은 14번 모두 각도 1.1e-5° 이내, 거리 6.9e-8 m 이내로 같았습니다.
+  - 새 단면의 꼭짓점은 모두 명령한 평면에서 ±(1.1 + 0.5) mm에 놓였습니다. 오차는 6.9e-8 m 이내로 float32 정밀도입니다.
+  - 오프셋과 기울기를 준 자세는 그만큼 치우친 조각을 만들었습니다(사과 40 g + 90 g).
+- **배를 기울여 자른 획은 규칙이 거부했습니다.**
+  - 20° 기울인 칼날의 옆면이 먼저 배에 닿았고(4.7 N), 배는 6 cm 굴러갔습니다.
+  - 칼날이 문턱값을 넘게 눌렀을 때는 칼날 평면이 배를 스치기만 해서 한쪽이 0.0%였습니다. 3% 규칙대로입니다.
+- **질량**: PhysX가 보고한 조각 질량의 합과 부모 질량의 차이는 1.5e-8 kg 이하였습니다.
+- **정착**: 14번 모두 3초 안에 멈췄습니다.
+  - 조각 최대 속도는 0.015–0.029 m/s였고, 끝 속도는 0.01 m/s 미만이었습니다.
+  - 그림으로 보면 반쪽은 자른 면이 위로 오게 넘어갔습니다(`images/`).
+  - 조각 충돌체의 가장 낮은 점은 바닥 아래 최대 2.2 mm였습니다. 자르기 전 과일도 같은 계산으로 최대 2.1 mm 아래였습니다(오렌지). 충돌체 꼭짓점과 PhysX가 쿠킹한 껍질의 차이로, 자르기 탓이 아닙니다.
+- **의도하지 않은 절단**: 없었습니다.
+
+**멈춤 시간** (자른 14번의 중앙값 / 최대)
+
+| 단계 | 중앙값 | 최대 |
+|---|---|---|
+| 칼날 평면 | 1.2 ms | 2.6 ms |
+| 자산 읽기 | 0.01 ms | 0.02 ms |
+| 볼록 껍질 자르기 | 7.0 ms | 27 ms |
+| 껍질 합치기 (조각당 8개로) | 0.0 ms | 32 ms |
+| 시각 메시 자르기 (UV 보간 포함) | 42 ms | 65 ms |
+| 단면 뚜껑 | 49 ms | 56 ms |
+| 조각 USD 둘 쓰기 | 70 ms | 79 ms |
+| 부모 빼기 (`batch_remove_objects`) | 32 ms | 72 ms |
+| 조각 넣기 (`batch_add_objects`) | 178 ms | 244 ms |
+| 즉시 초기화 | 7.1 ms | 7.8 ms |
+| 규칙 스텝 전체 | 390 ms | 528 ms |
+| 자른 env 스텝 (평소 62 ms) | 452 ms | 575 ms |
+
+- 자르는 스텝은 평소보다 0.30–0.51 s 깁니다(15 Hz로 5–8프레임).
+- 15.1의 추정(0.5–0.8 s)보다 짧습니다. 두 가지 덕입니다.
+  - 넣기: 사과 조각 둘의 collider prim이 15.1의 34–38개에서 13–16개가 되어, 넣기가 337 ms에서 226 ms(중앙값)로 줄었습니다. 과일별로 보면 넣기는 약 110 ms에 collider당 약 7 ms입니다(오렌지 4개 129 ms, 바나나 6–8개 144 ms, 배 13–14개 208 ms).
+  - 시각 메시 자르기와 뚜껑이 합쳐 약 90 ms로, 15.1의 trimesh 자르기와 부채꼴 뚜껑(약 0.2 s)보다 빠릅니다.
+- 자산 읽기가 0.01 ms인 것은 규칙이 장면에 들어온 cuttable 자산을 미리 읽기 때문입니다(사과 약 0.1 s, 장면 로드 때). 조각은 자기 기하를 그대로 들고 있어 다시 읽지 않습니다.
+- 여전히 가장 큰 몫은 OmniGibson의 넣기입니다.
+
+**2. 자르면 안 되는 누르기** (운동학적 칼)
+- **손잡이**를 사과·배·오렌지 윗면에 1.5 cm 밀어 넣었습니다. 칼날 힘 0 N, 자르지 않았습니다. 과일은 1.7–3.5 cm 밀려났습니다.
+  - 바나나는 손잡이가 바나나 위에 올 때 칼날이 바나나의 bounding box에서 벗어나는 자세가 없어 건너뛰었습니다.
+- **칼날 옆면**(칼을 90° 눕혀)을 네 과일에 5 mm 눌렀습니다. 접촉력이 1.6–3.1 kN까지 올라갔지만 네 번 모두 "한쪽이 0.0%"로 거부했습니다.
+
+**3. 문턱값** (`threshold` 모드)
+- **운동학적 칼로는 문턱값을 시험할 수 없습니다.** 책상에 놓인 과일을 무한 질량이 누르는 셈이라, 첫 접촉력이 속도와 거의 상관없이 큽니다.
+  - 5 cm/s 획에서 12–3,297 N(중앙값 약 1.5 kN)이었고, 0.3 mm/스텝으로 천천히 대도 278 N이었습니다.
+- 그래서 동역학 칼을 칼날 위쪽 축 방향의 prismatic 레일에 걸고, 속도 드라이브로 정해진 힘까지만 아래로 밀었습니다. 중력은 끄고 칼날은 과일 위 3 mm에서 시작했습니다.
+- 힘을 제한한 손으로 칼을 누르는 셈이고, 3초 동안 누릅니다.
+
+| 미는 힘 | 사과 | 바나나 | 배 | 오렌지 |
+|---|---|---|---|---|
+| 2 N | 안 자름 (최대 2.9 N) | 안 자름 (3.1) | 안 자름 (2.4) | 안 자름 (2.8) |
+| 5 N | 안 자름 (4.8) | 안 자름 (5.5) | 안 자름 (6.1) | 안 자름 (5.6) |
+| 8 N | 안 자름 (9.2) | 안 자름 (9.3) | **자름, 10.2 N** | 안 자름 (9.0) |
+| 15 N | 자름, 19.0 N | 자름, 17.8 N | 자름, 17.7 N | 자름, 18.6 N |
+| 40 N | 자름, 49.8 N | 자름, 39.1 N | 자름, 44.7 N | 자름, 46.0 N |
+
+- 괄호 안은 칼날 법선력의 최댓값이고, 자른 칸은 자른 순간의 힘입니다.
+- 5 N 이하로 누르면 한 번도 자르지 않았고, 15 N 이상이면 첫 접촉에서 잘랐습니다.
+- 8 N은 경계입니다. 칼이 닿는 순간의 충격으로 9.0–10.2 N까지 올라, 배에서 한 번 넘었습니다.
+- 자른 순간의 힘이 미는 힘보다 큰 것도 같은 이유입니다.
+- 버티는 동안의 법선력은 미는 힘보다 작은 경우가 있었습니다(사과를 5 N으로 누를 때 1.7 N). 둥근 과일이 옆으로 밀리며 레일이 일부를 받는 것으로 보이지만 따로 확인하지 않았습니다.
+
+**4. 저장과 다시 읽기** (`reload` 모드)
+- 네 과일을 다 자른 에피소드 뒤 `og.sim.save()`는 49 ms 걸렸습니다.
+  - 물체 13개 모두 상태가 들어갔고, 과일 넷은 빠지고 조각 8개가 들어갔습니다.
+  - 조각마다 `usd_path`(절대 경로), `expected_file_hash`, `args.mass`, `cutting`(`source`, `parent`, `generation`)이 들어갔습니다.
+  - `ground_plane_info`는 15.1에서처럼 빠지므로 점검이 원래 장면 값을 다시 넣었습니다.
+- 그 JSON을 텔레옵·정책 평가처럼 `og.Environment`의 `scene_file`로 읽었습니다.
+  - 조각 8/8, 과일 0개가 돌아왔고, 파일 해시가 모두 맞았습니다(해시 경고 없음).
+  - PhysX 질량과 `args.mass`의 차이는 1.6e-8 kg 이하였습니다.
+- **자세 차이.** 읽은 직후 조각은 저장값에서 0.4–6.4 mm, 10스텝 뒤 0.4–8.6 mm 떨어졌습니다.
+  - 자르지 않은 대조 물체는 쟁반이 2.5 → 16.7 mm, 접시가 0.95 → 0.45 mm였습니다. 15.1에서 본 이 로드 경로의 움직임이고 자르기와는 무관합니다.
+  - 그 뒤 3초 동안 조각은 0.003 mm 이하로 움직였습니다.
+- 다시 읽은 장면에서 칼로 사과 반쪽(66 g)을 또 잘랐습니다. 29.5 g + 36.5 g으로, 2세대 조각입니다. 칼과 조각의 `cutting` 표시가 저장을 거쳐 살아 있다는 뜻입니다. 다시 저장한 장면에는 조각 9개(1·2세대)가 들어갔습니다.
+
+**겪은 일**
+- **스캔 과일의 시각 메시가 단면 뚜껑을 어렵게 만듭니다.**
+  - 메시는 UV chart 수천 개로 나뉘고(사과 3,681개) 감는 방향이 섞여 있습니다. 위치로 용접해도 사과가 감싸는 부피가 0.2 cm³(실제 약 150 cm³)입니다.
+  - 곳곳이 약 0.1 mm 간격의 두 겹이고, 껍질이 갈라진 틈(0.2–0.6 mm)에서 두 겹이 이어집니다.
+  - 그래서 짝수–홀수 규칙은 사과 한가운데를 바깥으로 판정했고, GEOS의 polygonize는 그런 고리를 아무 보고 없이 버렸습니다.
+  - 틈을 지나는 평면에서는(시험한 24개 면 중 하나) 잘린 변이 한 겹을 따라 갔다가 다른 겹으로 돌아오는 C자였습니다. 이 경로는 아무것도 감싸지 않습니다.
+  - 그래서 결과 넓이가 충돌체 단면 넓이의 절반에 못 미치면, 선을 두껍게 해 틈을 메운 뒤(0.02 → 1 mm) 바깥 윤곽 안을 채웁니다.
+  - 오프라인으로 네 과일을 3번씩 자른 24개 면 모두 뚜껑이 19–36 cm²로 나왔습니다.
+- **운동학적 칼은 잠든 과일을 깨우지 않습니다.** 첫 시도에서 칼날은 사과를 접촉 없이 통과했고, 들어 올릴 때 5,854 N으로 잘랐습니다. 사과가 그때야 깨어 깊이 박힌 칼날을 밀어냈기 때문입니다. 점검은 칼이 움직이는 동안 매 스텝 cuttable을 깨웁니다. 로봇이 쥔 동역학 칼에서 같은 일이 생기는지는 확인하지 않았습니다(`threshold` 모드도 깨웠습니다).
+- **`Scene.restore()`로 되돌린 과일의 `aabb`는 원점에 남습니다.** 자른 뒤 `env.reset()`이 다시 넣은 과일은 저장된 자리에 있습니다(`reset_probe`: 0.6653, −0.0228, 0.0148 m, 저장값 0.6659, −0.0230, 0.0164 m). 하지만 `EntityPrim.aabb`의 중심은 상태를 다시 불러와도 (0, 0, 0)이었습니다. 점검은 cuttable의 범위를 충돌체 꼭짓점과 자세로 계산합니다. `aabb`로 칼 위치를 정한 첫 시도는 칼을 로봇 받침 옆으로 보냈습니다.
+- **`pxr`는 Kit가 뜬 뒤에만 있습니다.** 장면을 만들기 전에 칼 USD를 쓰려면 env와 같은 주기로 `og.launch()`를 먼저 불러야 합니다. 주기가 다르면 `og.Environment`가 "Rendering frequency mismatch"로 멈춥니다.
+- **레일 조인트.** `omnigibson.utils.usd_utils.create_joint`는 조인트를 만들고 렌더를 한 번 돕니다. 그 뒤에 붙인 드라이브는 omni.physx가 무시해서 칼이 움직이지 않았습니다. 조인트를 한 번에 다 만들어야 합니다.
+
+**남은 것**
+- **녹화·재생.** 15.1의 `HDF5CollectionWrapper.reset()`·`MinimalPlaybackWrapper` 문제는 그대로입니다(다른 세션의 일). 이 규칙의 교체도 시뮬레이터 콜백을 거쳐 transition으로 기록되지만, 재생은 확인하지 않았습니다.
+- **어디서 도나.** 3·3b·4·5·6·6b단계는 전이 규칙을 끄므로 데모 생성과 재생에서는 자르지 않습니다. 텔레옵 스크립트도 아직 이 규칙을 import하지 않습니다.
+- **로봇.** 로봇이 쥔 칼은 시험하지 않았고, 운동학적 칼과 레일 칼만 썼습니다.
+- **빠진 것.** 저항력, 단면 질감, 변형은 아직 없습니다.
+- **자를 수 있는 물체.** 링크가 하나인 물체만 자릅니다. 암호화된 자산(`DatasetObject`의 encrypted USD)은 읽지 못해 거부합니다.
+- **멈춤.** 여전히 OmniGibson의 넣기가 가장 큽니다(중앙값 178 ms, 약 110 ms + collider당 7 ms).
+
+**파일과 다시 실행** (결과 `diagnostics/fruit_slicing/runtime_cut/`, 로그 `logs/fruit_slicing/final_*.log`)
+
+```bash
+# CPU, Isaac Sim 없이
+~/miniforge3/envs/simfoundry/bin/python -m pytest tests/test_cutting_geometry.py
+~/miniforge3/envs/3dgrut/bin/python -m pytest tests/test_cutting_usd_io.py -p no:cacheprovider
+# Isaac Sim, GPU가 빈 뒤에 하나씩. deps/가 없는 체크아웃이면 OMNIGIBSON_DATA_PATH를 BEHAVIOR-1K의 datasets로
+P=results/diagnostics/fruit_slicing/runtime_cut
+PYTHONPATH=$PWD python repro/fruit_slicing/check_runtime_cut.py cut --out-dir $P                 # 약 10분
+PYTHONPATH=$PWD python repro/fruit_slicing/check_runtime_cut.py reload --out-dir $P \
+    --saved $(ls $P/droid_desk_runtime_cutting_scene_state_cut_*.json | head -1)                   # 약 3분
+PYTHONPATH=$PWD python repro/fruit_slicing/check_runtime_cut.py threshold --out-dir $P/threshold --no-images   # 약 8분
+PYTHONPATH=$PWD python repro/fruit_slicing/check_runtime_cut.py reset_probe --out-dir $P/probe --no-images
 ```
 
 ## 16. 로컬 VLM 비교: Pipeline A는 Qwen3.5-9B로 (2026-10-16)
