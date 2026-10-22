@@ -131,8 +131,10 @@ A cut replaces the object by pieces written as new USD files, never by editing
 its asset (rule 1); each piece carries `args.mass`,
 `args.expected_file_hash` (its file's MD5) and a `cutting` entry naming its
 `parent`. The rule runs only in a process that imports it before building the
-scene, with transition rules on; no pipeline stage imports it yet, and stages
-3–6b turn transition rules off.
+scene, with transition rules on. Teleop (stages 2 and 2b) does so when
+`s14_teleop.runtime_cutting` is true, through `og_utils.enable_runtime_cutting`,
+and writes pieces to `<s14_teleop.out_dir>/cut_pieces`; stages 3–6b turn
+transition rules off, so a cut episode does not replay yet (§15.3).
 
 **Who may edit what.** The light editor authorizes three nested sets, not one, because the
 robot and the scanned room are each half-locked in a *different* half (`iter_objects`):

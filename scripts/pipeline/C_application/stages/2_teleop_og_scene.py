@@ -35,6 +35,7 @@ from simfoundry.utils.processing_utils import dump_json
 from simfoundry.utils.og_utils import (
     apply_scene_masses,
     apply_teleop_omnigibson_macros,
+    enable_runtime_cutting,
     set_obj_materials,
     setup_task_status_ui,
     update_task_status,
@@ -290,6 +291,13 @@ def main(cfg):
 
     # Create the environment
     apply_teleop_omnigibson_macros()
+    if cfg.s14_teleop.get("runtime_cutting", False):
+        # Opt-in: a knife's blade cuts what the scene marks cuttable (repro/README.md 15.2-15.3). The pieces' files
+        # go next to this stage's outputs, since saved scenes and recorded episodes point at them
+        cut_pieces_dir = cfg.s14_teleop.get("cut_pieces_dir", None) or os.path.join(out_dir, "cut_pieces")
+        cutting_roles = enable_runtime_cutting(og_scene_json, cut_pieces_dir)
+        print(f"[cutting] knives {cutting_roles.get('knife', [])}, cuttable {cutting_roles.get('cuttable', [])}; "
+              f"pieces are written to {cut_pieces_dir}")
     env = og.Environment(configs=og_cfg)
 
     # Masses the scene records, if any (the light editor's physics panel writes them): OmniGibson takes no

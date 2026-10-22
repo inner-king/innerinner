@@ -23,7 +23,9 @@ import torch as th
 import numpy as np
 import functools
 import inspect
+import json
 import logging
+import os
 from typing import Tuple
 
 log = logging.getLogger(__name__)
@@ -553,6 +555,44 @@ def apply_teleop_omnigibson_macros(enable_tr=True):
         if key == "ENABLE_TRANSITION_RULES":
             value = enable_tr
         setattr(gm, key, value)
+
+
+def enable_runtime_cutting(scene, pieces_dir):
+    """Register the runtime cutting rule (simfoundry/cutting/rule.py) for the scenes built from now on.
+
+    A knife's blade then cuts what it presses on (repro/README.md 15.2-15.3). Objects opt in through
+    ``objects_info.init_info[<name>].args.cutting``: ``{"role": "knife", "blade": "blade"}`` on a knife,
+    ``{"role": "cuttable"}`` on what it may cut. Importing the rule is what registers it, and a scene builds the
+    rules registered when it loads, so call this before ``og.Environment`` and after transition rules are turned on
+    (``apply_teleop_omnigibson_macros()``). The stages that annotate, generate and replay demos keep transition rules
+    off, so a cut happens in teleop only.
+
+    Args:
+        scene (str or dict): the scene the environment will load (its path or its JSON), to report what it marks
+        pieces_dir (str): where the pieces' USD files are written. Saved scenes and recorded episodes point at
+            them by absolute path, so it should outlive the session
+
+    Returns:
+        dict: role ("knife" or "cuttable") -> names of the objects the scene marks with it
+    """
+    if not gm.ENABLE_TRANSITION_RULES:
+        raise ValueError("Runtime cutting is a transition rule: turn transition rules on first "
+                         "(apply_teleop_omnigibson_macros())")
+    from simfoundry.cutting import rule
+
+    rule.configure(pieces_dir=os.path.abspath(pieces_dir))
+    if isinstance(scene, str):
+        with open(scene) as f:
+            scene = json.load(f)
+    roles = dict()
+    for name, info in scene.get("objects_info", {}).get("init_info", {}).items():
+        spec = info.get("args", {}).get(rule.CUTTING_KEY)
+        if isinstance(spec, dict):
+            roles.setdefault(spec.get("role"), []).append(name)
+    if not roles.get("knife") or not roles.get("cuttable"):
+        log.warning("Runtime cutting is on, but the scene marks no knife or nothing cuttable (args.cutting): "
+                    "nothing will be cut")
+    return roles
 
 
 def setup_wrist_camera_viewport(env, robot_id=0, width=256, height=256):

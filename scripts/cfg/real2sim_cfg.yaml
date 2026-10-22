@@ -448,6 +448,8 @@ s14_teleop:
   use_deterministic_pose_schedule: false   # If true, pre-compute N deterministic z-rotation configs and collect exactly 1 success per config
   n_deterministic_samples: 0              # Number of evenly-spaced z-rotation configurations to sample
   success_demo_per_sampling: 1            # Number of successful demos required per sampled scene when scene_source=load_sampling
+  runtime_cutting: false                  # If true, a knife's blade cuts the objects the scene marks with args.cutting (simfoundry/cutting/rule.py; repro/README.md 15.2-15.3). Episodes with a cut do not replay yet (15.1)
+  cut_pieces_dir: null                    # Where cut pieces' USD files go when runtime_cutting is on (null = <out_dir>/cut_pieces); saved scenes point at them
   data_env_kwargs:
     # Prim path for the camera used when recording viewport during teleop. Options:
     # - .../external_cam0          (robot-mounted, one side)
