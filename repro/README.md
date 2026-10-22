@@ -17,7 +17,7 @@
 | Extraction · Generation (A) | Reproduced | Gemini 대신 local model을 쓰고 12 GB GPU에 맞게 조정. Stage 11 mass estimation은 원본보다 개선 (3, 6, 16, 17, 20, 29장) |
 | Automatic 3DGS background | Partial | Capture viewpoint에서는 맞지만 robot camera viewpoint에서 무너짐. Desk만 남기고 나머지를 plain room으로 채워 완화 (13, 17, 30.2, 31장) |
 | Augmentation (B) | Reproduced | Local model로 object·scene·task cousins 생성 (5, 11장) |
-| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 mean r 0.924, MMRV 0.027 (cell마다 50 episode). Serve Fruits가 0.802에서 0.926으로 오르고, real-world와 구별되는 cell이 4개에서 2개로 줆 (30.13). 두 값 모두 cell마다 25–50 episode의 잡음 안에서 논문과 구별되지 않고, 남은 차이는 저자 scene을 우리 평가로 돌려도 같은 자리에 나옴 (30.17). 외부 camera만 실제 DROID image 밝기에 맞추고(gamma 1.4) wrist는 그대로 두면 1차(cell마다 25 episode) mean r 0.974, MMRV 0.010 (30.18, 2차 진행 중) |
+| Real-to-Sim Policy Evaluation (C) | Mostly reproduced | Policy 4개(π0, π0.5, GR00T N1.6·N1.7)를 공개 scene처럼 assisted grasping으로 cell마다 50 episode씩 돌려, 우리 scene 3개의 mean Pearson r 0.894 (논문, 같은 policy 4개 0.948). Cup in Bowl은 policy 4개 모두 real-world와 같고, Serve Fruits에서는 약한 policy가 real-world보다 높음 (18–30장). Policy camera image에 gamma 1.4를 모든 policy에 똑같이 주면 mean r 0.924, MMRV 0.027 (cell마다 50 episode). Serve Fruits가 0.802에서 0.926으로 오르고, real-world와 구별되는 cell이 4개에서 2개로 줆 (30.13). 두 값 모두 cell마다 25–50 episode의 잡음 안에서 논문과 구별되지 않고, 남은 차이는 저자 scene을 우리 평가로 돌려도 같은 자리에 나옴 (30.17). 외부 camera만 실제 DROID image 밝기에 맞추고(gamma 1.4) wrist는 그대로 두면 mean r 0.938, MMRV 0.007 (cell마다 50 episode, 논문 0.948, 0.010; 30.18) |
 | Sim-to-Real Policy Training (C) | Not possible | Training code와 real-robot data가 공개되지 않음 (1장) |
 
 ## 1. 재현 범위
@@ -2686,33 +2686,37 @@ EXTERNAL_SENSORS=nv_franka_droid_single_cam repro/policy_eval_ours/run_local_gr0
 - 그래서 카메라마다 맞춘 보정으로 네 정책 × 세 과제를 다시 돌립니다. 외부 카메라는 γ 1.4(맞춤값 1.41–1.44 안), 손목은 1.0(보정 없음)입니다. 외부 카메라는 30.13과 같으므로, 바뀌는 것은 손목 보정 하나입니다.
 - 평가 단계에 `s15_eval.image_gamma_wrist`를 넣었습니다. 기본값 null은 `image_gamma`를 따르므로, 30.13의 실행은 그대로 재현됩니다. 드라이버는 `IMAGE_GAMMA_WRIST`로 받습니다.
 
-**1차 결과** (2026-10-22 12:10, 칸마다 25회. 2차 진행 중)
+**결과** (2026-10-22 16:20, 칸마다 25회 ×2 = 50회)
 
 | 과제 / 정책 | γ 1 (30.10) | 모든 화면 γ 1.4 (30.13) | 외부 1.4 + 손목 1.0 | 논문 실제 |
 |---|---|---|---|---|
-| Cup in Bowl / π0 | 80% | 84% | 23/25 = 92% | 88% |
-| Cup in Bowl / π0.5 | 98% | 96% | 25/25 = 100% | 100% |
-| Cup in Bowl / GR00T N1.6 | 68% | 80% | 19/25 = 76% | 68% |
-| Cup in Bowl / GR00T N1.7 | 90% | 92% | 23/25 = 92% | 92% |
-| Marker in Cup / π0 | 24% | 22% | 7/25 = 28% | 40% |
-| Marker in Cup / π0.5 | 68% | 78% | 20/25 = 80% | 92% |
-| Marker in Cup / GR00T N1.6 | 24% | 30% | 5/25 = 20% | 28% |
-| Marker in Cup / GR00T N1.7 | 98% | 98% | 24/25 = 96% | 88% |
-| Serve Fruits / π0 | 20% | 8% | 7/25 = 28% | 0% |
-| Serve Fruits / π0.5 | 84% | 86% | 22/25 = 88% | 72% |
-| Serve Fruits / GR00T N1.6 | 58% | 40% | 12/25 = 48% | 4% |
-| Serve Fruits / GR00T N1.7 | 88% | 70% | 18/25 = 72% | 40% |
+| Cup in Bowl / π0 | 80% | 84% | 23, 21 → 44/50 = 88% | 88% |
+| Cup in Bowl / π0.5 | 98% | 96% | 25, 23 → 48/50 = 96% | 100% |
+| Cup in Bowl / GR00T N1.6 | 68% | 80% | 19, 20 → 39/50 = 78% | 68% |
+| Cup in Bowl / GR00T N1.7 | 90% | 92% | 23, 23 → 46/50 = 92% | 92% |
+| Marker in Cup / π0 | 24% | 22% | 7, 6 → 13/50 = 26% | 40% |
+| Marker in Cup / π0.5 | **68%** | 78% | 20, 19 → 39/50 = 78% | 92% |
+| Marker in Cup / GR00T N1.6 | 24% | 30% | 5, 4 → 9/50 = 18% | 28% |
+| Marker in Cup / GR00T N1.7 | 98% | 98% | 24, 24 → 48/50 = 96% | 88% |
+| Serve Fruits / π0 | **20%** | 8% | 7, 2 → **9/50 = 18%** | 0% |
+| Serve Fruits / π0.5 | 84% | 86% | 22, 22 → 44/50 = 88% | 72% |
+| Serve Fruits / GR00T N1.6 | **58%** | **40%** | 12, 17 → **29/50 = 58%** | 4% |
+| Serve Fruits / GR00T N1.7 | **88%** | **70%** | 18, 21 → **39/50 = 78%** | 40% |
 
-| 과제 | γ 1 r / MMRV | 모든 화면 γ 1.4 | 외부 1.4 + 손목 1.0 (1차) | 논문 (같은 넷) |
+| 과제 | γ 1 r / MMRV | 모든 화면 γ 1.4 | 외부 1.4 + 손목 1.0 (95% 구간) | 논문 (같은 넷) |
 |---|---|---|---|---|
-| Cup in Bowl | 0.967 / 0.000 | 0.912 / 0.000 | **0.992** (+0.30..+1.00) / 0.010 | 0.889 / 0.020 |
-| Marker in Cup | 0.912 / 0.050 | 0.935 / 0.080 | **0.973** (+0.86..+1.00) / 0.020 | 0.999 / 0.010 |
-| Serve Fruits | 0.802 / 0.160 | 0.926 / 0.000 | **0.956** (+0.73..+1.00) / 0.000 | 0.955 / 0.000 |
-| 세 과제 평균 | 0.894 / 0.070 | 0.924 / 0.027 | **0.974** / 0.010 | 0.948 / 0.010 |
+| Cup in Bowl | 0.967 / 0.000 | 0.912 / 0.000 | **0.995** (+0.42..+1.00) / 0.000 | 0.889 / 0.020 |
+| Marker in Cup | 0.912 / 0.050 | 0.935 / 0.080 | **0.969** (+0.91..+0.99) / 0.020 | 0.999 / 0.010 |
+| Serve Fruits | 0.802 / 0.160 | 0.926 / 0.000 | 0.850 (+0.70..+0.94) / 0.000 | 0.955 / 0.000 |
+| 세 과제 평균 | 0.894 / 0.070 | 0.924 / 0.027 | **0.938** / **0.007** | 0.948 / 0.010 |
 
-- 25회 한 번이지만, 세 과제 평균 r 0.974와 MMRV 0.010은 논문의 같은 넷(0.948, 0.010) 수준입니다. 모든 화면 γ 1.4도 1차에서는 0.935였다가 50회에서 0.924로 내려왔으므로, 2차를 보고 판단합니다.
-- 손목을 어둡게 하지 않으면 Cup in Bowl의 N1.6이 실제 쪽(76%)으로, π0가 88% 근처(92%)로 와서 r이 올랐습니다.
-- 반대로 Serve Fruits의 π0는 28%(실제 0%)로, 모든 화면 γ 1.4의 8%보다 높습니다. 손목 화면이 어두우면 π0가 과일을 덜 옮겼다는 뜻입니다.
+굵은 칸은 실제와 구별되는 값입니다(p < 0.05, 실제를 25회로 봄).
+
+- **DROID에 맞춘 카메라별 보정이 세 조건 가운데 논문에 가장 가깝습니다.** 평균 r은 0.938(논문 0.948), MMRV는 0.007(논문 0.010)입니다. 30.17과 같은 부트스트랩으로 논문과의 차이는 −0.177..+0.082이고, 논문 이상일 확률은 0.32입니다.
+- 1차(25회)의 0.974는 2차에서 Serve Fruits의 GR00T가 높게 나와(N1.6 17/25, N1.7 21/25) 내려왔습니다. 모든 화면 γ 1.4와 칸 하나하나의 차이는 유의하지 않습니다(가장 큰 것이 Serve Fruits N1.6, 20 → 29/50, p = 0.11).
+- **손목 보정은 과제마다 반대로 작용합니다.** 손목을 그대로 두면 Cup in Bowl(0.912 → 0.995)과 Marker in Cup(0.935 → 0.969)이 나아지고, Serve Fruits(0.926 → 0.850)는 나빠집니다. Serve Fruits에서는 손목이 어두우면 π0와 GR00T가 과일을 덜 옮기는데, 실제 로봇에서 이 정책들은 거의 실패하므로 그쪽이 실제에 가깝습니다.
+- 이 보정은 성공률이 아니라 실제 DROID 영상의 밝기로 정한 값입니다. 다만 외부 카메라의 1.4는 성공률로 먼저 고른 값과 같았고(30.13), DROID-100은 우리 방과 다른 장면들이라 이 맞춤도 근사입니다.
+- 실제와 구별되는 칸은 여전히 Serve Fruits에 모여 있습니다(π0 18%, N1.6 58%, N1.7 78%, 실제 0, 4, 40%). 30.14와 30.17에서 본 대로, 우리 Serve Fruits 물체와 우리 평가 환경 양쪽에서 오는 차이입니다.
 
 ```bash
 python repro/policy_eval_ours/frame_stats.py \
