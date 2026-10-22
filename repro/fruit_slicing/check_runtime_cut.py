@@ -38,6 +38,18 @@ lets them sit, cuts one of them again with the knife (the ``cutting`` entries su
 
 ``reset_probe``: where ``env.reset()`` leaves a fruit that a cut removed.
 
+``robot``: the knife in the hand of the scene's DROID Franka (assisted grasping, the scene's own IK arm controller in
+pose_delta_ori mode, delta actions only), and nothing woken. Per fruit and knife pose: a reset; the knife upright
+between the open fingers, its gravity off, until closing the gripper makes assisted grasping attach it; the end
+effector over the fruit, down to 2 cm above where the edge meets it, a wait until the fruit sleeps, then down at
+``--speed`` toward the knife pose of the moment. A stroke ends 4 mm above the fruit's bottom, or higher where the knife
+or the hand would come within 5 mm of another object, but at least 1 cm into the fruit; then a hold, a lift and
+``--settle-s``. Then one stroke per fruit at each of ``--slow-speeds``, and one episode in which one grasp cuts every
+fruit. Per stroke it records the grasp, whether the fruit slept until the blade reached it and whether PhysX reported
+that contact, the blade force of every step, the stall, the cut plane against the one aimed at, and the pieces from
+the swap until they settle.
+
+The rule is registered the way teleop does it (``og_utils.enable_runtime_cutting()``, before the scene is built).
 Runs in the simfoundry env with this checkout first on PYTHONPATH, and boots Isaac Sim (about 90 s)::
 
     PYTHONPATH=$PWD OMNIGIBSON_DATA_PATH=/home/inner/real2sim/SimFoundry/deps/BEHAVIOR-1K/datasets \\
@@ -46,6 +58,7 @@ Runs in the simfoundry env with this checkout first on PYTHONPATH, and boots Isa
     ... check_runtime_cut.py reload --saved results/diagnostics/fruit_slicing/runtime_cut/<saved>.json \\
         --out-dir results/diagnostics/fruit_slicing/runtime_cut
     ... check_runtime_cut.py threshold --out-dir results/diagnostics/fruit_slicing/runtime_cut/threshold --no-images
+    ... check_runtime_cut.py robot --out-dir results/diagnostics/fruit_slicing/runtime_cut/robot
 """
 import argparse
 import json
@@ -77,16 +90,24 @@ CANDIDATES = [(yaw, off, roll) for off, roll in OFFSET_ROLL for yaw in YAWS]
 AIMS = {"edge": ((EDGE_X, 0.0, 0.0), "blade"), "handle": ((-0.067, 0.0, 0.021), "world"),
         "flat": ((0.08, 0.0, 0.0204), "world")}
 
+#: robot mode: the knife-frame point the Franka's fingers close on, the middle of the handle
+GRIP = (-0.067, 0.0, 0.033)
+#: robot mode: the DROID Franka's gripper command (MultiFingerGripperController, smooth, inverted): 1 opens it, and
+#: anything below 1 counts as closing for assisted grasping
+OPEN, CLOSE = 1.0, 0.0
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["cut", "threshold", "reload", "reset_probe"])
+    ap.add_argument("mode", choices=["cut", "threshold", "reload", "reset_probe", "robot"])
     ap.add_argument("--scene", default=SCENE)
     ap.add_argument("--saved", help="reload: the scene the cut mode saved")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--fruits", nargs="+", default=list(FRUITS))
     ap.add_argument("--poses", type=int, default=3, help="knife poses per fruit")
     ap.add_argument("--speed", type=float, default=0.05, help="stroke speed (m/s)")
+    ap.add_argument("--slow-speeds", type=float, nargs="*", default=[0.01, 0.002],
+                    help="robot: one more stroke per fruit at each of these speeds (m/s), starting 4 mm above it")
     ap.add_argument("--settle-s", type=float, default=3.0)
     ap.add_argument("--press-forces", type=float, nargs="+", default=[2.0, 5.0, 8.0, 15.0, 40.0],
                     help="threshold: push forces of the railed knife (N)")
@@ -107,15 +128,12 @@ def main():
     from simfoundry.utils.og_utils import apply_teleop_omnigibson_macros
 
     apply_teleop_omnigibson_macros()
-    from simfoundry.cutting import rule as cutting  # registers the rule; must come before the scene is built
-
-    cutting.configure(pieces_dir=str(out_dir / "pieces"))
     # Kit brings pxr, which the knife asset is written with before the scene exists; og.Environment checks that the
-    # running simulator has its frequencies
+    # running simulator has its frequencies. The rule is registered later, by make_env(), the way teleop does it
     og.launch(physics_dt=1 / 120, rendering_dt=1 / 15, sim_step_dt=1 / 15, device="cpu")
-    check = Check(args, out_dir, cutting)
+    check = Check(args, out_dir)
     report = {"cut": check.run_cut, "threshold": check.run_threshold, "reload": check.run_reload,
-              "reset_probe": check.run_reset_probe}[args.mode]()
+              "reset_probe": check.run_reset_probe, "robot": check.run_robot}[args.mode]()
     path = out_dir / f"{args.mode}.json"
     with open(path, "w") as f:
         json.dump(report, f, indent=1, default=float)
@@ -148,13 +166,45 @@ def np_(t):
     return t.detach().cpu().numpy().astype(np.float64) if hasattr(t, "detach") else np.asarray(t, np.float64)
 
 
+def pose_matrix(position, quat):
+    from scipy.spatial.transform import Rotation
+
+    T = np.eye(4)
+    T[:3, :3] = Rotation.from_quat(np.asarray(quat, float)).as_matrix()
+    T[:3, 3] = position
+    return T
+
+
+def box_corners(lo, hi):
+    return np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+
+
+def box_overlaps_aabb(center, R, half, lo, hi):
+    """Whether the box at ``center`` with axes the columns of ``R`` and half extents ``half`` overlaps the axis-aligned
+    box [lo, hi] (separating axis test)."""
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    t = (lo + hi) / 2 - center
+    h2 = (hi - lo) / 2
+    axes = [R[:, i] for i in range(3)] + list(np.eye(3)) + [np.cross(R[:, i], e) for i in range(3) for e in np.eye(3)]
+    for a in axes:
+        n = np.linalg.norm(a)
+        if n < 1e-9:
+            continue
+        a = a / n
+        if abs(t @ a) > np.sum(half * np.abs(R.T @ a)) + np.sum(h2 * np.abs(a)):
+            return False
+    return True
+
+
 class Check:
-    def __init__(self, args, out_dir, cutting):
-        self.args, self.out_dir, self.cutting = args, out_dir, cutting
+    def __init__(self, args, out_dir):
+        self.args, self.out_dir = args, out_dir
+        self.cutting = None  # simfoundry.cutting.rule, once make_env() has registered it
         self.images = not args.no_images
         self.step_times = []
         self.phase = "load"
         self.events = []  # every cut the rule made or refused, with the phase of the script it happened in
+        self.tracked = {}  # object name -> its linear speed after every step since tracking began
 
     # ---------------------------------------------------------------------------------------------- the scene
     def build_scene(self, dynamic_knife=False):
@@ -184,7 +234,13 @@ class Check:
     def make_env(self, scene_json, warm_steps=10):
         import omnigibson as og
         from simfoundry.utils.ground_plane_utils import apply_ground_plane_info
+        from simfoundry.utils.og_utils import enable_runtime_cutting
 
+        # Teleop's opt-in (2_teleop_og_scene.py): it registers the rule, which the scene must find when it loads
+        self.cutting_roles = enable_runtime_cutting(scene_json, str(self.out_dir / "pieces"))
+        from simfoundry.cutting import rule as cutting
+
+        self.cutting = cutting
         cams = [{"sensor_type": "VisionSensor", "name": "cut_cam", "modalities": ["rgb"],
                  "sensor_kwargs": {"image_height": 480, "image_width": 640, "clipping_range": [0.005, 20.0]},
                  "position": [0.3, 0.0, 0.4], "orientation": [0.0, 0.0, 0.0, 1.0]}] if self.images else []
@@ -212,6 +268,9 @@ class Check:
         self.env.step(self.action)
         dt = time.perf_counter() - t
         self.step_times.append(dt)
+        for name, speeds in self.tracked.items():
+            o = self.obj(name)
+            speeds.append(None if o is None else float(np.linalg.norm(np_(o.get_linear_velocity()))))
         for r in self.rule.cut_log[n:]:
             self.events.append({"phase": self.phase, "step": len(self.step_times), "cuttable": r["cuttable"],
                                 "force_n": r["force_n"], "refused": r.get("refused"),
@@ -315,7 +374,8 @@ class Check:
         def origin(h):
             return target + h * up - R @ np.asarray(point)
 
-        return {"quat": rot.as_quat(), "R": R, "origin": origin, "top": s.max(), "bottom": s.min(), "center": center}
+        return {"quat": rot.as_quat(), "R": R, "origin": origin, "top": s.max(), "bottom": s.min(), "center": center,
+                "target": target, "up": up, "point": np.asarray(point, float)}
 
     def pose_clear(self, fruit_name, pose, aim="edge", h=None):
         """Whether the knife at the end of its motion stays clear of every object but the fruit (5 mm margin); for a
@@ -645,6 +705,453 @@ class Check:
             for p in report["presses"]}
         return report
 
+    # ------------------------------------------------------------------------------------------------ the robot
+    def robot_init(self):
+        robot = self.env.robots[0]
+        self.robot, self.arm = robot, robot.default_arm
+        self.hold = None  # EEF pose (world position, xyzw quaternion) the arm holds between motions
+        self.knife_in_eef = None  # the held knife's pose in the EEF frame (4x4)
+        self.hand_boxes = []  # (link name, lo, hi): the hand's links as boxes in the held knife's frame
+
+    def eef_pose(self):
+        p, q = self.robot.eef_links[self.arm].get_position_orientation()
+        return np_(p), np_(q)
+
+    def act(self, gripper, target=None, max_lin=0.015, max_ang=0.1):
+        """One env step in which the arm moves the EEF toward ``target`` (world position, xyzw quaternion; default the
+        held pose) by at most ``max_lin`` m and ``max_ang`` rad: the IK controller's pose_delta_ori command is a delta
+        from where the EEF is, in the robot base frame. ``gripper`` is the gripper command (OPEN or CLOSE)."""
+        import torch as th
+        from scipy.spatial.transform import Rotation
+
+        pos, quat = self.hold if target is None else target
+        Rb = Rotation.from_quat(np_(self.robot.get_position_orientation()[1])).as_matrix()
+        p, q = self.eef_pose()
+        d = np.asarray(pos, float) - p
+        if np.linalg.norm(d) > max_lin:
+            d *= max_lin / np.linalg.norm(d)
+        Rc, Rt = Rotation.from_quat(q).as_matrix(), Rotation.from_quat(quat).as_matrix()
+        rv = Rotation.from_matrix(Rb.T @ Rt @ Rc.T @ Rb).as_rotvec()
+        if np.linalg.norm(rv) > max_ang:
+            rv *= max_ang / np.linalg.norm(rv)
+        self.action = th.tensor(np.concatenate([Rb.T @ d, rv, [gripper]]), dtype=th.float32)
+        return self.step()
+
+    def move_eef(self, target, gripper, max_lin=0.015, max_ang=0.1, tol_m=0.002, tol_deg=0.5, max_steps=150):
+        """Move the EEF to ``target`` (position, quaternion) and hold it there from then on; the steps it took and the
+        error left."""
+        from scipy.spatial.transform import Rotation
+
+        target = (np.asarray(target[0], float), np.asarray(target[1], float))
+        steps = 0
+        while True:
+            p, q = self.eef_pose()
+            err_m = float(np.linalg.norm(target[0] - p))
+            err_deg = math.degrees((Rotation.from_quat(target[1]) * Rotation.from_quat(q).inv()).magnitude())
+            if (err_m < tol_m and err_deg < tol_deg) or steps >= max_steps:
+                break
+            self.act(gripper, target, max_lin, max_ang)
+            steps += 1
+        self.hold = target
+        return {"steps": steps, "err_m": err_m, "err_deg": err_deg}
+
+    def eef_for_knife(self, position, quat):
+        """The EEF pose that puts the held knife at this pose."""
+        from scipy.spatial.transform import Rotation
+
+        E = pose_matrix(position, quat) @ np.linalg.inv(self.knife_in_eef)
+        return E[:3, 3], Rotation.from_matrix(E[:3, :3]).as_quat()
+
+    def in_hand_drift(self):
+        """How far the knife has moved in the hand since the grasp: (degrees, metres at the edge's aim point)."""
+        from scipy.spatial.transform import Rotation
+
+        K = np.linalg.inv(pose_matrix(*self.eef_pose())) @ pose_matrix(*(np_(v) for v in
+                                                                         self.obj(KNIFE).get_position_orientation()))
+        D = np.linalg.inv(self.knife_in_eef) @ K
+        return {"deg": math.degrees(Rotation.from_matrix(D[:3, :3]).magnitude()),
+                "aim_m": float(np.linalg.norm(D[:3, :3] @ AIMS["edge"][0] + D[:3, 3] - AIMS["edge"][0]))}
+
+    def piece_com(self, obj):
+        """A cuttable object's centre of volume in the world, from the colliders the rule keeps for it."""
+        from simfoundry.cutting.geometry import quat_xyzw_to_matrix
+
+        source, _ = self.rule._source(obj)
+        pos, quat = (np_(v) for v in obj.get_position_orientation())
+        return pos + quat_xyzw_to_matrix(quat) @ (np_(obj.scale) * source.whole[1])
+
+    def knife_height(self, m):
+        """Height of the knife's aim point above the stroke's target along its motion axis (motion()'s h), from where
+        PhysX has the knife."""
+        from scipy.spatial.transform import Rotation
+
+        p, q = (np_(v) for v in self.obj(KNIFE).get_position_orientation())
+        return float((p + Rotation.from_quat(q).as_matrix() @ m["point"] - m["target"]) @ m["up"])
+
+    def holding_knife(self):
+        from omnigibson.controllers import IsGraspingState
+
+        return self.robot.is_grasping(self.arm, candidate_obj=self.obj(KNIFE)) == IsGraspingState.TRUE
+
+    def robot_reset(self):
+        """reset() with the arm holding still and the gripper open: the knife is back where the scene has it, out of
+        the hand (loading a state without the grasp releases it)."""
+        import torch as th
+
+        self.action = th.tensor([0.0] * 6 + [OPEN], dtype=th.float32)
+        self.reset()
+        for _ in range(10):
+            self.step()
+        self.hold = self.eef_pose()
+        self.knife_in_eef = None
+
+    def grasp_knife(self):
+        """Put the knife's handle between the open fingers, upright and its blade pointing away from the robot, and
+        close the gripper until assisted grasping attaches it (a fixed joint at a finger contact). The knife's gravity
+        is off until then, so that it waits between the fingers; after that only the grasp holds it."""
+        import torch as th
+        from scipy.spatial.transform import Rotation
+
+        robot, arm, knife = self.robot, self.arm, self.obj(KNIFE)
+        self.phase = self.phase.rsplit(":", 1)[0] + ":grasp"
+        for _ in range(12):
+            self.act(OPEN)
+
+        def ends(points):
+            out = []
+            for gp in points:
+                p, q = robot.links[gp.link_name].get_position_orientation()
+                out.append(np_(p) + Rotation.from_quat(np_(q)).as_matrix() @ np_(gp.position))
+            return np.mean(out, axis=0)
+
+        # Between the assisted-grasp ray ends, two on each inner finger: their middle, and the axis the fingers close on
+        s, e = ends(robot.assisted_grasp_start_points[arm]), ends(robot.assisted_grasp_end_points[arm])
+        center, y = (s + e) / 2, (e - s) / np.linalg.norm(e - s)
+        z = np.array([0.0, 0.0, 1.0]) - y[2] * y
+        z /= np.linalg.norm(z)
+        x = np.cross(y, z)
+        if x[:2] @ (center - np_(robot.get_position_orientation()[0]))[:2] < 0:
+            x, y = -x, -y
+        R = np.stack([x, y, z], axis=1)
+        placed = center - R @ np.asarray(GRIP)
+        knife.root_link.disable_gravity()
+        knife.set_position_orientation(position=th.tensor(placed, dtype=th.float32),
+                                       orientation=th.tensor(Rotation.from_matrix(R).as_quat(), dtype=th.float32))
+        knife.set_linear_velocity(th.zeros(3))
+        knife.set_angular_velocity(th.zeros(3))
+        attached = None
+        try:
+            for i in range(45):
+                self.act(CLOSE)
+                if self.holding_knife():
+                    attached = i + 1
+                    break
+        finally:
+            knife.root_link.enable_gravity()
+        for _ in range(8):
+            self.act(CLOSE)
+        kp, kq = (np_(v) for v in knife.get_position_orientation())
+        held = self.holding_knife()
+        K = pose_matrix(kp, kq)
+        self.knife_in_eef = np.linalg.inv(pose_matrix(*self.eef_pose())) @ K
+        # The hand in the knife's frame, a box per link that moves with it (panda_link7 and what it carries; the fingers
+        # stay where the grasp froze them). One box for all of them would cover the blade: the wrist is wide up high
+        Kinv = np.linalg.inv(K)
+        self.hand_boxes = []
+        for name, link in robot.links.items():
+            if name in robot.arm_link_names[arm][:-1]:
+                continue
+            lo, hi = (np_(v) for v in link.aabb)
+            c = box_corners(lo, hi) @ Kinv[:3, :3].T + Kinv[:3, 3]
+            self.hand_boxes.append((name, c.min(0), c.max(0)))
+        Rk = Rotation.from_quat(kq).as_matrix()
+        return {"attached_after_steps": attached, "held": held, "placed_pos": placed.tolist(),
+                "moved_while_closing_m": float(np.linalg.norm(kp - placed)),
+                "turned_while_closing_deg": math.degrees(Rotation.from_matrix(Rk @ R.T).magnitude()),
+                "knife_tilt_deg": math.degrees(math.acos(min(1.0, float(Rk[2, 2])))),
+                "gripper_qpos": np_(robot.get_joint_positions()[robot.gripper_control_idx[arm]]).tolist(),
+                "hand_lowest_above_edge_m": float(min(lo[2] for _, lo, _ in self.hand_boxes))}
+
+    def robot_yaws(self, fruit_name):
+        """Blade yaws for the held knife, nearest first to pointing away from the robot across the fruit: the hand
+        stays on the robot's side of the fruit, within reach."""
+        lo, hi = self.world_aabb(self.obj(fruit_name))
+        d = (lo + hi) / 2 - np_(self.robot.get_position_orientation()[0])
+        out = math.degrees(math.atan2(d[1], d[0]))
+        return [round((out + a) % 360, 1) for a in (0, -15, 15, -30, 30, -45, 45, -60, 60, -75, 75, -90, 90)]
+
+    def stroke_end(self, m):
+        """The deepest a stroke goes: the edge 4 mm above the fruit's bottom, or higher if the hand would come within
+        3 mm of the desk."""
+        corners = np.concatenate([box_corners(lo, hi) for _, lo, hi in self.hand_boxes])
+        lowest = float(np.min(m["origin"](0.0)[2] + corners @ m["R"][2]))  # the hand's lowest z with h = 0
+        return max(m["bottom"] + 0.004, (self.ground_z + 0.003 - lowest) / m["up"][2])
+
+    def robot_pose_clear(self, fruit_name, pose, h):
+        """pose_clear() for the held knife with its edge at ``h``, and the hand, which must also stay clear of the fruit
+        itself (5 mm margins on bounding boxes)."""
+        if not self.pose_clear(fruit_name, pose, "edge", h):
+            return False
+        m = self.motion(fruit_name, pose)
+        boxes = [(m["origin"](h) + m["R"] @ ((lo + hi) / 2), (hi - lo) / 2) for _, lo, hi in self.hand_boxes]
+        for o in self.scene.objects:
+            if o.name == KNIFE or o.fixed_base or o in self.env.robots:
+                continue
+            olo, ohi = self.world_aabb(o)
+            if any(box_overlaps_aabb(c, m["R"], half, olo - 0.005, ohi + 0.005) for c, half in boxes):
+                return False
+        return True
+
+    def section_top(self, fruit_name, m):
+        """Where the edge meets the fruit: the highest point (motion()'s h) of its colliders' section by the blade's
+        mid-plane. motion()'s top projects the bounding box, which overshoots a round fruit on a tilted axis."""
+        from scipy.spatial import ConvexHull
+        from simfoundry.cutting.geometry import quat_xyzw_to_matrix
+
+        obj = self.obj(fruit_name)
+        source, _ = self.rule._source(obj)
+        pos, quat = (np_(v) for v in obj.get_position_orientation())
+        top = None
+        for hull in source.hulls:
+            P = pos + (np.asarray(hull) * np_(obj.scale)) @ quat_xyzw_to_matrix(quat).T
+            d = (P - m["target"]) @ m["R"][:, 1]
+            if d.min() > 0 or d.max() < 0:
+                continue
+            s = ConvexHull(P).simplices
+            e = np.unique(np.sort(np.concatenate([s[:, [0, 1]], s[:, [1, 2]], s[:, [2, 0]]]), axis=1), axis=0)
+            e = e[(d[e[:, 0]] >= 0) != (d[e[:, 1]] >= 0)]
+            t = d[e[:, 0]] / (d[e[:, 0]] - d[e[:, 1]])
+            h = (P[e[:, 0]] + t[:, None] * (P[e[:, 1]] - P[e[:, 0]]) - m["target"]) @ m["up"]
+            top = h.max() if top is None else max(top, h.max())
+        return None if top is None else float(top)
+
+    def robot_stroke_end(self, fruit_name, pose):
+        """Where the held knife's stroke for ``pose`` ends: stroke_end() if the knife and the hand are clear there, else
+        the lowest clear edge height above it in 2 mm steps; None if no height 1 cm below where the edge meets the fruit
+        (section_top()) is clear. The fruits stand about 10 cm apart and the hand closes on the handle 13 cm behind the
+        cut, so a full stroke is clear for few poses. The blade cuts at its first firm contact, near the top: a
+        shallower stroke cuts the same, and only follows less far between the pieces."""
+        m = self.motion(fruit_name, pose)
+        top = self.section_top(fruit_name, m)
+        if top is None:
+            return None
+        for h in np.arange(self.stroke_end(m), top - 0.01 + 1e-9, 0.002):
+            if self.robot_pose_clear(fruit_name, pose, h):
+                return float(h)
+        return None
+
+    def robot_stroke(self, fruit_name, pose, h_end, tag, speed=None, start_above=0.02, follow=None):
+        """One stroke of the held knife through ``fruit_name``: over the fruit, down to ``start_above`` above it, a wait
+        until it sleeps, then down at ``speed`` (default --speed) to the edge height ``h_end`` (or to ``follow`` m below
+        where it cut) with delta actions toward the knife pose of the moment, a hold, a lift, and the settling. Nothing
+        is woken."""
+        import omnigibson as og
+        from scipy.spatial.transform import Rotation
+        from simfoundry.cutting import geometry as geo
+
+        m = self.motion(fruit_name, pose)
+        quat, origin, center, top = m["quat"], m["origin"], m["center"], self.section_top(fruit_name, m)
+        h_start = top + start_above
+        speed = self.args.speed if speed is None else speed
+        rec = {"fruit": fruit_name, "pose": {"yaw_deg": pose[0], "offset_m": pose[1], "roll_deg": pose[2]},
+               "tag": tag, "speed_mps": speed, "fruit_center": center.tolist(), "h_start": h_start, "h_end": h_end,
+               "full_depth": h_end <= self.stroke_end(m) + 1e-9, "fruit_top_h": top, "fruit_bbox_top_h": m["top"],
+               "fruit_bottom_h": m["bottom"],
+               "fruit_below_desk_before_m": float(self.ground_z - self.world_aabb(self.obj(fruit_name))[0][2])}
+        view_az = pose[0] + 90 + 35
+        n_log0 = len(self.rule.cut_log)
+        self.phase = f"{tag}:approach"
+        rec["approach"] = [self.move_eef(self.eef_for_knife(origin(top + 0.14), quat), CLOSE, max_lin=0.02,
+                                         max_steps=200),
+                           self.move_eef(self.eef_for_knife(origin(h_start), quat), CLOSE, max_lin=0.01,
+                                         max_ang=0.05, max_steps=150)]
+        self.phase = f"{tag}:wait"
+        waited = 0
+        while not self.asleep(fruit_name) and waited < 45:
+            self.act(CLOSE)
+            waited += 1
+        rec.update(waited_for_sleep_steps=waited, asleep_at_stroke_start=self.asleep(fruit_name),
+                   h_at_stroke_start=self.knife_height(m))
+        rec["image_before"] = self.snapshot(f"{tag}_0_before", center, view_az)
+
+        self.phase = f"{tag}:stroke"
+        arm_idx = self.robot.arm_control_idx[self.arm]
+        dh = speed * og.sim.get_sim_step_dt()
+        h_cmd, steps, cut = h_start, [], None
+        for _ in range(int(math.ceil((h_start - h_end) / dh)) + 45):
+            h_cmd = max(h_cmd - dh, h_end)
+            asleep = self.asleep(fruit_name)
+            dt = self.act(CLOSE, self.eef_for_knife(origin(h_cmd), quat), max_lin=0.01, max_ang=0.05)
+            window = self.rule.last_window
+            peak = {(k.name, c.name): f for (k, c), (f, _) in window.peak.items()}
+            steps.append({"h_cmd": h_cmd, "h": self.knife_height(m), "step_s": dt, "asleep_before": asleep,
+                          "touching": any(k.name == KNIFE for k in window.touching),
+                          "force_n": round(peak.get((KNIFE, fruit_name), 0.0), 3),
+                          "arm_effort_max": float(np.max(np.abs(np_(self.robot.get_joint_efforts(normalized=True))[
+                              arm_idx])))})
+            new = [r for r in self.rule.cut_log[n_log0:] if r["cuttable"] == fruit_name]
+            if new and cut is None:
+                cut = {"step": len(steps) - 1, "h_cmd": h_cmd, "step_s": dt, "record": new[0],
+                       "knife": [v.tolist() for v in (np_(x) for x in self.obj(KNIFE).get_position_orientation())]}
+                if "refused" not in new[0]:
+                    # Follow the pieces from where the swap put them: they part while the stroke goes on
+                    self.tracked = {n: [] for n in new[0]["pieces"]}
+                    cut["piece_com"] = {n: self.piece_com(self.obj(n)) for n in new[0]["pieces"]}
+                rec["image_cut"] = self.snapshot(f"{tag}_1_cut", center, view_az)
+            if h_cmd <= h_end and steps[-1]["h"] <= h_end + 0.002:
+                break
+            if cut is not None and follow is not None and steps[-1]["h"] <= steps[cut["step"]]["h"] - follow:
+                break
+        self.hold = self.eef_pose()
+        self.phase = f"{tag}:hold"
+        for _ in range(3):
+            self.act(CLOSE)
+        touched = [i for i, s in enumerate(steps) if s["touching"] or s["force_n"] > 0]
+        rec.update(stroke_steps=steps, h_reached=steps[-1]["h"],
+                   first_contact=None if not touched else {
+                       "step": touched[0], "h": steps[touched[0]]["h"], "h_cmd": steps[touched[0]]["h_cmd"],
+                       "asleep_before": steps[touched[0]]["asleep_before"],
+                       "asleep_after": steps[touched[0] + 1]["asleep_before"] if touched[0] + 1 < len(steps) else None,
+                       "force_n": steps[touched[0]]["force_n"]})
+        self.phase = f"{tag}:lift"
+        rec["lift"] = self.move_eef(self.eef_for_knife(origin(top + 0.12), quat), CLOSE, max_lin=0.01,
+                                    max_steps=60)
+        rec["unintended_cuts"] = [r["cuttable"] for r in self.rule.cut_log[n_log0:]
+                                  if r["cuttable"] != fruit_name and "refused" not in r]
+        rec["still_held"] = self.holding_knife()
+        rec["in_hand_drift"] = self.in_hand_drift()
+        if cut is None:
+            rec["cut"] = None
+            rec["max_force_n"] = max((s["force_n"] for s in steps), default=0.0)
+            return rec
+
+        record = cut["record"]
+        rec["cut"] = {"step": cut["step"], "edge_height_m": steps[cut["step"]]["h"], "h_cmd": cut["h_cmd"],
+                      "env_step_s": cut["step_s"], "arm_effort_max": steps[cut["step"]]["arm_effort_max"],
+                      "record": record}
+        if "refused" in record:
+            return rec
+        # The cut plane against the plane the script aimed at (the knife pose it asked for at that step), and the
+        # knife's tilt in the hand then
+        _, blade_l, _, _ = self.rule._blade(self.obj(KNIFE))
+        intended, _ = geo.plane_to_world(blade_l, origin(cut["h_cmd"]), quat, np_(self.obj(KNIFE).scale))
+        used = geo.Plane.make(record["plane_origin"], record["plane_normal"])
+        Rk = Rotation.from_quat(cut["knife"][1]).as_matrix()
+        rec["plane_vs_intended"] = {
+            "angle_deg": math.degrees(math.acos(min(1.0, abs(float(used.normal @ intended.normal))))),
+            "offset_m": abs(float(intended.signed_distance(used.origin))),
+            "knife_axes_vs_intended_deg": math.degrees(Rotation.from_matrix(Rk @ m["R"].T).magnitude())}
+        # Every vertex of each piece's new cut face, at the parent's pose, against the rule's own plane
+        Rp = geo.quat_xyzw_to_matrix(record["parent_quat"])
+        faces = []
+        for info in record["piece_files"]:
+            source, _ = self.rule._sources[info["usd_path"]]
+            cap = next(p for p in source.visuals if p.name == f"cut_face_{record['generation']}")
+            world = np.asarray(record["parent_pos"]) + (np.asarray(record["parent_scale"]) * cap.points) @ Rp.T
+            d = used.signed_distance(world)
+            faces.append({"piece": info["name"], "vertices": len(d), "distance_mean_m": float(d.mean()),
+                          "deviation_max_m": float(np.max(np.abs(np.abs(d) - record["half_gap_m"])))})
+        rec["cut_faces_vs_rule_plane"] = {"expected_distance_m": record["half_gap_m"], "faces": faces}
+        pieces = [self.obj(n) for n in record["pieces"]]
+        rec["masses"] = {"parent_kg": record["parent_mass"], "pieces_args_kg": record["masses"],
+                         "pieces_physx_kg": [float(p.mass) for p in pieces]}
+        self.phase = f"{tag}:settle"
+        for _ in range(int(round(self.args.settle_s * 15))):
+            self.act(CLOSE)
+        rec["image_settled"] = self.snapshot(f"{tag}_2_settled", center, view_az)
+        settle = {}
+        for p in pieces:
+            speeds = [v for v in self.tracked.get(p.name, []) if v is not None]
+            lo, _ = self.world_aabb(p)
+            settle[p.name] = {
+                "steps_since_cut": len(speeds), "max_speed_mps": max(speeds) if speeds else None,
+                "final_speed_mps": float(np.linalg.norm(np_(p.get_linear_velocity()))),
+                "final_angular_rps": float(np.linalg.norm(np_(p.get_angular_velocity()))),
+                # moved: its centre of volume since the swap put it at the parent's pose
+                "moved_m": float(np.linalg.norm(self.piece_com(p) - cut["piece_com"][p.name])),
+                "lowest_below_desk_m": float(self.ground_z - lo[2]), "asleep": self.asleep(p.name)}
+        self.tracked = {}
+        rec["settle"] = settle
+        rec["settled_plausibly"] = all(
+            s["final_speed_mps"] < 0.01 and s["final_angular_rps"] < 0.2 and s["max_speed_mps"] < 1.0
+            and s["moved_m"] < 0.15 and s["lowest_below_desk_m"] < 0.003 for s in settle.values())
+        return rec
+
+    def run_robot(self):
+        """The knife in the Franka's hand. Per fruit and pose: reset, grasp, a stroke. Then one episode in which one
+        grasp cuts every fruit, as a teleoperator would."""
+        import omnigibson as og
+
+        t = time.perf_counter()
+        self.make_env(self.build_scene(dynamic_knife=True))
+        self.robot_init()
+        arm_ctrl = self.robot.controllers[f"arm_{self.arm}"]
+        report = {"conditions": {
+            "scene": self.args.scene, "load_s": time.perf_counter() - t, "omnigibson": og.__version__,
+            "settings": vars(self.cutting.SETTINGS).copy(), "speed_mps": self.args.speed,
+            "physics_dt": og.sim.get_physics_dt(), "rendering_dt": og.sim.get_rendering_dt(),
+            "ground_plane": self.ground, "robot": type(self.robot).__name__,
+            "grasping_mode": self.robot.grasping_mode, "arm_controller": type(arm_ctrl).__name__,
+            "arm_mode": arm_ctrl.mode, "cutting_roles": self.cutting_roles}, "strokes": [], "skipped": []}
+        self.hold = self.eef_pose()
+        report["conditions"]["idle_step_median_s"] = statistics.median([self.act(OPEN) for _ in range(30)])
+        for fruit in self.args.fruits:
+            chosen = []
+            for k, (off, roll) in enumerate(OFFSET_ROLL[:self.args.poses]):
+                self.phase = f"{fruit}_r{k}:reset"
+                self.robot_reset()
+                grasp = self.grasp_knife()
+                if not grasp["held"]:
+                    report["skipped"].append({"fruit": fruit, "k": k, "why": "grasp", "grasp": grasp})
+                    print(f"[check] {fruit} r{k}: the grasp did not take: {grasp}", flush=True)
+                    continue
+                pose, h_end = next(((p, h) for p in ((yaw, off, roll) for yaw in self.robot_yaws(fruit))
+                                    if all(abs((p[0] - c[0] + 180) % 360 - 180) >= 45 for c in chosen)
+                                    for h in [self.robot_stroke_end(fruit, p)] if h is not None), (None, None))
+                if pose is None:
+                    report["skipped"].append({"fruit": fruit, "k": k, "why": "no clear pose"})
+                    continue
+                chosen.append(pose)
+                rec = self.robot_stroke(fruit, pose, h_end, f"{fruit}_r{k}")
+                rec["grasp"] = grasp
+                report["strokes"].append(rec)
+                print(f"[check] robot {fruit} pose {pose}: " + summarize_robot_stroke(rec), flush=True)
+            # The force at the cut against the stroke's speed: the arm's position drives push as hard as the joints
+            # allow once the IK target runs ahead of a blocked knife, so a slower stroke reaches the threshold later
+            for speed in self.args.slow_speeds if chosen else []:
+                self.phase = f"{fruit}_v{speed}:reset"
+                self.robot_reset()
+                grasp = self.grasp_knife()
+                h_end = self.robot_stroke_end(fruit, chosen[0]) if grasp["held"] else None
+                if h_end is None:
+                    report["skipped"].append({"fruit": fruit, "speed": speed, "why": "grasp or no clear pose"})
+                    continue
+                rec = self.robot_stroke(fruit, chosen[0], h_end, f"{fruit}_v{speed}", speed=speed, start_above=0.004,
+                                        follow=0.01)
+                rec["grasp"] = grasp
+                report["strokes"].append(rec)
+                print(f"[check] robot {fruit} at {speed} m/s: " + summarize_robot_stroke(rec), flush=True)
+
+        # The pieces of the fruits cut before may be in the way of a pose the trials used, so each is checked again
+        self.phase = "episode:reset"
+        self.robot_reset()
+        grasp = self.grasp_knife()
+        episode = []
+        for fruit in self.args.fruits if grasp["held"] else []:
+            tried = [tuple(s["pose"].values()) for s in report["strokes"] if s["fruit"] == fruit]
+            pose, h_end = next(((p, h) for p in tried + [(yaw, 0.0, 0) for yaw in self.robot_yaws(fruit)]
+                                for h in [self.robot_stroke_end(fruit, p)] if h is not None), (None, None))
+            if pose is None:
+                episode.append({"fruit": fruit, "skipped": "no clear pose"})
+                continue
+            rec = self.robot_stroke(fruit, pose, h_end, f"all_{fruit}")
+            episode.append(rec)
+            print(f"[check] robot episode {fruit}: " + summarize_robot_stroke(rec), flush=True)
+        report["episode"] = {"grasp": grasp, "strokes": episode}
+        report["events"] = self.events
+        report["summary"] = summarize_robot(report)
+        return report
+
     # ------------------------------------------------------------------------------------------- reset probe
     def run_reset_probe(self):
         """Where env.reset() leaves a fruit that a cut had removed: its pose, OmniGibson's aabb, and the bounding box
@@ -899,6 +1406,101 @@ def summarize(report, step_times):
                   for g in report.get("gates", [])],
         "save": {k: report["save"][k] for k in ("path", "save_s", "objects", "objects_with_state", "fruits_left")}
         | {"pieces": len(report["save"]["pieces"])},
+    }
+
+
+def summarize_robot_stroke(rec):
+    fc = rec.get("first_contact")
+    head = f"asleep at start {rec['asleep_at_stroke_start']}, " + (
+        "no blade contact" if fc is None else
+        f"first blade contact at edge h {fc['h'] * 1e3:.1f} mm (fruit top {rec['fruit_top_h'] * 1e3:.1f}), fruit asleep "
+        f"before it {fc['asleep_before']}, after {fc['asleep_after']}")
+    cut = rec.get("cut")
+    if cut is None:
+        return f"{head}; no cut (max force {rec.get('max_force_n', 0):.1f} N, edge reached {rec['h_reached'] * 1e3:.1f} mm)"
+    r = cut["record"]
+    if "refused" in r:
+        return f"{head}; refused at {r['force_n']:.1f} N: {r['refused']}"
+    t = r["timings"]
+    s = rec.get("settle", {})
+    return (f"{head}; cut at step {cut['step']} ({r['force_n']:.1f} N, arm effort {cut['arm_effort_max']:.2f} of its "
+            f"limit), env step {cut['env_step_s'] * 1e3:.0f} ms, rule {t['rule_step_s'] * 1e3:.0f} ms (add "
+            f"{t['add_s'] * 1e3:.0f}), plane {rec['plane_vs_intended']['angle_deg']:.2f} deg "
+            f"{rec['plane_vs_intended']['offset_m'] * 1e3:.2f} mm from the intended one, masses "
+            f"{[round(m, 4) for m in rec['masses']['pieces_physx_kg']]}/{rec['masses']['parent_kg']:.3f}, settled "
+            f"{rec.get('settled_plausibly')} (max speed {max((v['max_speed_mps'] for v in s.values()), default=0):.2f} "
+            f"m/s, moved {max((v['moved_m'] for v in s.values()), default=0) * 100:.1f} cm, below desk "
+            f"{max((v['lowest_below_desk_m'] for v in s.values()), default=0) * 1e3:.1f} mm)"
+            + (f", also cut {rec['unintended_cuts']}" if rec.get("unintended_cuts") else "")
+            + ("" if rec.get("still_held") else ", knife no longer held"))
+
+
+def summarize_robot(report):
+    strokes = report["strokes"] + [s for s in report["episode"]["strokes"] if "skipped" not in s]
+    made = [s for s in strokes if s.get("cut") and "refused" not in s["cut"]["record"]]
+    med = statistics.median
+
+    def stat(key):
+        vals = [s["cut"]["record"]["timings"][key] for s in made if key in s["cut"]["record"]["timings"]]
+        return {"median_ms": 1e3 * med(vals), "max_ms": 1e3 * max(vals)} if vals else None
+
+    def outcome(s):
+        if "skipped" in s:
+            return s["skipped"]
+        return "cut" if s.get("cut") and "refused" not in s["cut"]["record"] else (
+            "refused" if s.get("cut") else "no cut")
+
+    per_fruit, by_speed = {}, {}
+    for s in report["strokes"]:
+        per_fruit.setdefault(s["fruit"], []).append(f"{s['tag'].rsplit('_', 1)[1]}: {outcome(s)}")
+    for s in made:
+        by_speed.setdefault(s["speed_mps"], []).append(round(s["cut"]["record"]["force_n"], 1))
+    contacts = [s["first_contact"] for s in strokes if s.get("first_contact")]
+    grasps = [s["grasp"] for s in report["strokes"]] + [report["episode"]["grasp"]]
+    return {
+        "strokes": len(strokes), "cuts": len(made), "per_fruit": per_fruit,
+        "episode": {s["fruit"]: outcome(s) for s in report["episode"]["strokes"]},
+        "skipped": [{k: v for k, v in s.items() if k != "grasp"} for s in report["skipped"]],
+        "grasps": {"attached_after_steps": [g["attached_after_steps"] for g in grasps],
+                   "moved_while_closing_max_mm": 1e3 * max(g["moved_while_closing_m"] for g in grasps),
+                   "turned_while_closing_max_deg": max(g["turned_while_closing_deg"] for g in grasps),
+                   "knife_tilt_max_deg": max(g["knife_tilt_deg"] for g in grasps)},
+        "env_step_idle_median_ms": 1e3 * report["conditions"]["idle_step_median_s"],
+        "env_step_with_cut": {"median_ms": 1e3 * med([s["cut"]["env_step_s"] for s in made]),
+                              "max_ms": 1e3 * max(s["cut"]["env_step_s"] for s in made)} if made else None,
+        "rule_step": stat("rule_step_s"),
+        **{k: stat(f"{k}_s") for k in ("plane", "clip_hulls", "merge_hulls", "clip_visual", "cap", "write", "remove",
+                                       "add", "initialize", "place")},
+        "force_at_cut_n_by_speed_mps": by_speed,
+        "steps_from_first_contact_to_cut": [s["cut"]["step"] - s["first_contact"]["step"] for s in made
+                                            if s.get("first_contact")],
+        "subthreshold_blade_forces_before_cut_n": [
+            [st["force_n"] for st in s["stroke_steps"][:s["cut"]["step"]] if st["force_n"] > 0] for s in made],
+        "edge_below_fruit_top_at_cut_mm": [round(1e3 * (s["fruit_top_h"] - s["cut"]["edge_height_m"]), 1)
+                                           for s in made],
+        "wake": {"asleep_at_stroke_start": f"{sum(bool(s['asleep_at_stroke_start']) for s in strokes)}/{len(strokes)}",
+                 "blade_contact_reported": f"{len(contacts)}/{len(strokes)}",
+                 "fruit_still_asleep_before_the_contact_step": sum(bool(c["asleep_before"]) for c in contacts),
+                 "first_contact_edge_minus_top_mm": [round(1e3 * (c["h"] - s["fruit_top_h"]), 1)
+                                                     for s in strokes if s.get("first_contact")
+                                                     for c in [s["first_contact"]]]},
+        "plane_vs_intended_max": {
+            "angle_deg": max((s["plane_vs_intended"]["angle_deg"] for s in made), default=None),
+            "offset_m": max((s["plane_vs_intended"]["offset_m"] for s in made), default=None),
+            "knife_axes_deg": max((s["plane_vs_intended"]["knife_axes_vs_intended_deg"] for s in made), default=None)},
+        "cut_face_deviation_max_m": max((f["deviation_max_m"] for s in made
+                                         for f in s["cut_faces_vs_rule_plane"]["faces"]), default=None),
+        "mass_conservation_max_err_kg": max((abs(sum(s["masses"]["pieces_physx_kg"]) - s["masses"]["parent_kg"])
+                                             for s in made), default=None),
+        "settled_plausibly": f"{sum(bool(s.get('settled_plausibly')) for s in made)}/{len(made)}",
+        "below_desk_mm": {
+            "fruits_before_cut_max": 1e3 * max((s["fruit_below_desk_before_m"] for s in strokes), default=0.0),
+            "pieces_settled_max": 1e3 * max((v["lowest_below_desk_m"] for s in made for v in s["settle"].values()),
+                                            default=0.0)},
+        "unintended_cuts": [s["unintended_cuts"] for s in strokes if s.get("unintended_cuts")],
+        "knife_no_longer_held": [s["tag"] for s in strokes if not s.get("still_held")],
+        "in_hand_drift_max": {"deg": max(s["in_hand_drift"]["deg"] for s in strokes),
+                              "aim_mm": 1e3 * max(s["in_hand_drift"]["aim_m"] for s in strokes)},
     }
 
 
