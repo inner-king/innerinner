@@ -337,12 +337,13 @@ def _comfy_torch_vram():
 def _drop_opaque_alpha(png_bytes):
     """Qwen-Image-2.1 always decodes RGBA. Stage 5 treats the result as a 3-channel frame
     (`get_num_pixels_with_color` reshapes to 3), so an all-but-opaque alpha is dropped; a real
-    cutout (cousin images asked for a transparent background) keeps its alpha for rembg."""
+    cutout (cousin images asked for a transparent background) keeps its alpha for rembg.
+    "All but opaque" is counted, not a minimum: a repainted frame came back with a 247 minimum."""
     image = Image.open(io.BytesIO(png_bytes))
     if image.mode != "RGBA":
         return png_bytes
-    alpha = image.getchannel("A")
-    if alpha.getextrema()[0] < 250:
+    histogram = image.getchannel("A").histogram()
+    if sum(histogram[:128]) > 0.01 * image.width * image.height:
         return png_bytes
     buf = io.BytesIO()
     image.convert("RGB").save(buf, format="PNG")

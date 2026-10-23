@@ -1944,6 +1944,18 @@ def main(cfg):
                 removed_obj_img_raw = cv2.resize(removed_obj_img_raw, resolution)
                 produced_image = True
 
+                # Qwen-Image-2.1 decodes RGBA, and its alpha on a repainted frame is not always
+                # exactly opaque (a 247 minimum was seen): drop such an alpha. A real cutout, the
+                # scene made transparent rather than repainted, is no frame, so it is rejected.
+                if removed_obj_img_raw.ndim == 3 and removed_obj_img_raw.shape[-1] == 4:
+                    if (removed_obj_img_raw[..., 3] < 128).mean() > 0.01:
+                        logger.warning("Generated image rejected because it is transparent (a cutout, not a repainted frame)")
+                        rejected_fpath = f"{out_dir}/pre_object_removal/iter_{current_iteration}_rejected_{obj_removal_prompt_type}_seed{removal_seed}.png"
+                        Image.fromarray(removed_obj_img_raw).save(rejected_fpath)
+                        logger.info(f"Saved rejected candidate for inspection: {rejected_fpath}")
+                        continue
+                    removed_obj_img_raw = np.ascontiguousarray(removed_obj_img_raw[..., :3])
+
                 # Check if any residual highlights
                 if get_num_pixels_with_color(
                     removed_obj_img_raw, REMOVAL_OUTLINE_COLOR, tolerance=50, mask=annotation_check_mask
