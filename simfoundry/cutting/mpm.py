@@ -34,6 +34,14 @@ How a cut works here, and why:
   reversal of a sawing stroke would stop the slicing and reload the edge from rest, and
   sawing would cut worse than pressing. xi counts up to ``SimConfig.slice_push_max``; past
   it the push hardly changes (the Chef'd stroke takes the same force with a cap of 10).
+* A partly cut piece can tear on its own, knife or no knife. The front of every unfinished cut
+  drops a cell at a time wherever its uncut ligament is pulled open harder than the tofu holds:
+  the opening stress at the crack tip, by beam theory from the tension and bending the bond
+  carries across the cut, reaches the tensile strength, or the faces next to the tip have
+  opened further than a cohesive crack with that strength and G_c can bridge (2 G_c /
+  sigma_t). Tofu fails at about 10 % stretch, which puts E G_c / sigma_t^2 near a centimetre,
+  the size of what a cut leaves: there the ligament's strength decides, not the stress
+  concentration at the tip. A slit left alone carries nothing open across it and stays.
 * The knife pushes on each field from that field's own side of the blade. Where the
   material is still intact the blade is dilated to most of a grid cell, because a 0.3 mm
   edge falls between nodes and would push on nothing.
@@ -441,6 +449,249 @@ def _settle_crack_work(
 
 
 @wp.kernel
+def _ligament_load(
+    grid_m: wp.array4d(dtype=float),
+    grid_v: wp.array4d(dtype=wp.vec3),
+    pair_a: wp.array(dtype=int),
+    pair_b: wp.array(dtype=int),
+    pair_cut: wp.array(dtype=int),
+    pair_side: wp.array(dtype=int),
+    n_pairs: int,
+    cut_o: wp.array(dtype=wp.vec3),
+    cut_u: wp.array(dtype=wp.vec3),
+    cut_v: wp.array(dtype=wp.vec3),
+    cut_w: wp.array(dtype=wp.vec3),
+    front: wp.array2d(dtype=float),
+    umin: float,
+    nbins: int,
+    dx: float,
+    dt: float,
+    lig_n: wp.array2d(dtype=float),
+    lig_nw: wp.array2d(dtype=float),
+    lig_top: wp.array2d(dtype=float),
+):
+    """Sums, per crack-front bin, the force the bond below each front carries across its cut.
+
+    It is the impulse _grid_update's merge is about to give the two fields at each bonded node,
+    over dt, along the cut's normal: positive where the bond holds the sides together. Summed
+    with its moment, it is the tension and bending that the uncut ligament transmits.
+    """
+    i, j, k = wp.tid()
+    xi = wp.vec3(float(i), float(j), float(k)) * dx
+    for q in range(n_pairs):
+        a = pair_a[q]
+        b = pair_b[q]
+        ma = grid_m[a, i, j, k]
+        mb = grid_m[b, i, j, k]
+        if ma > MASS_EPS and mb > MASS_EPS:
+            c = pair_cut[q]
+            rc = xi - cut_o[c]
+            bb = int(wp.floor((wp.dot(rc, cut_u[c]) - umin) / dx))
+            if bb >= 0 and bb < nbins:
+                w = wp.dot(rc, cut_w[c])
+                if w < front[c, bb]:
+                    # Gravity reaches both fields alike and drops out of the difference.
+                    rel = grid_v[a, i, j, k] / ma - grid_v[b, i, j, k] / mb
+                    f = -float(pair_side[q]) * wp.dot(rel, cut_v[c]) * (ma * mb / (ma + mb)) / dt
+                    wp.atomic_add(lig_n, c, bb, f)
+                    wp.atomic_add(lig_nw, c, bb, f * w)
+                    wp.atomic_max(lig_top, c, bb, w)
+
+
+@wp.kernel
+def _tip_opening(
+    x: wp.array(dtype=wp.vec3),
+    x0: wp.array(dtype=wp.vec3),
+    piece: wp.array(dtype=int),
+    field_cut_side: wp.array2d(dtype=int),
+    cut_live: wp.array(dtype=int),
+    n_cuts: int,
+    cut_o: wp.array(dtype=wp.vec3),
+    cut_u: wp.array(dtype=wp.vec3),
+    cut_v: wp.array(dtype=wp.vec3),
+    cut_w: wp.array(dtype=wp.vec3),
+    front: wp.array2d(dtype=float),
+    umin: float,
+    nbins: int,
+    dx: float,
+    layer: float,
+    open_sum: wp.array3d(dtype=float),
+    open_cnt: wp.array3d(dtype=float),
+):
+    """Sums, per bin, how far each face of an unfinished cut moved along its normal just above the front.
+
+    The faces are the particles that started within ``layer`` of the plane, one particle layer
+    on each side; the difference of the two sides' mean displacements is the crack's opening
+    next to its tip.
+    """
+    p = wp.tid()
+    f = piece[p]
+    xp = x[p]
+    for c in range(n_cuts):
+        s = field_cut_side[f, c]
+        if s == 0 or cut_live[c] == 0:
+            continue
+        if wp.abs(wp.dot(x0[p] - cut_o[c], cut_v[c])) >= layer:
+            continue
+        rel = xp - cut_o[c]
+        b = int(wp.floor((wp.dot(rel, cut_u[c]) - umin) / dx))
+        if b < 0 or b >= nbins:
+            continue
+        fr = front[c, b]
+        w = wp.dot(rel, cut_w[c])
+        if fr < 0.5 * NO_CRACK and w >= fr and w < fr + dx:
+            k = 0
+            if s > 0:
+                k = 1
+            wp.atomic_add(open_sum, c, b, k, wp.dot(xp - x0[p], cut_v[c]))
+            wp.atomic_add(open_cnt, c, b, k, 1.0)
+
+
+@wp.func
+def _knife_cutting_bin(
+    knife: KnifeState,
+    active_cut: int,
+    c: int,
+    b: int,
+    cut_o: wp.array(dtype=wp.vec3),
+    cut_u: wp.array(dtype=wp.vec3),
+    cut_w: wp.array(dtype=wp.vec3),
+    umin: float,
+    dx: float,
+    fr: float,
+):
+    """Whether the knife's edge is at bin b's crack tip and moving into the material."""
+    if knife.enabled == 0 or c != active_cut:
+        return False
+    denom = wp.dot(knife.e_u, cut_u[c])
+    if wp.abs(denom) < 1.0e-6:
+        return False
+    o = knife.origin - cut_o[c]
+    s = (umin + (float(b) + 0.5) * dx - wp.dot(o, cut_u[c])) / denom
+    if wp.abs(s) > knife.half_length:
+        return False
+    arm = s * knife.e_u + _edge_w(knife, s) * knife.e_w
+    if wp.dot(o + arm, cut_w[c]) - fr > knife.dilation + 2.0 * dx:
+        return False  # the edge is up in the open slit, clear of the tip
+    vel = knife.lin_vel + wp.cross(knife.ang_vel, arm)
+    normal = wp.normalize(knife.e_w - _edge_slope(knife, s) * knife.e_u)
+    return -wp.dot(vel, normal) > 0.0
+
+
+@wp.kernel
+def _tear(
+    front: wp.array2d(dtype=float),
+    front_prev: wp.array2d(dtype=float),
+    lig_n: wp.array2d(dtype=float),
+    lig_nw: wp.array2d(dtype=float),
+    lig_top: wp.array2d(dtype=float),
+    open_sum: wp.array3d(dtype=float),
+    open_cnt: wp.array3d(dtype=float),
+    cut_live: wp.array(dtype=int),
+    cut_board: wp.array(dtype=float),
+    nbins: int,
+    dx: float,
+    dt: float,
+    strength: float,
+    critical_opening: float,
+    hold: float,
+    clock: wp.array2d(dtype=float),
+    front_seen: wp.array2d(dtype=float),
+    open_ref: wp.array2d(dtype=float),
+    knife: KnifeState,
+    active_cut: int,
+    cut_o: wp.array(dtype=wp.vec3),
+    cut_u: wp.array(dtype=wp.vec3),
+    cut_w: wp.array(dtype=wp.vec3),
+    umin: float,
+):
+    """Tears the uncut ligament down by one cell where it is pulled open harder than the tofu holds.
+
+    Two ways, as a cohesive crack with a linear softening law fails: the opening stress at the
+    crack tip reaches the tensile strength, or the crack faces next to the tip have opened
+    further than the opening at which that law carries nothing. The stress is the ligament's
+    tension and bending (``_ligament_load``) by beam theory, over a ligament from the board to
+    half a cell above its highest bonded node. The opening is ``_tip_opening``'s; it is needed
+    because a multi-field crack tip gives too easily: the faces in the cell above it open with
+    little strain in the bonded cell below, so a blade levering the faces apart right over the
+    tip opens them by millimetres while the ligament's stress stays low. It counts from the
+    narrowest the faces have been since the front reached its cell: a blade dilated to the grid
+    leaves a kerf behind it (around a millimetre at 4 mm cells) that a real edge does not.
+
+    A bin more than a cell behind every neighbour that has material is a bridge one cell wide,
+    which takes its neighbours' load as well, and tears too. Without this, bins left behind by
+    the scatter of a coarse grid's per-bin loads stood as columns between torn-through bins and
+    held the pieces together.
+
+    Where the knife's edge is pushing into the material at the crack tip, the knife's own
+    criterion runs the crack (_advance_crack), and the ligament waits: the push of a blade
+    dilated to the grid wedges the tip open far more than a real edge does, and with tougher
+    tofu that tore the ligament a cell ahead of the knife and took the cutting force with it.
+
+    A crack runs no faster than about the Rayleigh wave speed, so the front drops only after the
+    tip has been overloaded for ``hold``, the time such a crack takes to cross a cell.
+    """
+    c, b = wp.tid()
+    if cut_live[c] == 0:
+        return
+    top = lig_top[c, b]
+    wb = cut_board[c]
+    if front[c, b] >= 0.5 * NO_CRACK:
+        # No crack here to extend: tearing runs a slit deeper, it does not start one.
+        clock[c, b] = 0.0
+        return
+    if _knife_cutting_bin(knife, active_cut, c, b, cut_o, cut_u, cut_w, umin, dx, front[c, b]):
+        clock[c, b] = 0.0
+        return
+    if top < -0.5 * NO_CRACK:
+        clock[c, b] = 0.0
+        if open_cnt[c, b, 0] + open_cnt[c, b, 1] > 0.0 and front[c, b] > wb - 1.5 * dx:
+            # Material at the crack front but no node below it shared by both sides: the sides
+            # have already come apart here. Record it, so that cut_complete agrees.
+            front[c, b] = wb - 3.0 * dx
+        return
+    t = wp.max(top + 0.5 * dx - wb, 0.5 * dx)
+    n = lig_n[c, b]
+    m = lig_nw[c, b] - n * (wb + 0.5 * t)
+    sigma = n / (dx * t) + 6.0 * m / (dx * t * t)
+    if front[c, b] != front_seen[c, b]:
+        # The front moved here (the knife, or a tear): the faces next to it are new.
+        front_seen[c, b] = front[c, b]
+        open_ref[c, b] = NO_CRACK
+    opening = float(0.0)
+    if open_cnt[c, b, 0] > 0.0 and open_cnt[c, b, 1] > 0.0:
+        now = open_sum[c, b, 1] / open_cnt[c, b, 1] - open_sum[c, b, 0] / open_cnt[c, b, 0]
+        open_ref[c, b] = wp.min(open_ref[c, b], now)
+        opening = now - open_ref[c, b]
+    # Neighbours with material: still bonded, or torn through (front under the board).
+    neighbours = int(0)
+    lower = int(0)
+    for k in range(2):
+        nb = b - 1 + 2 * k
+        if nb >= 0 and nb < nbins:
+            fn = front_prev[c, nb]
+            if lig_top[c, nb] > -0.5 * NO_CRACK or fn < wb - 1.5 * dx:
+                neighbours = neighbours + 1
+                if fn < front_prev[c, b] - 1.5 * dx:
+                    lower = lower + 1
+    bridge = neighbours > 0 and lower == neighbours
+    if sigma < strength and opening < critical_opening and not bridge:
+        clock[c, b] = 0.0
+        return
+    clock[c, b] = clock[c, b] + dt
+    if clock[c, b] < hold:
+        return
+    clock[c, b] = 0.0
+    # Unbond the highest bonded row (bonding is strictly below the front).
+    new_front = wp.min(front[c, b] - dx, top)
+    if top - dx < wb - 0.25 * dx:
+        # What was left is the row under the board, which holds the bottom layer: that parts as
+        # well, with the front well below the board as the knife leaves it (_advance_crack).
+        new_front = wb - 3.0 * dx
+    front[c, b] = new_front
+
+
+@wp.kernel
 def _grid_update(
     grid_m: wp.array4d(dtype=float),
     grid_v: wp.array4d(dtype=wp.vec3),
@@ -709,6 +960,9 @@ class SimConfig:
         slice_averaging: Decay time of the edge's sliding-speed envelope [s]; longer than half
             a sawing stroke.
         slice_push_max: Largest slice-to-push ratio that counts (see the module docstring).
+        tearing: Let the uncut ligament of a partly cut piece tear down where it is pulled open
+            harder than ``SoftSolidMaterial.tensile_strength`` (see the module docstring); False
+            grows cracks only under the knife.
     """
 
     dx: float = 2.5e-3
@@ -728,6 +982,7 @@ class SimConfig:
     slice_push: bool = True
     slice_averaging: float = 0.25
     slice_push_max: float = 2.0
+    tearing: bool = True
 
 
 class MPMCuttingSim:
@@ -862,6 +1117,29 @@ class MPMCuttingSim:
         self.field_side = wp.zeros(config.max_pieces, dtype=int, device=dev)
         self.knife_impulse = wp.zeros(1, dtype=wp.vec3, device=dev)
         self.knife_moment = wp.zeros(1, dtype=wp.vec3, device=dev)
+        # Tearing: per bonded pair, the side of the cut's plane its second field lies on; per cut,
+        # whether anything is still bonded across it and the board's height in its frame; per
+        # bin, the ligament's tension, its moment and highest bonded node, and how long the
+        # crack tip has been overloaded.
+        self.pair_side = wp.zeros(config.max_pairs, dtype=int, device=dev)
+        self.cut_live = wp.zeros(mc, dtype=int, device=dev)
+        self.cut_board = wp.zeros(mc, dtype=float, device=dev)
+        self.lig_n = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self.lig_nw = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self.lig_top = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self.tear_clock = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self.front_prev = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        # The front each bin's opening reference belongs to, and that reference: how far apart the
+        # faces next to the front were at their narrowest since it got there.
+        self.front_seen = wp.array(np.full((mc, self.n_bins), 1.0e3, dtype=np.float32), dtype=float, device=dev)
+        self.open_ref = wp.array(np.full((mc, self.n_bins), 1.0e3, dtype=np.float32), dtype=float, device=dev)
+        # Side (+1 or -1 along e_v) of each field relative to each cut, for fields split by it,
+        # and the crack faces' displacement next to each front, summed per side.
+        self._sides = np.zeros((config.max_pieces, mc), dtype=np.int32)
+        self.field_cut_side = wp.zeros((config.max_pieces, mc), dtype=int, device=dev)
+        self.x0_dev = wp.array(self.x0.astype(np.float32), dtype=wp.vec3, device=dev)
+        self.open_sum = wp.zeros((mc, self.n_bins, 2), dtype=float, device=dev)
+        self.open_cnt = wp.zeros((mc, self.n_bins, 2), dtype=float, device=dev)
 
         self.time = 0.0
         self.n_pieces = 1
@@ -873,6 +1151,11 @@ class MPMCuttingSim:
         self.knife_pose = None
         self._knife = KnifeState()
         self._knife.enabled = 0
+        # A tearing crack runs no faster than the Rayleigh wave (Viktorov's approximation), so it
+        # takes at least this long to cross a cell.
+        nu = material.poisson_ratio
+        c_s = math.sqrt(material.shear_modulus / material.density)
+        self.tear_hold = dx / ((0.862 + 1.14 * nu) / (1.0 + nu) * c_s)
 
     # -- knife -------------------------------------------------------------------------
 
@@ -925,6 +1208,14 @@ class MPMCuttingSim:
             raise ValueError("a horizontal blade cannot start a cut")
         e_w = e_w / np.linalg.norm(e_w)
         e_u = np.cross(e_v, e_w)
+        k = int(np.argmax(np.abs(e_u)))
+        if abs(e_u[k]) > 1.0 - 1e-6:
+            # A cut along a grid axis: slide the frame's origin along the edge so that the grid's
+            # node columns fall on the bins' centres. Nodes are bonded by their bin's front, and a
+            # column on a bin's boundary lands in one bin or its neighbour by rounding, which
+            # leaves bins with two columns and bins with none, whose ligament cannot be measured.
+            q = (e_u @ o + self.bin_umin) / self.dx
+            o = o + (((0.5 - q) + 0.5) % 1.0 - 0.5) * self.dx * e_u
         x = self.x.numpy().astype(float)
         piece = self.piece.numpy()
 
@@ -959,6 +1250,10 @@ class MPMCuttingSim:
         if len(self._pairs) > self.config.max_pairs:
             raise RuntimeError("too many bonded pairs")
         self.n_pieces += len(split)
+        for p, q in split.items():
+            # The new field lies where its parent did relative to the earlier cuts.
+            self._sides[q] = self._sides[p]
+            self._sides[p, c], self._sides[q, c] = -1, 1
 
         sides = np.zeros(self.config.max_pieces, dtype=np.int32)
         for p in range(self.n_pieces):
@@ -983,6 +1278,9 @@ class MPMCuttingSim:
         self.crack_work.zero_()
         self.crack_need.zero_()
         self._cut_frames.append((o, e_u, e_v, e_w))
+        board = self.cut_board.numpy()
+        board[c] = self._board_w(c)
+        self.cut_board.assign(board)
         self.n_cuts += 1
         self.active_cut = c
         return c
@@ -1014,28 +1312,43 @@ class MPMCuttingSim:
         self.bin_top.assign(top.astype(np.float32))
         self.bin_width.assign(width.astype(np.float32))
 
+    def _board_w(self, c: int) -> float:
+        """Height of the board in cut c's frame, along e_w (which tilts with a rolled blade)."""
+        o, _, _, e_w = self._cut_frames[c]
+        return float((self.board_z - o[2]) / e_w[2])
+
     def _drop_finished_pairs(self):
-        """Stops bonding across the active cut as soon as it has gone all the way through.
+        """Stops bonding across a cut as soon as it has gone all the way through.
 
         Waiting for the next stroke would keep the two sides joined at the board until then,
-        a hinge that holds a cut slab upright.
+        a hinge that holds a cut slab upright. Any unfinished cut may finish, not only the
+        active one: a ligament can tear through long after its stroke.
         """
-        c = self.active_cut
-        if c < 0 or not any(pc == c for _, _, pc in self._pairs):
+        cuts = {pc for _, _, pc in self._pairs}
+        if not cuts:
             return
-        if self.cut_complete(c):
-            self._pairs = [p for p in self._pairs if p[2] != c]
+        x = self.positions()
+        done = {c for c in cuts if self.cut_complete(c, x=x)}
+        if done:
+            self._pairs = [p for p in self._pairs if p[2] not in done]
             self._upload_pairs()
 
     def _upload_pairs(self):
         a = np.zeros(self.config.max_pairs, dtype=np.int32)
         b = np.zeros_like(a)
         cc = np.zeros_like(a)
+        side = np.zeros_like(a)
+        live = np.zeros(self.config.max_cuts, dtype=np.int32)
         for idx, (pa, pb, pc) in enumerate(self._pairs):
             a[idx], b[idx], cc[idx] = pa, pb, pc
+            side[idx] = self._sides[pb, pc]
+            live[pc] = 1
         self.pair_a.assign(a)
         self.pair_b.assign(b)
         self.pair_cut.assign(cc)
+        self.pair_side.assign(side)
+        self.cut_live.assign(live)
+        self.field_cut_side.assign(self._sides)
 
     # -- stepping ----------------------------------------------------------------------
 
@@ -1058,6 +1371,46 @@ class MPMCuttingSim:
             ],
             device=dev,
         )
+        if cfg.tearing and mat.tensile_strength > 0.0 and self._pairs:
+            # Before _grid_update merges the bonded fields: what the merge transmits is the load.
+            self.lig_n.zero_()
+            self.lig_nw.zero_()
+            self.lig_top.fill_(-NO_CRACK)
+            wp.launch(
+                _ligament_load,
+                dim=(nx, ny, nz),
+                inputs=[
+                    self.grid_m, self.grid_v, self.pair_a, self.pair_b, self.pair_cut, self.pair_side,
+                    len(self._pairs), self.cut_o, self.cut_u, self.cut_v, self.cut_w, self.front,
+                    self.bin_umin, self.n_bins, self.dx, dt, self.lig_n, self.lig_nw, self.lig_top,
+                ],
+                device=dev,
+            )
+            self.open_sum.zero_()
+            self.open_cnt.zero_()
+            wp.launch(
+                _tip_opening,
+                dim=self.n_particles,
+                inputs=[
+                    self.x, self.x0_dev, self.piece, self.field_cut_side, self.cut_live, self.n_cuts,
+                    self.cut_o, self.cut_u, self.cut_v, self.cut_w, self.front, self.bin_umin, self.n_bins,
+                    self.dx, self.dx / cfg.particles_per_axis, self.open_sum, self.open_cnt,
+                ],
+                device=dev,
+            )
+            wp.copy(self.front_prev, self.front)  # neighbours' fronts, unaffected by launch order
+            wp.launch(
+                _tear,
+                dim=(self.n_cuts, self.n_bins),
+                inputs=[
+                    self.front, self.front_prev, self.lig_n, self.lig_nw, self.lig_top, self.open_sum,
+                    self.open_cnt, self.cut_live, self.cut_board, self.n_bins, self.dx, dt,
+                    mat.tensile_strength, mat.critical_opening, self.tear_hold, self.tear_clock,
+                    self.front_seen, self.open_ref, self._knife, self.active_cut,
+                    self.cut_o, self.cut_u, self.cut_w, self.bin_umin,
+                ],
+                device=dev,
+            )
         wp.launch(
             _grid_update,
             dim=(nx, ny, nz),
@@ -1230,18 +1583,47 @@ class MPMCuttingSim:
         return mask
 
     def cut_complete(self, c: int, x=None, piece=None) -> bool:
-        """Whether cut c's crack front reached the board everywhere the material crosses its plane."""
+        """Whether cut c's crack front reached the board everywhere the material crosses its plane.
+
+        It counts as through once the front is inside the bottom layer of particles: what is
+        left is thinner than one particle spacing, which the particles cannot tell from nothing,
+        and the knife's crack often ends a fraction of a millimetre short of the board. A front
+        that stops higher leaves a ligament, however thin, which holds until it tears; within 1.5
+        cells, as it used to be, a 4.5 mm ligament left on purpose on a 4 mm grid parted by
+        bookkeeping.
+        """
         if c >= self.n_cuts:
             return False
+        front = self._material_fronts(c, x)
+        return bool(np.all(front < self._board_w(c) + self.dx / self.config.particles_per_axis))
+
+    def ligament_height(self, c: int, x=None) -> float:
+        """Height of the uncut material left under cut c's crack front, where most is left [m].
+
+        0 once the cut counts as through (``cut_complete``); the material's whole height where
+        the crack never started.
+        """
+        if c >= self.n_cuts or self.cut_complete(c, x):
+            return 0.0
+        front, top = self._material_fronts(c, x, with_top=True)
+        return max(0.0, float(np.minimum(front, top).max()) - self._board_w(c))
+
+    def _material_fronts(self, c: int, x=None, with_top=False):
+        """Crack front of cut c in the bins the material crosses (within two cells of its plane).
+
+        With ``with_top``, also the top of the material in each of those bins.
+        """
         if x is None:
             x = self.positions()
         o, e_u, e_v, e_w = self._cut_frames[c]
         rel = x - o
         near = np.abs(rel @ e_v) < 2.0 * self.dx
-        if not near.any():
-            return True
         bins = np.floor((rel[near] @ e_u - self.bin_umin) / self.dx).astype(int)
         bins = np.clip(bins, 0, self.n_bins - 1)
-        front = self.crack_front(c)[np.unique(bins)]
-        w_board = float((np.array([0.0, 0.0, self.board_z]) - o) @ e_w)
-        return bool(np.all(front < w_board + 1.5 * self.dx))
+        used, index = np.unique(bins, return_inverse=True)
+        front = self.crack_front(c)[used]
+        if not with_top:
+            return front
+        top = np.full(len(used), -np.inf)
+        np.maximum.at(top, index, rel[near] @ e_w)
+        return front, top

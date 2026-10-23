@@ -23,6 +23,9 @@ Sources:
     Solids 213 (2026), bioRxiv 10.64898/2025.12.10.693552: peak compressive stress at
     30 % compression of 3.74 (silken), 18.91 (firm) and 42.84 kPa (extra-firm); fluid
     volume fraction 0.92 / 0.87 / 0.86; strongly viscoelastic.
+
+The tensile strength is the stress at that 10 % stretch under quick loading, E / 10: measured
+for extra-firm tofu only, and carried over to the other presets as an estimate.
 """
 
 import math
@@ -55,6 +58,8 @@ class SoftSolidMaterial:
         initiation_length: Depth of crack whose fracture energy the knife must push into the
             food before the food first gives way under a stroke [m]. It sets how far a straight
             press dents the food first; slicing divides it like G_c. An estimate.
+        tensile_strength: Opening stress at which the uncut ligament below a partial cut tears
+            [Pa]; 0 never tears it, and cracks then grow only under the knife.
     """
 
     name: str
@@ -69,6 +74,7 @@ class SoftSolidMaterial:
     relaxed_modulus: float = 0.0
     relaxation_time: float = 0.0
     initiation_length: float = 2.0e-3
+    tensile_strength: float = 0.0
 
     @property
     def shear_modulus(self) -> float:
@@ -90,6 +96,17 @@ class SoftSolidMaterial:
     def maxwell_shear_modulus(self) -> float:
         """Shear modulus of the Maxwell branch, which relaxes [Pa]; 0 if elastic."""
         return self.shear_modulus - self.equilibrium_shear_modulus
+
+    @property
+    def critical_opening(self) -> float:
+        """Crack opening at which a cohesive crack with a linear softening law carries nothing [m].
+
+        2 G_c / tensile_strength: the law falls from the strength to zero over this opening and
+        takes G_c of work per unit area to do it. 0 if the material never tears.
+        """
+        if self.tensile_strength <= 0.0:
+            return 0.0
+        return 2.0 * self.fracture_energy / self.tensile_strength
 
     @property
     def lame_lambda(self) -> float:
@@ -114,6 +131,7 @@ FIRM_TOFU = SoftSolidMaterial(
     fracture_energy=3.0,
     relaxed_modulus=26.4e3 / 4.0,
     relaxation_time=2.0,
+    tensile_strength=26.4e3 / 10.0,
 )
 
 # Silken tofu scaled from firm by the ratio of the peak compressive stresses in Boes et al.
@@ -127,6 +145,7 @@ SILKEN_TOFU = SoftSolidMaterial(
     fracture_energy=1.0,
     relaxed_modulus=26.4e3 * 3.74 / 18.91 / 3.0,
     relaxation_time=2.0,
+    tensile_strength=26.4e3 * 3.74 / 18.91 / 10.0,
 )
 
 # St. Pierre et al. measured almost the same stiffness for firm and extra-firm tofu, while
@@ -141,6 +160,7 @@ EXTRA_FIRM_TOFU = SoftSolidMaterial(
     fracture_energy=6.0,
     relaxed_modulus=27.5e3 / 4.0,
     relaxation_time=2.0,
+    tensile_strength=27.5e3 / 10.0,
 )
 
 # Firm tofu pressed under a weight to drain it, as in the HDMD clip (45 minutes). Boes et al.
@@ -155,6 +175,7 @@ PRESSED_TOFU = SoftSolidMaterial(
     fracture_energy=6.0,
     relaxed_modulus=26.4e3,
     relaxation_time=2.0,
+    tensile_strength=4.0 * 26.4e3 / 10.0,
 )
 
 PRESETS = {m.name: m for m in (FIRM_TOFU, SILKEN_TOFU, EXTRA_FIRM_TOFU, PRESSED_TOFU)}

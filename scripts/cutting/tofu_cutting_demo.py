@@ -255,6 +255,7 @@ def main():
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--no-video", action="store_true")
+    ap.add_argument("--no-tearing", action="store_true", help="grow cracks only under the knife (SimConfig.tearing)")
     ap.add_argument("--view", choices=["oblique", "side", "front"], default=None, help="camera (default per scenario)")
     ap.add_argument("--style", choices=["studio", "kitchen"], default=None, help="lights and backdrop")
     ap.add_argument("--blade-alpha", type=float, default=1.0, help="blade opacity; below 1 shows the cut through it")
@@ -280,7 +281,8 @@ def main():
     args.descend_speed = speed if args.descend_speed is None else args.descend_speed
     view = args.view or view
     style = {"studio": STUDIO, "kitchen": KITCHEN}[args.style or style]
-    sim = MPMCuttingSim(material, args.block, knife=knife, config=SimConfig(dx=args.dx), device=args.device)
+    config = SimConfig(dx=args.dx, tearing=not args.no_tearing)
+    sim = MPMCuttingSim(material, args.block, knife=knife, config=config, device=args.device)
     top_z = sim.block_max[2]
     driver = build_driver(args, sim)
 
@@ -407,6 +409,8 @@ def main():
             for h in (sim.crack_onset_height(c) for c in range(sim.n_cuts))
         ],
         connected_pieces=sim.connected_pieces(),
+        # Uncut material left under each cut's crack front, where most is left (0: cut through).
+        ligament_mm=[round(1e3 * sim.ligament_height(c), 2) for c in range(sim.n_cuts)],
         pieces=pieces, max_knife_force_z_N=max((r["fz"] for r in rows), default=0.0),
         mean_knife_force_z_while_cutting_N=float(np.mean([r["fz"] for r in cutting])) if cutting else 0.0,
         particles_below_board=int((x[:, 2] < sim.board_z - 0.5 * args.dx).sum()),

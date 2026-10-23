@@ -81,6 +81,9 @@ def test_materials_are_consistent():
         assert math.isclose(
             m.youngs_modulus, 2.0 * m.shear_modulus * (1.0 + m.poisson_ratio), rel_tol=1e-12
         )
+        # Every preset tears, at about 10 % stretch.
+        assert m.tensile_strength == pytest.approx(0.1 * m.youngs_modulus)
+        assert m.critical_opening == pytest.approx(2.0 * m.fracture_energy / m.tensile_strength)
     assert SILKEN_TOFU.youngs_modulus < FIRM_TOFU.youngs_modulus
     assert SILKEN_TOFU.wave_speed < FIRM_TOFU.wave_speed
 
@@ -185,7 +188,7 @@ def test_a_shallow_press_dents_without_cutting():
 
 def test_a_partial_cut_stops_with_the_knife():
     # Taller than BLOCK: the crack may run a dilated edge plus a quarter cell (4 mm here) ahead
-    # of the knife, and a front within 1.5 cells of the board counts as cut through.
+    # of the knife, which would leave little of BLOCK's 16 mm under it.
     block = (BLOCK[0], BLOCK[1], 0.024)
     sim = MPMCuttingSim(FIRM_TOFU, block, config=CONFIG, device="cpu")
     depth = 8.0e-3
@@ -380,28 +383,72 @@ def test_slicing_cuts_with_less_force_than_pressing():
     assert slice_force < 0.8 * press_force
 
 
-def test_a_half_cut_block_stays_one_piece_when_pried_open():
-    # Cut halfway, lever the slit open with the blade (pushing one half outward from inside the
-    # cut), let go and lift out: the uncut half holds the two sides together. Taller than BLOCK,
-    # as in test_a_partial_cut_stops_with_the_knife: the crack runs a dilated edge plus a quarter
-    # cell ahead of the knife, and a front within 1.5 cells of the board counts as cut through.
-    block = (BLOCK[0], BLOCK[1], 0.024)
-    sim = MPMCuttingSim(FIRM_TOFU, block, config=CONFIG, device="cpu")
+def _ligament(sim):
+    """Height of the uncut material under the crack front, in each bin the block crosses [m]."""
+    o, e_u, e_v, _ = sim._cut_frames[0]
+    rel = sim.positions() - o
+    near = np.abs(rel @ e_v) < 2.0 * DX
+    bins = np.unique(np.floor((rel[near] @ e_u - sim.bin_umin) / DX).astype(int))
+    return sim.crack_front(0)[bins] + o[2] - sim.board_z
+
+
+def _cut_and_pry(sim, depth, rest=0.0):
+    """Cuts ``depth`` straight down along x through the block's middle, then levers the slit open.
+
+    With ``rest`` the blade first comes out and the block is left alone that long before the
+    blade goes back into the slit. The lever pushes one side outward from inside the cut (the
+    blade moves 3 mm sideways while it tilts 8 degrees), lets go and lifts out.
+
+    Returns the uncut ligament (``_ligament``) and the number of pieces after the stroke, after
+    the rest and at the end.
+    """
     c = 0.5 * (sim.block_min + sim.block_max)
     top = sim.block_max[2]
     hover = KnifePose(np.array([c[0], c[1], top + 0.004]), 0.0)  # blade along x: plane y = c_y
-    down = KnifePose(np.array([c[0], c[1], top - 0.5 * block[2]]), 0.0)
+    down = KnifePose(np.array([c[0], c[1], top - depth]), 0.0)
     pried = KnifePose(down.origin - np.array([0.0, 0.003, 0.0]), 0.0, roll=math.radians(8.0))
-    segs, t = [], 0.05
-    for a, b, dt, cut in ((hover, down, 0.24, True), (down, pried, 0.3, False), (pried, down, 0.3, False),
-                          (down, hover, 0.1, False), (hover, hover, 0.3, False)):
+    moves = [(hover, down, (0.004 + depth) / 0.08, True)]
+    if rest > 0.0:
+        moves += [(down, hover, 0.1, False), (hover, hover, rest, False), (hover, down, 0.2, False)]
+    moves += [(down, pried, 0.3, False), (pried, down, 0.3, False), (down, hover, 0.1, False),
+              (hover, hover, 0.3, False)]
+    segs, t, ends = [], 0.05, []
+    for a, b, dt, cut in moves:
         segs += KnifeTrajectory.linear(t, t + dt, a, b, begins_cut=cut).segments
         t += dt
-    _run(sim, KnifeTrajectory(segments=segs))
+        ends.append(t)
+    traj = KnifeTrajectory(segments=segs)
+    states = []
+    for t_end in (ends[0], ends[2] if rest > 0.0 else ends[0], traj.duration):
+        t = sim.time
+        while t < t_end - 1e-9:
+            t = min(t + 0.01, t_end)
+            sim.advance(t, traj)
+        states.append((_ligament(sim), sim.connected_pieces()))
+    return states
+
+
+def test_a_half_cut_block_tears_partway_when_pried_open():
+    # Cut halfway and lever the slit open with the blade: the crack tears on into the uncut half,
+    # about a cell, but the rest of the ligament holds the two sides together.
+    sim = _sim()
+    (stroke, _), _, (end, pieces) = _cut_and_pry(sim, 0.5 * BLOCK[2])
+    # Along at least a third of the 32 mm cut (the bins at its ends, by the free faces, may not).
+    assert (stroke - end > 0.9 * DX).sum() >= 3
+    assert end.max() > DX
     assert not sim.cut_complete(0)
-    assert sim.connected_pieces() == 1
-    # Across the cut plane the two sides still meet at the bottom.
-    x = sim.positions()
-    low = (sim.x0[:, 2] < sim.board_z + DX) & (np.abs(sim.x0[:, 1] - c[1]) < 1.5 * DX)
-    near, far = low & (sim.x0[:, 1] < c[1]), low & (sim.x0[:, 1] >= c[1])
-    assert x[far, 1].min() - x[near, 1].max() < 0.5 * DX
+    assert pieces == 1
+
+
+def test_a_thin_ligament_holds_until_it_is_pried_apart():
+    # A cut three quarters deep leaves a ligament thinner than a cell and a half under the crack.
+    sim = _sim()
+    (stroke, p_stroke), (rested, p_rested), (end, p_end) = _cut_and_pry(sim, 0.75 * BLOCK[2], rest=0.5)
+    assert 0.0 < stroke.min() and stroke.max() < 1.5 * DX
+    # Left alone, nothing pulls it open: the crack stays where the knife left it, and the block
+    # stays one piece (it used to count as cut through: the front was within 1.5 cells of the board).
+    np.testing.assert_allclose(rested, stroke)
+    assert p_stroke == p_rested == 1
+    # The same lever that only tears a half cut a cell deeper tears this one through.
+    assert sim.cut_complete(0)
+    assert p_end == 2
