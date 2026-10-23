@@ -315,3 +315,27 @@ def test_slicing_cuts_with_less_force_than_pressing():
     assert slice_onset < press_onset
     assert slice_onset < 3.0e-3
     assert slice_force < 0.8 * press_force
+
+
+def test_a_half_cut_block_stays_one_piece_when_pried_open():
+    # Cut halfway, lever the slit open with the blade (pushing one half outward from inside the
+    # cut), let go and lift out: the uncut half holds the two sides together.
+    sim = _sim()
+    c = 0.5 * (sim.block_min + sim.block_max)
+    top = sim.block_max[2]
+    hover = KnifePose(np.array([c[0], c[1], top + 0.004]), 0.0)  # blade along x: plane y = c_y
+    down = KnifePose(np.array([c[0], c[1], top - 0.5 * BLOCK[2]]), 0.0)
+    pried = KnifePose(down.origin - np.array([0.0, 0.003, 0.0]), 0.0, roll=math.radians(8.0))
+    segs, t = [], 0.05
+    for a, b, dt, cut in ((hover, down, 0.24, True), (down, pried, 0.3, False), (pried, down, 0.3, False),
+                          (down, hover, 0.1, False), (hover, hover, 0.3, False)):
+        segs += KnifeTrajectory.linear(t, t + dt, a, b, begins_cut=cut).segments
+        t += dt
+    _run(sim, KnifeTrajectory(segments=segs))
+    assert not sim.cut_complete(0)
+    assert sim.connected_pieces() == 1
+    # Across the cut plane the two sides still meet at the bottom.
+    x = sim.positions()
+    low = (sim.x0[:, 2] < sim.board_z + DX) & (np.abs(sim.x0[:, 1] - c[1]) < 1.5 * DX)
+    near, far = low & (sim.x0[:, 1] < c[1]), low & (sim.x0[:, 1] >= c[1])
+    assert x[far, 1].min() - x[near, 1].max() < 0.5 * DX
