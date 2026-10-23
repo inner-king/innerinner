@@ -43,14 +43,18 @@ class SoftSolidMaterial:
         viscosity: Kelvin-Voigt viscosity [Pa s]. Mostly numerical damping; tofu is
             strongly viscoelastic, but with relaxation times this solver does not model.
         fracture_energy: Critical energy release rate G_c [J/m^2]. The crack under the
-            knife advances where the strain energy density reaches G_c divided by the
-            grid spacing (a crack-band model), so the cutting resistance scales with it.
+            knife runs as far as the work of the knife's push pays for at G_c per unit of
+            new area, so a steady cut takes a push of G_c times the length of edge in the
+            food (less when the edge also slides along itself).
         knife_friction: Coulomb friction between blade and material.
         board_friction: Coulomb friction between material and cutting board.
         contact_friction: Coulomb friction between two cut pieces.
         relaxed_modulus: Young's modulus left after full relaxation [Pa]; 0 makes the
             material purely elastic with ``youngs_modulus``.
         relaxation_time: Relaxation time of the Maxwell branch [s].
+        initiation_length: Depth of crack whose fracture energy the knife must push into the
+            food before the food first gives way under a stroke [m]. It sets how far a straight
+            press dents the food first; slicing divides it like G_c. An estimate.
     """
 
     name: str
@@ -64,6 +68,7 @@ class SoftSolidMaterial:
     contact_friction: float = 0.3
     relaxed_modulus: float = 0.0
     relaxation_time: float = 0.0
+    initiation_length: float = 2.0e-3
 
     @property
     def shear_modulus(self) -> float:

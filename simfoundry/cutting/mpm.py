@@ -15,21 +15,25 @@ How a cut works here, and why:
   frictional contact between them (Bardenhagen et al., 2000), so a finished cut never
   heals. CPIC heals once the blade leaves, which BladeMaster (arXiv 2609.27342) fixes with
   permanent per-particle side labels; the piece split here is the same idea.
-* The crack front advances only where the strain energy density in the intact material
-  just under the edge reaches G_c / dx (a crack-band criterion). So the knife first presses
-  the food down, then cuts, and the force it needs scales with the fracture energy. Along
-  the edge the front is continuous, and the last layer pinched against the board parts.
-* Slicing helps: where the edge also slides along itself, the threshold drops by
-  1 / (1 + xi^2), xi being the ratio of the edge's sliding to its pushing speed (Atkins, Xu
-  and Jeronimidis 2004: the work of the sliding force goes into the cut too). A blade pressed
-  straight down cuts only at the full threshold; a cook's press-and-slide stroke, or a tilted
-  blade coming down, cuts with less. The sliding speed follows its envelope: it rises at
-  once and decays over a fraction of a second. Taken instant by instant, every reversal of a
-  sawing stroke would stop the slicing and reload the edge from rest, and sawing would cut
-  worse than pressing. xi counts up to ``SimConfig.slice_push_max`` (2, a fifth of the
-  threshold): below that the crack front runs so close under the edge that the dilated edge
-  keeps pressing the intact tofu under it, and the force rises again (at xi = 3 it was back
-  near the pressing force).
+* The crack front advances by an energy balance, the one Atkins and Williams & Patel
+  (Interface Focus 6, 2016) write for cutting: it runs as far as the work of the knife's push
+  on the intact material pays for, at G_c per unit of new crack area. Steady cutting then
+  takes a push of G_c times the length of edge in the food, whatever the grid. A local
+  criterion, the strain energy density under the edge reaching G_c / dx (a crack band),
+  cannot do this: under a blade dilated to the grid that density levels off at a value that
+  does not depend on dx, so on a fine grid the knife only ploughs.
+* Before a stroke's first crack the push must pay for an initiation length of crack
+  (``SoftSolidMaterial.initiation_length``), so a straight press dents the food before it
+  gives way. The last layer pinched between the edge and the board parts as well.
+* Slicing helps: where the edge also slides along itself, the energy per area is divided by
+  1 + xi^2, xi being the ratio of the edge's sliding to its pushing speed (Atkins, Xu and
+  Jeronimidis 2004: the work of the sliding force goes into the cut too). A blade pressed
+  straight down cuts with the full G_c; a cook's press-and-slide stroke, or a tilted blade
+  coming down, with less push and less denting. The sliding speed follows its envelope: it
+  rises at once and decays over a fraction of a second. Taken instant by instant, every
+  reversal of a sawing stroke would stop the slicing and reload the edge from rest, and
+  sawing would cut worse than pressing. xi counts up to ``SimConfig.slice_push_max``; past
+  it the push hardly changes (the Chef'd stroke takes the same force with a cap of 10).
 * The knife pushes on each field from that field's own side of the blade. Where the
   material is still intact the blade is dilated to most of a grid cell, because a 0.3 mm
   edge falls between nodes and would push on nothing.
@@ -197,13 +201,6 @@ def _p2g(
     grid_v: wp.array4d(dtype=wp.vec3),
     grid_g: wp.array4d(dtype=wp.vec3),
     psi_out: wp.array(dtype=float),
-    knife: KnifeState,
-    active_cut: int,
-    cut_o: wp.array(dtype=wp.vec3),
-    cut_u: wp.array(dtype=wp.vec3),
-    umin: float,
-    nbins: int,
-    edge_psi: wp.array(dtype=float),
 ):
     p = wp.tid()
     inv_dx = 1.0 / dx
@@ -240,94 +237,207 @@ def _p2g(
                 # Sum of m_p grad N_i(x_p): points out of the body, used as the contact normal.
                 grad = wp.vec3(gwx * wy * wz, wx * gwy * wz, wx * wy * gwz) * (pmass * inv_dx)
                 wp.atomic_add(grid_g, f, bx + i, by + j, bz + kk, grad)
-    if active_cut >= 0 and knife.enabled == 1:
-        # Energy of the material just under the edge, per crack-front bin, for the crack criterion.
-        r = xp - knife.origin
-        ku = wp.dot(r, knife.e_u)
-        kv = wp.dot(r, knife.e_v)
-        kw = wp.dot(r, knife.e_w) - _edge_w(knife, ku)  # height above the local edge
-        if wp.abs(kv) < 1.5 * dx and kw > -2.0 * dx and kw < 0.5 * dx and wp.abs(ku) <= knife.half_length:
-            b = int(wp.floor((wp.dot(xp - cut_o[active_cut], cut_u[active_cut]) - umin) / dx))
-            if b >= 0 and b < nbins:
-                wp.atomic_max(edge_psi, b, psi)
+
+
+@wp.func
+def _edge_at_bin(knife: KnifeState, o: wp.vec3, u: wp.vec3, ub: float):
+    """Where the edge crosses ``u = ub`` in a cut's frame (o: knife origin from the cut's origin).
+
+    Returns the distance along the blade from the origin, huge for an edge across the plane,
+    and the edge point relative to the knife origin (on the belly, raised above the straight
+    edge's line).
+    """
+    denom = wp.dot(knife.e_u, u)
+    if wp.abs(denom) < 1.0e-6:
+        return 1.0e9, wp.vec3(0.0)
+    goal = ub - wp.dot(o, u)
+    s = goal / denom
+    # On the belly the edge is raised along e_w, which a pitched blade tilts along the cut: up to
+    # 1 cm at the tip of a 30-degree blade. The straight edge's crossing would put the bins under
+    # the tip beyond the blade, never cracked while the tip presses on them. Newton steps find
+    # where the curved edge itself crosses the bin.
+    lift = wp.dot(knife.e_w, u)
+    for _ in range(4):
+        slope = denom + _edge_slope(knife, s) * lift
+        if wp.abs(slope) < 1.0e-6:
+            break
+        s = s - (s * denom + _edge_w(knife, s) * lift - goal) / slope
+    return s, s * knife.e_u + _edge_w(knife, s) * knife.e_w
+
+
+@wp.func
+def _edge_normal(knife: KnifeState, s: float):
+    """Unit normal of the edge within the blade's plane at s, pointing from the edge into the blade."""
+    return wp.normalize(knife.e_w - _edge_slope(knife, s) * knife.e_u)
+
+
+@wp.func
+def _crack_reach(knife: KnifeState, s: float, u: wp.vec3, w: wp.vec3, dx: float, lead: float):
+    """How far below the edge, in a bin one cell wide at s, the crack may run.
+
+    Past the dilated edge, a rounded nose that is taller in the cut's plane where the edge
+    slopes (a pitched blade, the belly), by ``lead``: a crack held behind the nose would leave
+    the nose pressing on intact material however fast the crack runs, and that push would
+    set the force instead of G_c.
+    """
+    t = knife.e_u + _edge_slope(knife, s) * knife.e_w
+    slope = wp.abs(wp.dot(t, w)) / wp.max(wp.abs(wp.dot(t, u)), 1.0e-6)
+    r0 = 0.5 * knife.edge_thickness + knife.dilation
+    return r0 * wp.sqrt(1.0 + slope * slope) + 0.5 * dx * slope + lead
 
 
 @wp.kernel
-def _advance_crack(
+def _slice_factors(
+    knife: KnifeState,
+    c: int,
+    cut_o: wp.array(dtype=wp.vec3),
+    cut_u: wp.array(dtype=wp.vec3),
+    umin: float,
+    dx: float,
+    slice_push: int,
+    slide: wp.array(dtype=float),
+    slide_alpha: float,
+    xi_max: float,
+    factor: wp.array(dtype=float),
+):
+    """Energy per area of each bin's crack, as a fraction of G_c.
+
+    1 / (1 + xi^2) where the edge pushes into the material; 0 where it lifts or holds still,
+    which cuts nothing, however much work was done before.
+    """
+    b = wp.tid()
+    o = knife.origin - cut_o[c]
+    s, arm = _edge_at_bin(knife, o, cut_u[c], umin + (float(b) + 0.5) * dx)
+    factor[b] = 0.0
+    if wp.abs(s) > knife.half_length:
+        return
+    tangent = wp.normalize(knife.e_u + _edge_slope(knife, s) * knife.e_w)
+    vel = knife.lin_vel + wp.cross(knife.ang_vel, arm)
+    # The sliding speed's envelope: it rises at once and decays over SimConfig.slice_averaging.
+    along = wp.abs(wp.dot(vel, tangent))
+    if along >= slide[b]:
+        slide[b] = along
+    else:
+        slide[b] = slide[b] + slide_alpha * (along - slide[b])
+    push = -wp.dot(vel, _edge_normal(knife, s))
+    if push <= 0.0:
+        return
+    f = 1.0
+    if slice_push == 1:
+        xi = wp.min(slide[b] / push, xi_max)
+        f = 1.0 / (1.0 + xi * xi)
+    factor[b] = f
+
+
+@wp.kernel
+def _crack_need(
     front: wp.array2d(dtype=float),
-    edge_psi: wp.array(dtype=float),
+    top: wp.array(dtype=float),
+    width: wp.array(dtype=float),
     knife: KnifeState,
     c: int,
     cut_o: wp.array(dtype=wp.vec3),
     cut_u: wp.array(dtype=wp.vec3),
     cut_w: wp.array(dtype=wp.vec3),
     umin: float,
-    nbins: int,
     dx: float,
-    psi_crit: float,
     lead: float,
     board_z: float,
-    first_crack: wp.array(dtype=float),
-    slice_push: int,
-    slide: wp.array(dtype=float),
-    slide_alpha: float,
-    xi_max: float,
+    factor: wp.array(dtype=float),
+    fracture_energy: float,
+    initiation_length: float,
+    initiated: wp.array(dtype=int),
+    need: wp.array(dtype=float),
 ):
+    """Sums the fracture energy of the crack that would run from the front to its reach.
+
+    Before the stroke's first crack, that of an initiation length of crack instead.
+    """
     b = wp.tid()
-    # Where along the edge is this bin, in the cut's frame?
-    denom = wp.dot(knife.e_u, cut_u[c])
-    if wp.abs(denom) < 1.0e-6:
-        return
     o = knife.origin - cut_o[c]
-    ub = umin + (float(b) + 0.5) * dx
-    s = (ub - wp.dot(o, cut_u[c])) / denom
+    s, arm = _edge_at_bin(knife, o, cut_u[c], umin + (float(b) + 0.5) * dx)
+    if wp.abs(s) > knife.half_length or width[b] <= 0.0 or factor[b] <= 0.0:
+        return
+    if knife.origin[2] + arm[2] - board_z <= knife.dilation:
+        return  # pinched against the board: parts for nothing (see _advance_crack)
+    target = wp.dot(o + arm, cut_w[c]) - _crack_reach(knife, s, cut_u[c], cut_w[c], dx, lead)
+    front_eff = wp.min(front[c, b], top[b])
+    if target < front_eff:
+        depth = front_eff - target
+        if initiated[c] == 0:
+            depth = initiation_length
+        wp.atomic_add(need, 0, fracture_energy * width[b] * depth * factor[b])
+
+
+@wp.kernel
+def _advance_crack(
+    front: wp.array2d(dtype=float),
+    top: wp.array(dtype=float),
+    width: wp.array(dtype=float),
+    knife: KnifeState,
+    c: int,
+    cut_o: wp.array(dtype=wp.vec3),
+    cut_u: wp.array(dtype=wp.vec3),
+    cut_w: wp.array(dtype=wp.vec3),
+    umin: float,
+    dx: float,
+    lead: float,
+    board_z: float,
+    factor: wp.array(dtype=float),
+    initiation_length: float,
+    work: wp.array(dtype=float),
+    need: wp.array(dtype=float),
+    initiated: wp.array(dtype=int),
+    first_crack: wp.array(dtype=float),
+):
+    """Runs the crack as far as this step's work on the intact material pays for."""
+    b = wp.tid()
+    o = knife.origin - cut_o[c]
+    s, arm = _edge_at_bin(knife, o, cut_u[c], umin + (float(b) + 0.5) * dx)
     if wp.abs(s) > knife.half_length:
         return
-    arm = s * knife.e_u + _edge_w(knife, s) * knife.e_w  # edge point, from the knife origin
     w_edge = wp.dot(o + arm, cut_w[c])
-    threshold = psi_crit
-    if slice_push == 1:
-        # Slicing: the edge's speed along itself (its envelope) against its speed into the material.
-        slope = _edge_slope(knife, s)
-        tangent = wp.normalize(knife.e_u + slope * knife.e_w)
-        normal = wp.normalize(knife.e_w - slope * knife.e_u)
-        vel = knife.lin_vel + wp.cross(knife.ang_vel, arm)
-        along = wp.abs(wp.dot(vel, tangent))
-        if along >= slide[b]:
-            slide[b] = along
-        else:
-            slide[b] = slide[b] + slide_alpha * (along - slide[b])
-        push = -wp.dot(vel, normal)
-        xi = wp.min(slide[b] / wp.max(push, 1.0e-6), xi_max)
-        threshold = psi_crit / (1.0 + xi * xi)
-    if w_edge >= front[c, b]:
-        return
-    by_energy = edge_psi[b] >= threshold
-    crack = by_energy
-    # A crack front is continuous along the edge: where the neighbouring bin is already cut
-    # below the edge, this one goes too. Without this, the less confined material at the
-    # food's free side faces never reaches the threshold and stays joined.
-    if b > 0:
-        if front[c, b - 1] <= w_edge:
-            crack = True
-    if b < nbins - 1:
-        if front[c, b + 1] <= w_edge:
-            crack = True
     # The last layer pinched between the edge and the board parts as well.
     gap = knife.origin[2] + arm[2] - board_z
     if gap <= knife.dilation:
-        crack = True
-    if crack:
-        if by_energy and front[c, b] >= 0.5 * NO_CRACK:
-            # Where the edge was when the tofu itself first gave way under it (not where the
-            # crack merely spread along the edge, which reaches bins far outside the food).
-            wp.atomic_max(first_crack, c, w_edge)
-        new_front = w_edge - lead
-        if gap <= knife.dilation:
+        if w_edge < front[c, b]:
             # Well below the board: the nodes just under it still carry mass from the bottom
             # layer, and a front level with them would leave the pieces bonded there.
-            new_front = w_edge - gap - 3.0 * dx
-        front[c, b] = new_front
+            front[c, b] = wp.min(front[c, b], w_edge - gap - 3.0 * dx)
+        return
+    if width[b] <= 0.0 or factor[b] <= 0.0 or need[0] <= 0.0:
+        return
+    target = w_edge - _crack_reach(knife, s, cut_u[c], cut_w[c], dx, lead)
+    front_eff = wp.min(front[c, b], top[b])
+    if target >= front_eff:
+        return
+    if initiated[c] == 0:
+        # The material first gives way once the push has paid for an initiation length of
+        # crack, which opens at once; until then the knife only presses.
+        if work[0] < need[0]:
+            return
+        # How deep the edge's lowest point in the material had pressed when it gave way.
+        wp.atomic_min(first_crack, c, w_edge)
+        front[c, b] = wp.max(target, front_eff - initiation_length)
+        return
+    # Every bin the edge presses into goes the same fraction of its way: the edge is one blade.
+    f = wp.min(1.0, work[0] / need[0])
+    front[c, b] = front_eff - f * (front_eff - target)
+
+
+@wp.kernel
+def _settle_crack_work(
+    work: wp.array(dtype=float), need: wp.array(dtype=float), initiated: wp.array(dtype=int), c: int
+):
+    if need[0] > 0.0 and (initiated[c] == 1 or work[0] >= need[0]):
+        # Spent on the crack. Work beyond what it needed went into pressing and is not kept:
+        # banked, it would let the knife cut on later with no push at all.
+        initiated[c] = 1
+        work[0] = 0.0
+    elif need[0] <= 0.0:
+        # Nothing to cut (the edge is off the material, or lifting): this pressing pays for nothing.
+        work[0] = 0.0
+    need[0] = 0.0
 
 
 @wp.kernel
@@ -360,6 +470,7 @@ def _grid_update(
     nz: int,
     knife_impulse: wp.array(dtype=wp.vec3),
     knife_moment: wp.array(dtype=wp.vec3),
+    crack_work: wp.array(dtype=float),
 ):
     i, j, k = wp.tid()
     m_total = float(0.0)
@@ -479,6 +590,11 @@ def _grid_update(
                             grid_v[f, i, j, k] = nv
                             wp.atomic_add(knife_impulse, 0, dp)
                             wp.atomic_add(knife_moment, 0, wp.cross(r, dp))
+                            if active_cut >= 0 and separated == 0:
+                                # Work of the knife's push on material the crack has not reached:
+                                # only along the edge's normal, as slicing is counted by xi.
+                                en = _edge_normal(knife, ku)
+                                wp.atomic_add(crack_work, 0, wp.dot(dp, en) * wp.dot(kvel, en))
 
     for f in range(n_fields):
         m = grid_m[f, i, j, k]
@@ -583,13 +699,13 @@ class SimConfig:
         max_pieces: Most pieces the solver can track (at most 30).
         max_cuts: Most strokes the solver can track.
         max_pairs: Most bonded piece pairs.
-        crack_lead: How far ahead of the edge a crack opens, in cells.
+        crack_lead: How far past the dilated edge the crack may run ahead of the knife, in cells.
         dilation: How far the blade is dilated where the material is intact, in cells.
         gravity: Gravitational acceleration [m/s^2].
         jitter: Random offset of the initial particles, as a fraction of their spacing.
         seed: Seed for that jitter.
-        slice_push: Lower the crack threshold where the edge slides along itself (see the
-            module docstring); False cuts every stroke at the full threshold.
+        slice_push: Cut with less energy per area where the edge slides along itself (see the
+            module docstring); False cuts every stroke with the full G_c.
         slice_averaging: Decay time of the edge's sliding-speed envelope [s]; longer than half
             a sawing stroke.
         slice_push_max: Largest slice-to-push ratio that counts (see the module docstring).
@@ -604,7 +720,7 @@ class SimConfig:
     max_pieces: int = MAX_PIECES
     max_cuts: int = 16
     max_pairs: int = 512
-    crack_lead: float = 0.5
+    crack_lead: float = 0.25
     dilation: float = 0.75
     gravity: float = 9.81
     jitter: float = 0.1
@@ -729,9 +845,17 @@ class MPMCuttingSim:
         self.cut_v = wp.zeros(mc, dtype=wp.vec3, device=dev)
         self.cut_w = wp.zeros(mc, dtype=wp.vec3, device=dev)
         self.front = wp.array(np.full((mc, self.n_bins), 1.0e3, dtype=np.float32), dtype=float, device=dev)
-        self.edge_psi = wp.zeros(self.n_bins, dtype=float, device=dev)
         self.slide = wp.zeros(self.n_bins, dtype=float, device=dev)  # averaged sliding speed per bin
-        self.first_crack = wp.array(np.full(mc, -1.0e3, dtype=np.float32), dtype=float, device=dev)
+        self.first_crack = wp.array(np.full(mc, 1.0e3, dtype=np.float32), dtype=float, device=dev)
+        # The active cut's material, per bin: the top of the material in the cut's plane and how
+        # much of the bin's width it fills; each bin's energy per area as a fraction of G_c; and
+        # the work done and the fracture energy needed this step.
+        self.bin_top = wp.zeros(self.n_bins, dtype=float, device=dev)
+        self.bin_width = wp.zeros(self.n_bins, dtype=float, device=dev)
+        self.bin_factor = wp.zeros(self.n_bins, dtype=float, device=dev)
+        self.crack_work = wp.zeros(1, dtype=float, device=dev)
+        self.crack_need = wp.zeros(1, dtype=float, device=dev)
+        self.crack_initiated = wp.zeros(mc, dtype=int, device=dev)
         self.pair_a = wp.zeros(config.max_pairs, dtype=int, device=dev)
         self.pair_b = wp.zeros(config.max_pairs, dtype=int, device=dev)
         self.pair_cut = wp.zeros(config.max_pairs, dtype=int, device=dev)
@@ -749,8 +873,6 @@ class MPMCuttingSim:
         self.knife_pose = None
         self._knife = KnifeState()
         self._knife.enabled = 0
-        # Strain energy density at which the crack under the edge advances (crack band one cell wide).
-        self.psi_crit = material.fracture_energy / dx
 
     # -- knife -------------------------------------------------------------------------
 
@@ -857,10 +979,40 @@ class MPMCuttingSim:
         front[c] = 1.0e3
         self.front.assign(front)
         self.slide.zero_()  # its bins belong to the previous cut's frame
+        self._set_bin_material(x, o, e_u, e_v, e_w)
+        self.crack_work.zero_()
+        self.crack_need.zero_()
         self._cut_frames.append((o, e_u, e_v, e_w))
         self.n_cuts += 1
         self.active_cut = c
         return c
+
+    def _set_bin_material(self, x, o, e_u, e_v, e_w):
+        """Top and width of the material in each crack-front bin of a new cut's plane.
+
+        The crack's fracture energy is G_c times the new area within the material, so a bin at the
+        food's side face, which the material only partly fills, costs only that part.
+        """
+        h = self.dx / self.config.particles_per_axis
+        rel = x - o
+        near = np.abs(rel @ e_v) < h
+        top = np.full(self.n_bins, -1.0e3)
+        width = np.zeros(self.n_bins)
+        if near.any():
+            u = rel[near] @ e_u
+            w = rel[near] @ e_w
+            b = np.floor((u - self.bin_umin) / self.dx).astype(int)
+            ok = (b >= 0) & (b < self.n_bins)
+            b, u, w = b[ok], u[ok], w[ok]
+            np.maximum.at(top, b, w + 0.5 * h)
+            lo = np.full(self.n_bins, np.inf)
+            hi = np.full(self.n_bins, -np.inf)
+            np.minimum.at(lo, b, u)
+            np.maximum.at(hi, b, u)
+            has = np.isfinite(lo)
+            width[has] = np.clip(hi[has] - lo[has] + h, 0.0, self.dx)
+        self.bin_top.assign(top.astype(np.float32))
+        self.bin_width.assign(width.astype(np.float32))
 
     def _drop_finished_pairs(self):
         """Stops bonding across the active cut as soon as it has gone all the way through.
@@ -894,7 +1046,6 @@ class MPMCuttingSim:
         dev = self.device
         nx, ny, nz = self.grid_shape
         wp.launch(_clear_grid, dim=(self.n_pieces, nx, ny, nz), inputs=[self.grid_m, self.grid_v, self.grid_g], device=dev)
-        self.edge_psi.zero_()
         wp.launch(
             _p2g,
             dim=self.n_particles,
@@ -904,25 +1055,9 @@ class MPMCuttingSim:
                 mat.equilibrium_shear_modulus, mat.lame_lambda, mat.viscosity, mat.maxwell_shear_modulus,
                 self.dx, dt,
                 self.grid_m, self.grid_v, self.grid_g, self.psi,
-                self._knife, self.active_cut, self.cut_o, self.cut_u,
-                self.bin_umin, self.n_bins, self.edge_psi,
             ],
             device=dev,
         )
-        if self.active_cut >= 0 and self._knife.enabled == 1:
-            wp.launch(
-                _advance_crack,
-                dim=self.n_bins,
-                inputs=[
-                    self.front, self.edge_psi, self._knife, self.active_cut,
-                    self.cut_o, self.cut_u, self.cut_w, self.bin_umin, self.n_bins, self.dx,
-                    self.psi_crit, cfg.crack_lead * self.dx, self.board_z, self.first_crack,
-                    1 if cfg.slice_push else 0, self.slide,
-                    min(1.0, dt / cfg.slice_averaging) if cfg.slice_averaging > 0.0 else 1.0,
-                    cfg.slice_push_max,
-                ],
-                device=dev,
-            )
         wp.launch(
             _grid_update,
             dim=(nx, ny, nz),
@@ -934,10 +1069,43 @@ class MPMCuttingSim:
                 self.bin_umin, self.n_bins,
                 self._knife, self.active_cut, self.field_side,
                 mat.contact_friction, cfg.board_cells, mat.board_friction,
-                nx, ny, nz, self.knife_impulse, self.knife_moment,
+                nx, ny, nz, self.knife_impulse, self.knife_moment, self.crack_work,
             ],
             device=dev,
         )
+        if self.active_cut >= 0 and self._knife.enabled == 1:
+            # The crack runs as far as this step's push on the intact material pays for.
+            c = self.active_cut
+            wp.launch(
+                _slice_factors, dim=self.n_bins, device=dev,
+                inputs=[
+                    self._knife, c, self.cut_o, self.cut_u, self.bin_umin, self.dx,
+                    1 if cfg.slice_push else 0, self.slide,
+                    min(1.0, dt / cfg.slice_averaging) if cfg.slice_averaging > 0.0 else 1.0,
+                    cfg.slice_push_max, self.bin_factor,
+                ],
+            )
+            common = [
+                self.front, self.bin_top, self.bin_width, self._knife, c, self.cut_o, self.cut_u, self.cut_w,
+                self.bin_umin, self.dx, cfg.crack_lead * self.dx, self.board_z, self.bin_factor,
+            ]
+            wp.launch(
+                _crack_need, dim=self.n_bins, device=dev,
+                inputs=common + [
+                    mat.fracture_energy, mat.initiation_length, self.crack_initiated, self.crack_need,
+                ],
+            )
+            wp.launch(
+                _advance_crack, dim=self.n_bins, device=dev,
+                inputs=common + [
+                    mat.initiation_length, self.crack_work, self.crack_need, self.crack_initiated,
+                    self.first_crack,
+                ],
+            )
+            wp.launch(
+                _settle_crack_work, dim=1, device=dev,
+                inputs=[self.crack_work, self.crack_need, self.crack_initiated, c],
+            )
         hi = wp.vec3(*((np.array(self.grid_shape) - 3) * self.dx))
         wp.launch(
             _g2p,
@@ -1000,9 +1168,9 @@ class MPMCuttingSim:
         return self.psi.numpy().astype(float)
 
     def crack_onset_height(self, c: int) -> float:
-        """World height of the knife's edge where cut c first cracked (NaN if it has not)."""
+        """World height of the edge's lowest point in the food when cut c first cracked (NaN if not)."""
         w = float(self.first_crack.numpy()[c])
-        if w < -999.0:
+        if w > 999.0:
             return float("nan")
         o, _, _, e_w = self._cut_frames[c]
         return float(o[2] + w * e_w[2])

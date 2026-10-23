@@ -34,6 +34,35 @@ def _stroke(sim, depth=None, x_offset=1.0e-3, speed=0.08):
     )
 
 
+def _glide(sim, xi, speed=0.08):
+    """A level stroke through the block centre whose edge slides along itself at xi times its descent."""
+    c = 0.5 * (sim.block_min + sim.block_max)
+    hover, bottom = sim.block_max[2] + 0.006, sim.board_z + 0.3e-3
+    e_u = KnifePose(np.zeros(3), ACROSS).axes()[0]
+    run = xi * (hover - bottom)
+    p0 = np.array([c[0] + 1.0e-3, c[1], hover]) - 0.5 * run * e_u
+    p1 = np.array([c[0] + 1.0e-3, c[1], bottom]) + 0.5 * run * e_u
+    up = p1 + np.array([0.0, 0.0, hover - bottom])
+    t0, t1 = 0.05, 0.05 + (hover - bottom) / speed
+    poses = [KnifePose(p, ACROSS) for p in (p0, p1, up)]
+    moves = [
+        KnifeTrajectory.linear(0.0, t0, poses[0], poses[0]),
+        KnifeTrajectory.linear(t0, t1, poses[0], poses[1], begins_cut=True),
+        KnifeTrajectory.linear(t1, t1 + 0.2, poses[1], poses[2]),
+        KnifeTrajectory.linear(t1 + 0.2, t1 + 0.3, poses[2], poses[2]),
+    ]
+    return KnifeTrajectory(segments=[s for m in moves for s in m.segments])
+
+
+def _cutting_force(sim, traj, forces, speed=0.08):
+    """Mean upward knife force while the edge is inside the block, its first and last 20 ms left out."""
+    (t_cut,) = traj.cut_times
+    top = sim.block_max[2]
+    t_in = t_cut + (traj.state(t_cut)[0].origin[2] - top) / speed
+    t_out = t_in + (top - sim.board_z) / speed
+    return float(np.mean([f[2] for t, f in forces if t_in + 0.02 < t < t_out - 0.02]))
+
+
 def _run(sim, traj, frame=0.01):
     """Advances through the whole trajectory and returns the knife force per frame."""
     forces = []
@@ -155,7 +184,10 @@ def test_a_shallow_press_dents_without_cutting():
 
 
 def test_a_partial_cut_stops_with_the_knife():
-    sim = _sim()
+    # Taller than BLOCK: the crack may run a dilated edge plus a quarter cell (4 mm here) ahead
+    # of the knife, and a front within 1.5 cells of the board counts as cut through.
+    block = (BLOCK[0], BLOCK[1], 0.024)
+    sim = MPMCuttingSim(FIRM_TOFU, block, config=CONFIG, device="cpu")
     depth = 8.0e-3
     traj = _stroke(sim, depth=depth)
     _run(sim, traj)
@@ -165,7 +197,7 @@ def test_a_partial_cut_stops_with_the_knife():
     o = sim._cut_frames[0][0]
     front = sim.crack_front(0)
     lowest = front.min() + o[2] - sim.board_z  # height of the deepest crack tip above the board
-    block_h = BLOCK[2]
+    block_h = block[2]
     # The crack ran to about the knife's depth, not further: a dilated edge plus one crack lead.
     assert block_h - depth - 2.0 * DX < lowest < block_h - depth + DX
 
@@ -175,15 +207,45 @@ def test_a_tougher_tofu_needs_more_force_to_cut():
     for gc in (1.0, 8.0):
         sim = _sim(replace(FIRM_TOFU, fracture_energy=gc))
         traj = _stroke(sim)
-        (t_cut,) = traj.cut_times
-        forces = _run(sim, traj)
-        top = sim.block_max[2]
-        t_in = t_cut + (traj.state(t_cut)[0].origin[2] - top) / 0.08
-        t_out = t_in + (top - sim.board_z) / 0.08
-        cutting = [f[2] for t, f in forces if t_in + 0.02 < t < t_out - 0.02]
-        means.append(np.mean(cutting))
+        means.append(_cutting_force(sim, traj, _run(sim, traj)))
         assert sim.cut_complete(0)
     assert means[1] > 1.2 * means[0]
+
+
+def test_the_cutting_force_is_the_fracture_energy_on_any_grid():
+    # A straight press: in steady cutting the push does G_c of work per unit of new crack area,
+    # so the force is G_c times the block's width, whatever the grid (Atkins). A tough tofu,
+    # because at 4 mm cells in a block four cells tall the coarse dilated edge alone pushes with
+    # about 0.09 N, which would hide the 0.07 N of firm tofu's G_c.
+    tough = replace(FIRM_TOFU, fracture_energy=8.0)
+    ratios = []
+    for dx in (4.0e-3, 3.0e-3):
+        config = SimConfig(dx=dx, side_margin=0.012, top_margin=0.016)
+        sim = MPMCuttingSim(tough, BLOCK, config=config, device="cpu")
+        traj = _stroke(sim)
+        force = _cutting_force(sim, traj, _run(sim, traj))
+        ratios.append(force / (tough.fracture_energy * BLOCK[1]))
+        assert sim.cut_complete(0)
+    assert all(0.75 < r < 1.15 for r in ratios)
+    assert abs(ratios[0] - ratios[1]) < 0.1
+
+
+def test_a_cooks_slicing_stroke_cuts_more_easily_than_a_straight_press():
+    # The same tofu and descent, pressed straight down and with the edge sliding along itself at
+    # twice the descent speed, as a cook's push cut does (slice/push ratio xi = 2).
+    onset, force = {}, {}
+    for xi in (0.0, 2.0):
+        sim = _sim()
+        traj = _glide(sim, xi)
+        forces = _run(sim, traj)
+        assert sim.cut_complete(0)
+        # How far the edge had gone below the top when the tofu gave way (negative: not yet in).
+        onset[xi] = sim.block_max[2] - sim.crack_onset_height(0)
+        force[xi] = _cutting_force(sim, traj, forces)
+    # The straight press dents the tofu further before it cuts, and pushes harder while it cuts
+    # (1 + xi^2 = 5 times, by Atkins's energy balance).
+    assert onset[0.0] > onset[2.0] + 0.4e-3
+    assert force[0.0] > 2.5 * force[2.0]
 
 
 def test_shaped_solid_fills_only_its_shape():
@@ -308,8 +370,9 @@ def _press_or_slice(slide, fracture_energy=8.0):
 
 
 def test_slicing_cuts_with_less_force_than_pressing():
-    # A tough tofu: pressed straight down it is only dented in the first 8 mm; sliding the edge
-    # along itself twice as fast as it goes down (Atkins's slice-to-push ratio of 2) cuts it.
+    # A tough tofu: pressed straight down it dents further before it cracks and pushes back
+    # harder; sliding the edge along itself twice as fast as it goes down (Atkins's slice-to-push
+    # ratio of 2) cracks it sooner, with a fraction of the force.
     press_force, press_onset = _press_or_slice(0.0)
     slice_force, slice_onset = _press_or_slice(2.0)
     assert slice_onset < press_onset
@@ -319,12 +382,15 @@ def test_slicing_cuts_with_less_force_than_pressing():
 
 def test_a_half_cut_block_stays_one_piece_when_pried_open():
     # Cut halfway, lever the slit open with the blade (pushing one half outward from inside the
-    # cut), let go and lift out: the uncut half holds the two sides together.
-    sim = _sim()
+    # cut), let go and lift out: the uncut half holds the two sides together. Taller than BLOCK,
+    # as in test_a_partial_cut_stops_with_the_knife: the crack runs a dilated edge plus a quarter
+    # cell ahead of the knife, and a front within 1.5 cells of the board counts as cut through.
+    block = (BLOCK[0], BLOCK[1], 0.024)
+    sim = MPMCuttingSim(FIRM_TOFU, block, config=CONFIG, device="cpu")
     c = 0.5 * (sim.block_min + sim.block_max)
     top = sim.block_max[2]
     hover = KnifePose(np.array([c[0], c[1], top + 0.004]), 0.0)  # blade along x: plane y = c_y
-    down = KnifePose(np.array([c[0], c[1], top - 0.5 * BLOCK[2]]), 0.0)
+    down = KnifePose(np.array([c[0], c[1], top - 0.5 * block[2]]), 0.0)
     pried = KnifePose(down.origin - np.array([0.0, 0.003, 0.0]), 0.0, roll=math.radians(8.0))
     segs, t = [], 0.05
     for a, b, dt, cut in ((hover, down, 0.24, True), (down, pried, 0.3, False), (pried, down, 0.3, False),
