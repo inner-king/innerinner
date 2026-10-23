@@ -18,9 +18,11 @@ The steps, in the order ``scripts/cutting/tofu_real2sim.py`` takes them:
 * ``level_box`` replaces a box-shaped food by its box. ``place_food`` turns the world about Z
   so the food lines up with the solver's axes, long side along x;
   ``FoodPlacement.sim_from_world`` maps the world into the solver's frame once the solver has
-  said where its box sits.
+  said where its box sits. ``fit_food`` takes these steps from the board's height to the box,
+  for ``tofu_real2sim.py`` and for ``tofu_og_cut.py``, which cuts the same tofu in OmniGibson.
 * ``photo_albedo`` gives the food's particles the colours the frame shows, less the
   renderer's light.
+* ``cook_stroke`` is the Chef'd cook's stroke through a solver's block.
 """
 
 import json
@@ -30,10 +32,19 @@ from pathlib import Path
 
 import numpy as np
 
+from simfoundry.cutting.knife import KnifeTrajectory
+
 # Where Pipeline A puts what this module reads, relative to the scene directory.
 OBJECTS_INFO = "s11_sim/scene_objects_info.json"
 POSE_FILES = ("s14_og/settled_poses.json", "s12_physics/pb_scene_poses.json")
 DEPTH_RESULTS = "s2_da/da/exports/npz/results.npz"
+
+# The Chef'd cook's stroke, tracked in the clip (the blade's tip, 1 px = 0.49 mm at the tofu): the
+# tip enters at the tofu's top far corner, then goes down to the board 4.2 cm further on, and rocks
+# flat on the belly while moving another 2.4 cm. Along the tilted blade that is a slice-to-push
+# ratio of about 2.7: the cook slices as much as he presses.
+CHEFD_GLIDE = 0.042
+CHEFD_ROLL_GLIDE = 0.024
 
 
 @dataclass
@@ -378,6 +389,75 @@ def fit_to_silhouette(mesh_world, cam, mask, valid=None, z_bottom=None):
     return T, dict(scale=s, shift_m=[float(q[1]), float(q[2]), dz], iou_before=iou0, iou_after=iou(q))
 
 
+@dataclass
+class FittedFood:
+    """A reconstructed food fitted to its frame and put on its board (``fit_food``).
+
+    Attributes:
+        food: The food as reconstructed.
+        board: The board under it.
+        shape: The food's solid as fitted, in the world frame.
+        placement: ``shape`` in the solver's box frame.
+        board_z: Height of the board's top around the food, from the depth map [m].
+        board_z_mesh: The same from the board's mesh [m].
+        fit: ``fit_to_silhouette``'s info, or None if the pipeline's size and place were kept.
+        food_mask: (H, W) bool, the food in the frame.
+        knife_mask: (H, W) bool, the knife in the frame (all False if there is none).
+    """
+
+    food: ReconstructedObject
+    board: ReconstructedObject
+    shape: "trimesh.Trimesh"  # noqa: F821
+    placement: FoodPlacement
+    board_z: float
+    board_z_mesh: float
+    fit: dict
+    food_mask: np.ndarray
+    knife_mask: np.ndarray
+
+
+def fit_food(rec: Reconstruction, frame_size, food="tofu", board="board", knife="knife", shape="box",
+             fit=True) -> FittedFood:
+    """The food of a reconstruction as ``scripts/cutting/tofu_real2sim.py`` sets it up.
+
+    The board's top comes from the depth map around the food; the food's shape is its level box
+    (``shape="box"``), its convex hull (``"hull"``) or the mesh (``"mesh"``); with ``fit`` its size
+    and place on the board are fitted to its outline in the frame, the knife's pixels left out.
+
+    Args:
+        rec: The reconstruction.
+        frame_size: (width, height) of the frame the scene was built from.
+        food, board, knife: Categories of the food, the board under it and a knife to leave out
+            of the outline (missing is fine).
+        shape: As above.
+        fit: Fit size and place to the outline; False keeps the pipeline's.
+    """
+    W0, H0 = frame_size
+    food_obj = rec.find(food)
+    board_obj = rec.find(board)
+    food_mask = stage5_mask(rec.scene_dir, food_obj.name, (W0, H0))
+    try:
+        knife_mask = stage5_mask(rec.scene_dir, rec.find(knife).name, (W0, H0))
+    except (KeyError, FileNotFoundError):
+        knife_mask = np.zeros_like(food_mask)
+    xs = np.nonzero(food_mask)[1]
+    to_depth = rec.calib_size[0] / W0
+    board_z = surface_height(rec, board_obj.name,
+                             columns=((xs.min() - xs.ptp()) * to_depth, (xs.max() + xs.ptp()) * to_depth))
+    board_z_mesh = board_top(board_obj.mesh, near_xy=food_obj.mesh.vertices[:, :2].mean(axis=0))
+    solid = level_box(food_obj.mesh.convex_hull) if shape == "box" else food_obj.mesh.copy()
+    info = None
+    if fit:
+        from simfoundry.cutting.render import Camera
+
+        cam_world = Camera.from_opencv(rec.cam_to_world, rec.K, W0, H0, calib_size=rec.calib_size)
+        T_fit, info = fit_to_silhouette(solid, cam_world, food_mask, valid=~knife_mask, z_bottom=board_z)
+        solid.apply_transform(T_fit)
+    placement = place_food(solid, convex=shape != "mesh")
+    return FittedFood(food=food_obj, board=board_obj, shape=solid, placement=placement, board_z=board_z,
+                      board_z_mesh=board_z_mesh, fit=info, food_mask=food_mask, knife_mask=knife_mask)
+
+
 def photo_albedo(renderer, x, piece, photo, seen_mask, gloss):
     """Albedo of the food's particles, read from the photograph the renderer's camera took.
 
@@ -424,3 +504,39 @@ def board_top(mesh_world, near_xy=None, radius=0.05) -> float:
         if close.sum() >= 20:
             v = v[close]
     return float(np.percentile(v[:, 2], 98.0))
+
+
+def cook_stroke(sim, knife_yaw, *, glide=True, tilt=math.radians(30.0), descend_speed=0.08,
+                rock_rate=math.radians(67.0), start_time=0.15, slide_speed=0.3, board_gap=0.3e-3) -> KnifeTrajectory:
+    """The Chef'd cook's first stroke through a solver's block, in the solver's frame.
+
+    Lengthwise through the middle, the blade tilted: pushed forward (``CHEFD_GLIDE``) while it comes
+    down, the tip entering just inside the far corner; rocked flat on its belly while pushed on
+    (``CHEFD_ROLL_GLIDE``); then drawn back towards the handle until the tip has cleared the
+    block's near end.
+
+    Args:
+        sim: The solver (its block's long side along x).
+        knife_yaw: 0 for the tip towards +x, pi for -x.
+        glide: Push the knife forward as the cook does; False presses straight down and rocks about
+            the tip.
+        tilt: Pitch of the blade as it comes down [rad].
+        descend_speed: [m/s]; in the clip the tip goes from the tofu's top to the board in 0.7 s.
+        rock_rate: [rad/s]; 30 degrees in 0.45 s in the clip.
+        start_time: When the knife starts down [s].
+        slide_speed: Speed of the draw back [m/s]; 0 lifts the knife out instead.
+        board_gap: How far above the board the edge stops [m].
+    """
+    lo, hi = sim.block_min, sim.block_max
+    centre = 0.5 * (lo + hi)
+    reach = 0.5 * (hi[0] - lo[0]) - 0.008  # the tip enters just inside the far corner
+    forward = CHEFD_GLIDE if glide else 0.0
+    roll_forward = CHEFD_ROLL_GLIDE if glide else 0.0
+    return KnifeTrajectory.rock_strokes(
+        [(centre[0], centre[1], knife_yaw)], top_z=hi[2], board_z=sim.board_z,
+        knife_half_length=sim.knife_geometry.half_length, tip_reach=reach, geometry=sim.knife_geometry,
+        glide=forward, roll_glide=roll_forward, tilt=tilt, descend_speed=descend_speed, rock_rate=rock_rate,
+        start_time=start_time, board_gap=board_gap,
+        slide=reach + forward + roll_forward + 0.5 * (hi[0] - lo[0]) + 0.01 if slide_speed > 0.0 else 0.0,
+        slide_speed=max(slide_speed, 1e-3),
+    )

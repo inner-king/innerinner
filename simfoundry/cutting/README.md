@@ -2,7 +2,7 @@
 
 칼로 두부를 자르는 물리 시뮬레이션입니다. 두부는 MPM(Material Point Method) 입자로, 칼은 강체 칼날로 다룹니다. 칼이 두부를 누르면 두부가 조금 눌려 들어갔다가 갈라지기 시작합니다. 그 뒤로는 칼이 두부를 미는 일이 새로 생기는 단면의 파괴 에너지를 치르는 만큼 균열이 내려갑니다(에너지 균형). 칼이 받는 반력도 함께 계산합니다. 잘린 조각은 칼을 빼도 다시 붙지 않습니다. 중간까지 자른 두부를 벌리면 남은 부분이 찢어지기도 합니다.
 
-PhysX 5(Isaac Sim)는 변형체를 자르지 못합니다(선행 연구 보고서의 결론). 그래서 솔버는 NVIDIA Warp로 따로 만들었습니다. Warp는 OmniGibson이 Isaac Sim 프로세스 안에서 이미 쓰는 라이브러리이므로, 나중에 같은 프로세스에서 로봇과 붙일 수 있습니다. 칼의 움직임을 넣으면 칼이 받는 힘이 나오는 인터페이스가 그 결합을 위한 것입니다.
+PhysX 5(Isaac Sim)는 변형체를 자르지 못합니다(선행 연구 보고서의 결론). 그래서 솔버는 NVIDIA Warp로 따로 만들었습니다. Warp는 Isaac Sim 프로세스 안에도 있으므로, 솔버를 OmniGibson과 같은 프로세스에서 돌려 로봇과 붙였습니다. Pipeline A가 만든 장면에서 Franka가 칼을 쥐고 MPM 두부를 자르고, 두부가 칼을 미는 힘을 받습니다([OmniGibson 장면에서 로봇이 자르기](#omnigibson-장면에서-로봇이-자르기)).
 
 SimFoundry Pipeline A가 요리 영상 한 프레임에서 복원한 장면으로도 시뮬레이션을 세울 수 있습니다. 두부의 크기, 놓인 자리, 겉색과 카메라를 복원 결과에서 가져와, 영상 속 요리사의 칼질을 같은 시점에서 재현합니다([실제 영상에서 시뮬레이션으로](#실제-영상에서-시뮬레이션으로-real2sim)).
 
@@ -43,13 +43,15 @@ PYTHONPATH=$PWD ~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_cut
 | `knife.py` | 칼 형상(날의 휜 부분과 칼등 곡선, 영상에서 잰 `CHEF_KNIFE`), 자세(yaw·pitch·roll), 궤적(`strokes`, `linear`, `rock_strokes`, `press_twist`) |
 | `materials.py` | 두부 재료 프리셋과 출처 |
 | `render.py` | CPU 렌더러(OpenGL·Isaac Sim 불필요). 보정된 카메라와 사진 배경도 받음 |
-| `real2sim.py` | Pipeline A 출력 읽기, 두부 배치·실루엣 맞춤, 사진에서 겉색 읽기 |
+| `real2sim.py` | Pipeline A 출력 읽기, 두부 배치·실루엣 맞춤(`fit_food`), 사진에서 겉색 읽기, Chef'd 요리사의 칼질(`cook_stroke`) |
 | `export.py` | 조각 메시 내보내기 |
+| `cosim.py` | 다른 시뮬레이터가 움직이는 칼과의 결합(`KnifeCoupling`): 강체 자세에서 칼 자세로, 칼질 시작, 쉬기, 힘을 월드 좌표로. Isaac Sim 불필요 |
+| `og_cosim.py` | OmniGibson 쪽: 솔버 칼날 그대로의 칼 USD, PhysX 단계 콜백(`PhysicsStepCoupler`), 두부를 보이는 points prim |
 
-테스트 18개는 CPU에서 작은 해상도로 돌고 약 3분이 걸립니다.
+테스트는 CPU에서 작은 해상도로 돕니다. `test_tofu_cutting.py` 18개는 약 3분, `test_tofu_cosim.py` 5개는 약 20초입니다.
 
 ```bash
-~/miniforge3/envs/simfoundry/bin/python -m pytest tests/test_tofu_cutting.py -q
+~/miniforge3/envs/simfoundry/bin/python -m pytest tests/test_tofu_cutting.py tests/test_tofu_cosim.py -q
 ```
 
 ## 모델
@@ -165,7 +167,7 @@ PYTHONPATH=$PWD ~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_rea
 
 ## 로봇 시뮬레이터와 붙이는 방법
 
-제어 주기마다 칼이 그 주기 동안 어떻게 움직일지 넣으면, 그 주기 동안 두부가 칼에 준 평균 힘과 모멘트(칼날 중점 기준)가 나옵니다. SliceIt!(ICRA 2024)가 DiSECt와 Gazebo 사이에서 2 ms마다 주고받은 것과 같은 교환입니다. `push` 시나리오의 `PushedKnife`가 이 교환을 500 Hz로 하는 예입니다.
+제어 주기마다 칼이 그 주기 동안 어떻게 움직일지 넣으면, 그 주기 동안 두부가 칼에 준 평균 힘과 모멘트(칼날 중점 기준)가 나옵니다. SliceIt!(ICRA 2024)가 DiSECt와 Gazebo 사이에서 2 ms마다 주고받은 것과 같은 교환입니다. `push` 시나리오의 `PushedKnife`가 이 교환을 500 Hz로 하는 예이고, OmniGibson과는 `cosim.KnifeCoupling`이 PhysX 단계마다 합니다(다음 절).
 
 ```python
 from simfoundry.cutting.knife import KnifePose, KnifeTrajectory
@@ -177,6 +179,105 @@ sim = MPMCuttingSim(FIRM_TOFU, (0.08, 0.05, 0.03), device="cuda:0")
 step = KnifeTrajectory.linear(t, t + h, pose_now, pose_next, begins_cut=first_step)
 force, moment = sim.advance(t + h, step)   # 칼이 받는 힘 [N], 모멘트 [N m]
 ```
+
+## OmniGibson 장면에서 로봇이 자르기
+
+Pipeline A 단계 14가 Chef'd 프레임으로 만든 OmniGibson 장면(`Data/tofu_chefd/s14_og`: Franka, 도마, 접시 둘, 키친타월, 칼, 두부, 모두 강체)에서 강체 두부를 빼고, 그 자리에 MPM 두부를 놓습니다. 배치는 `tofu_real2sim.py`와 같습니다. 복원 메시의 수평 상자를 프레임 속 윤곽에 맞추고, 바닥은 깊이 지도가 잰 도마 높이(13.2 mm)에 둡니다. Franka가 솔버의 칼날과 같은 모양의 셰프 나이프를 쥐고 자릅니다. 솔버는 OmniGibson과 같은 Isaac Sim 프로세스에서 PhysX 단계마다 돕니다.
+
+```bash
+export PYTHONPATH=$PWD OMNIGIBSON_DATA_PATH=/home/inner/real2sim/SimFoundry/deps/BEHAVIOR-1K/datasets
+# 요리사의 칼질(IK 위치 제어). --reference를 주면 같은 카메라의 원본 영상과 나란히
+~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_og_cut.py --stroke cook \
+    --reference Data/tofu_reference/chefd_side.mp4 --out results/tofu_og/cook
+# 힘을 정해 수직으로 누르기(임피던스 제어). 힘마다 새 두부
+~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_og_cut.py --stroke press --push-force 0.3 0.6 1.2 \
+    --out results/tofu_og/press
+# 팔이 느끼는 힘: 힘을 넣은 실행과 재기만 한 실행(--no-wrench)의 관절 토크 차이를 J^T w와 비교
+~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_og_cut.py --stroke cook --efforts --out results/tofu_og/cook_efforts
+~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_og_cut.py --stroke cook --efforts --no-wrench --out results/tofu_og/cook_efforts_nowrench
+~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_og_torques.py results/tofu_og/cook_efforts results/tofu_og/cook_efforts_nowrench
+```
+
+Isaac Sim을 띄우므로 GPU가 필요하고, 다른 일이 GPU를 쓰면 실행을 거부합니다(`--allow-busy-gpu`). 출력은 두 카메라의 영상 `chefd_view.mp4`(영상의 카메라: 단계 4 자세, DA3 내부 파라미터)와 `closeup.mp4`, `side_by_side.mp4`(`--reference`), 2초마다 프레임, 힘 그래프 `knife_force.png`, 물리 단계마다의 시계열 `timeseries.csv`, 요약 `metrics.json`, 바꾼 장면 `scene_edited.json`, 마지막 입자 상태입니다.
+
+### 결합 방식
+
+- **물리 단계 뒤:** PhysX 단계 콜백(`subscribe_physics_on_step_events`)에서 칼 강체의 자세를 PhysX에서 바로 읽습니다. OmniGibson의 Xform은 한 단계 늦기 때문입니다. 직전 자세에서 지금 자세까지 `KnifeTrajectory.linear`로 잇고 `MPMCuttingSim.advance`를 부릅니다. PhysX는 한 단계 안에서 강체를 그 직선대로 옮기므로(반암시적 오일러), 솔버는 PhysX가 실제로 옮긴 경로를 봅니다.
+- **다음 물리 단계 앞:** 그 단계 동안 두부가 칼에 준 평균 힘을 칼날 중점에(`apply_force_at_pos`), 모멘트를 돌림힘으로(`apply_torque`) 칼 강체에 줍니다. 힘은 한 물리 단계(120 Hz에서 8.3 ms) 늦게 들어갑니다(명시적 결합).
+- **칼질 시작:** 칼날이 두부 위를 내려오며 윗면 3 mm 안으로 들어오면, 그 순간의 칼날 평면으로 `begin_cut`을 부릅니다. 다음 칼질은 칼날이 윗면보다 1 cm 위로 올라간 뒤에야 시작합니다. 칼질을 아는 쪽은 `begin_cut`을 직접 넘겨도 됩니다.
+- **쉬기:** 칼이 솔버 영역 밖(1 cm 여유)에 있으면 칼이 두부에 아무것도 할 수 없으므로 솔버는 쉽니다. 처음 0.15 s는 두부가 제 무게로 자리 잡게 돌고, 칼이 떠난 뒤에도 1 s 더 돕니다. 쉬는 동안 솔버 시계는 멈춥니다.
+- **칼:** `og_cosim.write_knife_usd`가 솔버의 `CHEF_KNIFE`와 같은 날(날 끝 0.3 mm, 등 2.2 mm, 휜 날과 칼등 곡선)에 볼스터와 손잡이를 붙인 강체 하나를 씁니다. 강체 좌표계가 곧 솔버의 칼 좌표계입니다(원점은 날의 중점, x는 칼끝, z는 칼등). 콜라이더는 부분마다 볼록 껍질입니다. 질량 202 g(강철 날, 플라스틱 손잡이)과 관성은 부분의 부피로 계산합니다.
+- **두부 표시:** USD points prim 하나에 입자마다 구 하나(지름 2 mm)를 그리고, 프레임마다 위치를 갱신합니다. 겉면과 속살 색이 달라 단면이 드러납니다.
+
+### 장면에서 바꾼 것
+
+장면 파일은 건드리지 않고 메모리에서만 바꿉니다(바꾼 장면은 `scene_edited.json`).
+
+- **두부, 복원된 칼, 키친타월을 뺍니다.** 키친타월은 요리사처럼 칼을 손잡이 쪽으로 빼낼 때 Panda 손(손가락 방향으로 20 cm)이 쓸고 지나가 옆 접시에서 밀려납니다(`--clear`).
+- **도마:** 도마 콜라이더의 윗면이 자르는 선 아래에서 42.0 mm로, 깊이 지도의 13.2 mm보다 3배 높았습니다. 콜라이더(볼록 껍질 둘)는 시각 메시보다 2 mm쯤 더 높습니다. 그래서 콜라이더 기준으로 z를 0.31배 줄이고 수평으로 세웠습니다(yaw 21.1°는 그대로). 레이캐스트로 잰 자르는 선 아래 높이는 13.0–13.15 mm입니다. 처음에는 시각 메시로 맞췄는데, PhysX 도마 윗면이 1.5–2 mm 높아 칼이 거기 걸렸고 두부가 2.5 mm 남았습니다.
+- **로봇:** 요리사가 선 자리(도마 뒤, 카메라를 향함)로 옮겼습니다. 단계 14의 자리(-x 쪽)는 두부에서 0.84 m로 너무 멉니다. 같은 쪽에서 손잡이 0.52 m 뒤로 당겨 놓아도(`--robot-side left`), 칼을 손잡이 쪽으로 빼낼 때 손이 몸통 0.43 m 앞까지 낮게 와서 팔이 접혔고, 그다음 들어 올릴 때 OmniGibson의 한 단계 IK가 목표에 4 cm 못 미친 채 멈췄습니다. 관절 한계에 닿지는 않았습니다.
+- **팔 제어기:** 요리사의 칼질은 IK(`absolute_pose`, 평활 필터 없음)로, 누르기는 operational-space 제어기로 바꿉니다. 관절 구동기가 자세를 한 물리 단계 늦게 따라가므로, IK에는 칼질을 한 단계 앞서 줍니다(`--lead`).
+- **칼:** 테이블 위에서 기다리다가 중력을 끈 채 벌린 손가락 사이에 놓이고, 손가락을 닫으면 assisted grasping이 잡습니다(`repro/fruit_slicing/check_runtime_cut.py`와 같은 방법). 잡은 뒤에도 칼의 중력은 끈 채 둡니다. OmniGibson은 로봇의 움직이는 링크에서 중력을 끄므로, 팔이 칼 무게도 자기 링크처럼 지는 셈입니다.
+
+### 결과 (2026-10-23, super3, 격자 2.5 mm, 219,300 입자)
+
+**요리사의 칼질** (`results/tofu_og/cook`). Franka가 칼을 잡는 데 23 물리 단계가 걸렸고, 칼은 손가락이 닫히는 동안 1.3 mm 움직였습니다. 칼질 내내 칼의 추적 오차는 최대 1.9 mm(평균 0.9 mm), 0.47°입니다.
+
+| | Isaac Sim + MPM (로봇) | `tofu_real2sim.py` (정해진 칼 경로) |
+|---|---|---|
+| 결과 | 끝까지 잘림, 두 조각 227.4 / 227.4 g | 끝까지 잘림, 두 조각 |
+| 균열 시작 깊이 | 0.66 mm | 0.67 mm |
+| 내려가는 동안 Fz | 0.07 N | 0.07 N |
+| Fz 최대 | 0.25 N (로킹 시작) | 0.15 N |
+| 수평 힘 최대 | 0.63 N | – |
+
+내려가는 동안은 두 힘이 겹칩니다. 같은 칼 경로에 같은 힘이 나오므로 결합이 솔버를 바꾸지 않는다는 뜻입니다. 차이는 로봇이 경로를 벗어날 때 생깁니다. 로킹이 시작되는 0.88 s에 팔이 회전을 늦게 따라가고(로킹 내내 0.44°) 칼이 자른 평면에서 옆으로 0.3–0.4 mm 밀립니다. 그때 단면이 칼 옆면을 밀어내 수평 힘이 0.63 N, Fz가 0.25 N까지 납니다. 날의 가장 낮은 점의 높이는 명령과 0.3 mm 안으로 같았습니다. 로킹 끝(1.2–1.3 s)에도 칼이 평면에서 0.5–0.8 mm 벗어나 수평 힘이 0.25 N 납니다. 정해진 경로의 칼은 평면을 벗어나지 않으므로 이 힘이 없습니다.
+
+**팔이 느끼는 힘** (`cook_efforts`, `cook_efforts_nowrench`). 두 실행은 힘을 넣느냐만 다릅니다. 칼을 미는 동안 두 실행의 관절 토크 차이는 J^T w의 거울상이었습니다(구동기가 외력을 버티는 반작용). w는 두부가 칼에 준 힘과, 그것을 손끝으로 옮긴 모멘트입니다.
+
+| | 값 |
+|---|---|
+| 측정한 토크 차이를 J^T w에 맞춘 이득 | -1.04 (상관 -0.97) |
+| 토크 차이 rms / J^T w rms | 0.044 / 0.041 N m |
+| 맞춘 뒤 남는 rms | 0.011 N m (힘이 없을 때 0.004 N m) |
+| 가장 큰 관절(4번) 최대 | 측정 0.40 N m, J^T w 0.38 N m |
+
+IK와 위치 구동기는 단단해서, 두부의 0.1–0.3 N은 칼의 움직임을 거의 바꾸지 않습니다. 팔은 이 힘을 관절 토크로만 느낍니다.
+
+**힘을 정해 누르기** (`results/tofu_og/press`). 칼날을 수평으로 두고 휜 날 앞의 곧은 부분을 두부 위에 맞춘 뒤, operational-space 제어기로 정한 힘만큼 아래로 누릅니다. 이 제어기의 손끝 정적 렌치는 Λ Kp (목표 − 자세)이므로, 목표를 매 단계 "띄운 자세(x, y, 방향) + Kp⁻¹Λ⁻¹f"에 둡니다. 그러면 x, y와 방향은 강성으로 붙잡고, 아래로는 정확히 f를 줍니다. 손끝 겉보기 질량 Λ_zz는 이 실행의 팔 자세에서 5.7–6.1 kg이고, 같은 자리라도 팔이 다른 자세로 오면 8.7–9.0 kg이었습니다. 제어기가 임계 감쇠라 z 강성을 150 그대로 두면 손이 1 mm/s로 가라앉았습니다(8.7 kg 자세). 그래서 z 강성만 10으로 낮췄습니다.
+
+| 미는 힘 | 결과 | 두부 안에서 평균 속도 | 두부가 칼을 미는 힘(평균) |
+|---|---|---|---|
+| 0.3 N | 8 s 동안 22 mm 들어감(시간 제한으로 끝냄). 2.5 mm씩 걸렸다 풀리며 내려감 | 2.7 mm/s | 0.21 N |
+| 0.6 N | 3.7 s 만에 도마까지, 두 조각 234.9 / 219.8 g | 14.7 mm/s | 0.28 N |
+| 1.2 N | 1.2 s 만에 도마까지 | 50 mm/s | 0.32 N |
+
+칼은 미는 힘이 두부의 저항을 넘는 만큼 빨리 내려갑니다. 저항은 0.2–0.3 N으로, G_c × 칼날이 두부에 든 길이(3 J/m² × 10.6 cm = 0.32 N)에 가깝습니다. 0.3 N은 그 경계라 칼이 기어 들어가고, 0.6 N과 1.2 N은 도마까지 자릅니다. 두부의 힘이 로봇 손을 늦추는 양방향 결합입니다. 조각이 234.9 / 219.8 g으로 갈린 것은, 팔이 아래로 가속하기 시작할 때 칼이 옆으로 1–2 mm 밀려 칼날 평면이 블록 가운데에서 1.0 mm 벗어났기 때문입니다(접근이 끝날 때 오차는 0.2 mm 안). 0.3 N에서 2.5 mm씩 걸리는 것은 격자 크기(2.5 mm)로 두꺼워진 칼날 끝이 격자점 줄을 하나씩 넘기 때문으로 봅니다. 힘의 순간 최대는 1.4 N까지 나옵니다. 6 kg의 겉보기 질량으로 움직이던 손이 두부에 걸리며 서기 때문입니다.
+
+### 비용
+
+물리 단계(120 Hz, 8.33 ms)마다, 격자 2.5 mm(219,300 입자, 솔버 단계 120 µs × 70).
+
+| | 시간 |
+|---|---|
+| 결합된 솔버 한 물리 단계 (요리사 칼질, Isaac Sim 안) | 평균 130 ms, 중앙값 124 ms, p95 176 ms |
+| 같은 단계, Isaac Sim 밖 솔버만 (pip Warp 1.18) | 온전할 때 98 ms, 자르는 중 110 ms (솔버 단계 107 + 균열 정리 3) |
+| 솔버가 쉬는 물리 단계 (PhysX + OmniGibson) | 3.3 ms |
+| 프레임마다 (30 fps): 입자 갱신 / 렌더(카메라 둘, 960×540) / 이미지 읽기 | 14 / 23 / 19 ms |
+| 요리사 칼질 실행 전체 | 140 s (Isaac Sim 부팅·장면·잡기 44 s, 칼질 8.1 s 시뮬레이션에 96 s) |
+| 격자 1.5 mm(1,022,400 입자), 솔버만 | 물리 단계마다 0.82 s (솔버 단계 72 µs × 116) |
+
+자르는 동안은 실시간보다 약 16배 느립니다(격자 1.5 mm면 약 100배). 비용은 거의 모두 솔버 자체입니다. 교환 횟수가 아니라 시뮬레이션 시간에 비례하므로, 물리 단계마다 교환해도 손해가 거의 없습니다. Isaac Sim 안에서 20 ms쯤 더 드는 것은 같은 GPU에서 렌더가 함께 돌고 Warp 판이 다르기 때문으로 봅니다(나눠 재지는 않았습니다).
+
+### 한계
+
+- **힘의 지연:** 힘은 한 물리 단계 늦게 칼에 들어갑니다. 이번 실행들은 안정했지만(두부의 강성 약 E × 길이 = 2–3 kN/m, 손의 겉보기 질량 6–9 kg, 120 Hz), 더 단단한 음식이나 가벼운 손에서는 다시 따져야 합니다.
+- **PhysX 쪽의 두부:** PhysX에는 두부가 없습니다. 손가락·손·다른 물체는 두부와 부딪히지 않습니다. 잘린 조각은 MPM 안에만 있어 `og.sim.save()`에 남지 않고, 기록·재생도 하지 않습니다(별도 과제).
+- **위치 제어:** IK와 위치 구동기로는 두부의 힘이 칼의 움직임을 거의 바꾸지 않습니다. 힘에 따라 움직이는 칼질은 지금 수직 누르기(`press`)뿐입니다. 요리사의 칼질을 임피던스 제어로 하려면 6–9 kg 겉보기 질량에 맞춘 이득 조정이 더 필요합니다.
+- **OmniGibson OSC:** 축마다 감쇠비를 주면 float64가 섞여 numba 커널이 거부합니다(`deps/`를 고치지 않으므로 z 강성을 낮추는 쪽을 택했습니다). 강성은 제어기를 만든 뒤 float32 배열로 넣습니다.
+- **옆 힘:** 칼날이 자른 평면에서 1 mm도 안 되게 벗어나도 0.2–0.6 N이 납니다. 격자 크기의 두부 단면이 칼 옆면을 미는 힘으로, 실제 두부가 얼마나 비켜 주는지는 검증하지 않았습니다.
+- **Warp 판:** Isaac Sim 안에서는 Kit의 Warp 1.8.2(`omni.warp.core`)가 돕니다. 단독 실행은 pip의 1.18입니다. 커널은 같지만 결과를 바이트까지 같게 보장하지는 않습니다. 솔버는 Isaac Sim을 띄운 뒤에 import해야 한 프로세스에 Warp가 하나입니다.
+- **장면:** 키친타월을 뺐고, 로봇을 옮겼고, 칼의 중력을 껐습니다. 다른 칼 자산을 쓰려면 `KnifeCoupling(knife_in_link=...)`과 그 칼에 맞는 `KnifeGeometry`가 필요합니다.
 
 ## 재료값
 
@@ -337,4 +438,4 @@ force, moment = sim.advance(t + h, step)   # 칼이 받는 힘 [N], 모멘트 [N
   - 배경 사진의 손은 프레임 속 자리에 멈춰 있습니다. 영상에서 두부를 붙잡는 왼손은 시뮬레이션에 없지만, 시뮬레이션의 두부는 붙잡지 않아도 움직이지 않습니다.
   - 칼의 움직임은 영상에서 칼끝을 추적해 잰 시각과 거리로 짠 직선 구간들입니다. 칼의 3차원 자세를 추적한 것은 아닙니다.
   - 단면 색(`CUT_RGB`)은 이 영상이 아니라 HDMD·Chef'd 영상 전반에서 땄습니다.
-- **로봇 결합:** 로봇과는 아직 붙이지 않았습니다. 칼의 움직임을 넣으면 반력이 나오고, `push` 시나리오가 그 교환을 500 Hz로 흉내 냅니다.
+- **로봇 결합:** OmniGibson의 Franka와 같은 Isaac Sim 프로세스에서 붙였습니다. 그 한계는 [위 절](#omnigibson-장면에서-로봇이-자르기)에 따로 적었습니다.
