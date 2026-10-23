@@ -4,8 +4,9 @@
 Pipeline A (scripts/pipeline/A_reconstruction) turns one frame of a clip into a textured mesh
 of the tofu, the board under it and the camera. This script fills the tofu with MPM particles
 (by default its level box: tofu is a block, and a generated mesh is not quite one), cuts it the
-way the cook in the Chef'd clip does next (a rocking cut lengthwise through the middle, the
-blade's face towards the camera, timed from the clip), and draws every frame from the
+way the cook in the Chef'd clip does next (lengthwise through the middle, the blade's face
+towards the camera: tilted, pushed forward as it comes down and as it rocks flat on its belly,
+then drawn back, all tracked in the clip), and draws every frame from the
 reconstructed camera over the photographed frame, with the real tofu and knife painted out
 and the tofu's skin taken from the frame. With --reference the clip itself runs beside it.
 
@@ -19,7 +20,7 @@ Example (repository root; the scene comes from repro/run_local_pipeline.sh A_rec
 --scene-name tofu_chefd ... on a frame of Data/tofu_reference/chefd_side.mp4):
     PYTHONPATH=$PWD ~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_real2sim.py \
         --scene Data/tofu_chefd --photo Data/tofu_reference/chefd_frame_17.9.png \
-        --reference Data/tofu_reference/chefd_side.mp4 --reference-start 4.08 \
+        --reference Data/tofu_reference/chefd_side.mp4 --reference-start 4.17 \
         --device cuda:0 --out results/tofu_real2sim/chefd
 """
 
@@ -33,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from simfoundry.cutting.knife import KnifeGeometry, KnifeTrajectory
+from simfoundry.cutting.knife import CHEF_KNIFE, KnifeTrajectory
 from simfoundry.cutting.materials import PRESETS
 from simfoundry.cutting.mpm import MPMCuttingSim, SimConfig
 from simfoundry.cutting.real2sim import (
@@ -42,9 +43,12 @@ from simfoundry.cutting.real2sim import (
 )
 from simfoundry.cutting.render import KITCHEN, SKIN_RGB, Camera, Renderer, tofu_look
 
-# The Chef'd cook's knife: a 20 cm chef's knife whose blade, at the heel, is about 0.8 times as
-# tall as the tofu (5.6 cm) in the clip.
-CHEF_KNIFE = KnifeGeometry(half_length=0.10, height=0.046, spine_thickness=2.2e-3, bevel_height=0.02)
+# The cook's stroke, tracked in the clip (the blade's tip, 1 px = 0.49 mm at the tofu): the tip
+# enters at the tofu's top far corner, then goes down to the board 4.2 cm further on, and rocks
+# flat on the belly while moving another 2.4 cm. Along the tilted blade that is a slice-to-push
+# ratio of about 2.7: the cook slices as much as he presses.
+CHEFD_GLIDE = 0.042
+CHEFD_ROLL_GLIDE = 0.024
 # Under the clip's large soft light the blade's flat shows almost white.
 CHEFD_STEEL = (0.90, 0.91, 0.93)
 # Lights of the Chef'd frame, relative to the camera (azimuth from its viewing direction towards
@@ -170,6 +174,8 @@ def main():
                     help="[m/s]; in the clip the tip goes from the tofu's top to the board in 0.7 s")
     ap.add_argument("--tilt-deg", type=float, default=30.0, help="pitch of the blade as it comes down")
     ap.add_argument("--rock-rate-deg", type=float, default=67.0, help="[deg/s]; 30 deg in 0.45 s in the clip")
+    ap.add_argument("--no-glide", action="store_true",
+                    help="press straight down and rock about the tip, without the cook's forward slide")
     ap.add_argument("--slide-speed", type=float, default=0.3,
                     help="[m/s]; the cook then draws the knife out towards its handle (0: lift it instead)")
     ap.add_argument("--start-time", type=float, default=0.15, help="when the knife starts down [s]")
@@ -299,13 +305,17 @@ def main():
     knife_yaw = 0.0 if right[0] >= 0.0 else math.pi
     lo, hi = sim.block_min, sim.block_max
     centre = 0.5 * (lo + hi)
+    reach = 0.5 * (hi[0] - lo[0]) - 0.008  # the tip enters just inside the far corner
+    glide = CHEFD_GLIDE if not args.no_glide else 0.0
+    roll_glide = CHEFD_ROLL_GLIDE if not args.no_glide else 0.0
     traj = KnifeTrajectory.rock_strokes(
         [(centre[0], centre[1], knife_yaw)], top_z=hi[2], board_z=sim.board_z,
-        knife_half_length=CHEF_KNIFE.half_length, tip_reach=0.5 * (hi[0] - lo[0]) + 0.012,
+        knife_half_length=CHEF_KNIFE.half_length, tip_reach=reach, geometry=CHEF_KNIFE,
+        glide=glide, roll_glide=roll_glide,
         tilt=math.radians(args.tilt_deg), descend_speed=args.descend_speed,
         rock_rate=math.radians(args.rock_rate_deg), start_time=args.start_time,
         # Drawn back until the tip has cleared the tofu's near end.
-        slide=(hi[0] - lo[0]) + 0.012 + 0.01 if args.slide_speed > 0.0 else 0.0,
+        slide=reach + glide + roll_glide + 0.5 * (hi[0] - lo[0]) + 0.01 if args.slide_speed > 0.0 else 0.0,
         slide_speed=max(args.slide_speed, 1e-3),
     )
 

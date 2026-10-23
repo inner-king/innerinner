@@ -10,6 +10,9 @@ Scenarios:
             robot under impedance control would; the tofu's reaction slows it (two-way coupling)
     rock    rocking cuts of 3 cm slices off a 10 x 7 x 5 cm block, as in the Chef'd reference clip
     slab    a press cut 1.2 cm from the end, then a twist that tips the slab over (HDMD clip)
+    chop    the same block halved lengthwise by a level blade pressed straight down
+    cook    the same cut as the Chef'd cook makes it: tilted, gliding forward while it comes
+            down and while it rocks on the belly (slice-to-push about 2.7), then drawn back
 
 The rock and slab scenarios reproduce real clips in Data/tofu_reference with a block of a
 typical size. scripts/cutting/tofu_real2sim.py cuts the tofu SimFoundry reconstructed from a
@@ -32,7 +35,7 @@ from pathlib import Path
 import numpy as np
 
 from simfoundry.cutting.export import export_pieces
-from simfoundry.cutting.knife import KnifeGeometry, KnifePose, KnifeTrajectory
+from simfoundry.cutting.knife import CHEF_KNIFE, KnifeGeometry, KnifePose, KnifeTrajectory
 from simfoundry.cutting.materials import PRESETS
 from simfoundry.cutting.mpm import MPMCuttingSim, SimConfig
 from simfoundry.cutting.render import KITCHEN, STUDIO, Camera, Renderer, tofu_look
@@ -43,12 +46,14 @@ ALONG = 0.0
 # A US 14 oz firm block, the kind in the Chef'd and Blender Kitchen clips (length : height
 # about 1.9 in the Chef'd side view).
 REFERENCE_BLOCK = (0.10, 0.07, 0.05)
-CHEF_KNIFE = KnifeGeometry(half_length=0.10, height=0.055, spine_thickness=2.0e-3, bevel_height=0.025)
-CLEAVER = KnifeGeometry(half_length=0.09, height=0.09, spine_thickness=3.0e-3, bevel_height=0.03)
+CLEAVER = KnifeGeometry(half_length=0.09, height=0.09, spine_thickness=3.0e-3, bevel_height=0.03, spine_taper=0.0)
 SCENARIO_DEFAULTS = {
     # scenario: (block, knife, descend speed [m/s], view, style)
     "rock": (REFERENCE_BLOCK, CHEF_KNIFE, 0.06, "side", "kitchen"),
     "slab": (REFERENCE_BLOCK, CLEAVER, 0.035, "front", "studio"),
+    # The pair compares technique at the same downward speed (the Chef'd cook's 8 cm/s).
+    "chop": (REFERENCE_BLOCK, CHEF_KNIFE, 0.08, "side", "kitchen"),
+    "cook": (REFERENCE_BLOCK, CHEF_KNIFE, 0.08, "side", "kitchen"),
 }
 # The HDMD cook drains the tofu under a weight for 45 minutes first.
 SCENARIO_MATERIAL = {"slab": "pressed_tofu"}
@@ -182,6 +187,9 @@ def build_cuts(scenario, sim):
     if scenario == "slab":
         # A 1.2 cm slab off the -x end; e_v = +x, so a positive twist pushes the slab over.
         return [(lo[0] + 0.012, c[1], ACROSS)]
+    if scenario in ("chop", "cook"):
+        # Lengthwise through the middle, as the Chef'd cook halves the block; tip towards +x.
+        return [(c[0], c[1], ALONG)]
     if scenario == "dice":
         lx, ly = hi[0] - lo[0], hi[1] - lo[1]
         xs = [lo[0] + lx * f for f in (0.25, 0.5, 0.75)]
@@ -200,7 +208,18 @@ def build_driver(args, sim):
         reach = (sim.block_max[1] - 0.5 * (sim.block_min[1] + sim.block_max[1])) + 0.012
         traj = KnifeTrajectory.rock_strokes(
             cuts, top_z=top_z, board_z=sim.board_z, knife_half_length=sim.knife_geometry.half_length,
-            tip_reach=reach, descend_speed=args.descend_speed,
+            tip_reach=reach, descend_speed=args.descend_speed, geometry=sim.knife_geometry,
+        )
+        return ScriptedKnife(traj)
+    if args.scenario == "cook":
+        x, y, yaw = cuts[0]
+        reach = 0.5 * (sim.block_max[0] - sim.block_min[0]) - 0.008  # the tip enters at the far corner
+        glide, roll_glide = 0.042, 0.024  # tracked in the Chef'd clip
+        traj = KnifeTrajectory.rock_strokes(
+            cuts, top_z=top_z, board_z=sim.board_z, knife_half_length=sim.knife_geometry.half_length,
+            tip_reach=reach, geometry=sim.knife_geometry, glide=glide, roll_glide=roll_glide,
+            descend_speed=args.descend_speed, rock_rate=math.radians(67.0),
+            slide=reach + glide + roll_glide + 0.5 * (sim.block_max[0] - sim.block_min[0]) + 0.01,
         )
         return ScriptedKnife(traj)
     if args.scenario == "slab":
@@ -221,7 +240,8 @@ def build_driver(args, sim):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scenario", default="single", choices=["single", "saw", "dice", "score", "push", "rock", "slab"])
+    ap.add_argument("--scenario", default="single",
+                    choices=["single", "saw", "dice", "score", "push", "rock", "slab", "chop", "cook"])
     ap.add_argument("--material", default=None, choices=sorted(PRESETS), help="default: firm_tofu (slab: pressed_tofu)")
     ap.add_argument("--fracture-energy", type=float, default=None, help="override the preset's G_c [J/m^2]")
     ap.add_argument("--block", type=float, nargs=3, default=None, help="tofu block size [m] (default per scenario)")
@@ -324,7 +344,7 @@ def main():
             crack_front_height=front, piece0_thin_axis_from_vertical_deg=tilt0,
         ))
         overlay = [
-            f"{material.name.replace('_', ' ')}   t = {t:5.2f} s",
+            f"{args.scenario}: {material.name.replace('_', ' ')}, G_c {material.fracture_energy:g} J/m2   t = {t:5.2f} s",
             f"knife force  Fz = {force[2]:+.2f} N",
             f"pieces: {rows[-1]['pieces']}",
         ]

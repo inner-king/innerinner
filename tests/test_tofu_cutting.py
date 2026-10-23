@@ -261,3 +261,57 @@ def test_food_from_a_mesh_is_placed_level_and_long_side_along_x():
     groove = np.array([[0.05, 0.035, 0.045]])
     assert not as_is.inside(groove).any() and filled.inside(groove).all()
     assert filled.local_mesh.volume > as_is.local_mesh.volume + 0.8 * 0.02 * 0.07 * 0.015
+
+
+def test_chef_knife_profile_and_rock_on_the_belly():
+    from simfoundry.cutting.knife import CHEF_KNIFE
+
+    g = CHEF_KNIFE
+    # Edge and spine meet at the point; the edge is straight up to the belly.
+    assert g.edge_height(g.half_length) == pytest.approx(g.tip_rise)
+    assert g.spine_height(g.half_length) == pytest.approx(g.tip_rise)
+    assert g.edge_height(g.half_length - g.belly_length - 1e-3) == 0.0
+    assert g.spine_height(-g.half_length) == pytest.approx(g.height)
+    # A rocking stroke keeps the edge's lowest point on the board and ends with the tip raised.
+    board = 0.01
+    traj = KnifeTrajectory.rock_strokes(
+        [(0.05, 0.03, 0.0)], top_z=0.05, board_z=board, knife_half_length=g.half_length, tip_reach=0.04,
+        geometry=g, glide=0.04, roll_glide=0.02, slide=0.0, settle=0.0, retreat=0.0,
+    )
+    lowest = []
+    for t in np.linspace(0.0, traj.duration, 400):
+        pose, _, _ = traj.state(t)
+        lowest.append(g.lowest_edge_point(pose)[2])
+    assert min(lowest) > board  # never through the board
+    rock_end = traj.cut_times[0] + (0.05 + 0.006 - (board + 0.3e-3)) / 0.06 + math.radians(30.0) / math.radians(70.0)
+    pose, _, _ = traj.state(rock_end)
+    assert pose.pitch == pytest.approx(0.0, abs=1e-6)
+    e_u, _, e_w = pose.axes()
+    tip = pose.origin + g.half_length * e_u + g.tip_rise * e_w
+    assert tip[2] - board == pytest.approx(g.tip_rise, abs=1e-3)
+
+
+def _press_or_slice(slide, fracture_energy=8.0):
+    """Knife force and first-crack depth of one stroke 8 mm into the block, sliding ``slide`` m per m down."""
+    sim = MPMCuttingSim(replace(FIRM_TOFU, fracture_energy=fracture_energy), BLOCK, config=CONFIG, device="cpu")
+    c = 0.5 * (sim.block_min + sim.block_max)
+    top = sim.block_max[2]
+    depth = 0.008
+    hover = KnifePose(np.array([c[0] + 1.0e-3, c[1], top + 0.002]), ACROSS)
+    e_u = hover.axes()[0]
+    travel = top + 0.002 - (top - depth)
+    down = KnifePose(hover.origin + np.array([0.0, 0.0, -travel]) + slide * travel * e_u, ACROSS)
+    traj = KnifeTrajectory.linear(0.0, travel / 0.05, hover, down, begins_cut=True)
+    forces = [f[2] for _, f in _run(sim, traj, frame=0.005)]
+    onset = sim.crack_onset_height(0)
+    return max(forces), (top - onset if np.isfinite(onset) else float("inf"))
+
+
+def test_slicing_cuts_with_less_force_than_pressing():
+    # A tough tofu: pressed straight down it is only dented in the first 8 mm; sliding the edge
+    # along itself twice as fast as it goes down (Atkins's slice-to-push ratio of 2) cuts it.
+    press_force, press_onset = _press_or_slice(0.0)
+    slice_force, slice_onset = _press_or_slice(2.0)
+    assert slice_onset < press_onset
+    assert slice_onset < 3.0e-3
+    assert slice_force < 0.8 * press_force

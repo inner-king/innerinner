@@ -19,6 +19,17 @@ How a cut works here, and why:
   just under the edge reaches G_c / dx (a crack-band criterion). So the knife first presses
   the food down, then cuts, and the force it needs scales with the fracture energy. Along
   the edge the front is continuous, and the last layer pinched against the board parts.
+* Slicing helps: where the edge also slides along itself, the threshold drops by
+  1 / (1 + xi^2), xi being the ratio of the edge's sliding to its pushing speed (Atkins, Xu
+  and Jeronimidis 2004: the work of the sliding force goes into the cut too). A blade pressed
+  straight down cuts only at the full threshold; a cook's press-and-slide stroke, or a tilted
+  blade coming down, cuts with less. The sliding speed follows its envelope: it rises at
+  once and decays over a fraction of a second. Taken instant by instant, every reversal of a
+  sawing stroke would stop the slicing and reload the edge from rest, and sawing would cut
+  worse than pressing. xi counts up to ``SimConfig.slice_push_max`` (2, a fifth of the
+  threshold): below that the crack front runs so close under the edge that the dilated edge
+  keeps pressing the intact tofu under it, and the force rises again (at xi = 3 it was back
+  near the pressing force).
 * The knife pushes on each field from that field's own side of the blade. Where the
   material is still intact the blade is dilated to most of a grid cell, because a 0.3 mm
   edge falls between nodes and would push on nothing.
@@ -58,6 +69,9 @@ class KnifeState:
     friction: float
     dilation: float
     enabled: int
+    tip_rise: float
+    belly_length: float
+    spine_taper: float
 
 
 @wp.func
@@ -76,6 +90,33 @@ def _bspline_grad(fx: float, i: int):
     if i == 1:
         return -2.0 * (fx - 1.0)
     return fx - 0.5
+
+
+@wp.func
+def _edge_w(k: KnifeState, u: float):
+    """Height of the edge above its straight part at u along the blade (the belly)."""
+    if k.belly_length <= 0.0:
+        return 0.0
+    s = wp.clamp((u - (k.half_length - k.belly_length)) / k.belly_length, 0.0, 1.0)
+    return k.tip_rise * s * s
+
+
+@wp.func
+def _edge_slope(k: KnifeState, u: float):
+    """d(edge height)/du at u."""
+    if k.belly_length <= 0.0:
+        return 0.0
+    s = wp.clamp((u - (k.half_length - k.belly_length)) / k.belly_length, 0.0, 1.0)
+    return 2.0 * k.tip_rise * s / k.belly_length
+
+
+@wp.func
+def _spine_w(k: KnifeState, u: float):
+    """Height of the spine above the edge's straight part at u."""
+    if k.spine_taper <= 0.0:
+        return k.height
+    s = wp.clamp((u - (k.half_length - k.spine_taper)) / k.spine_taper, 0.0, 1.0)
+    return k.tip_rise + (k.height - k.tip_rise) * (1.0 - s * s)
 
 
 @wp.func
@@ -204,7 +245,7 @@ def _p2g(
         r = xp - knife.origin
         ku = wp.dot(r, knife.e_u)
         kv = wp.dot(r, knife.e_v)
-        kw = wp.dot(r, knife.e_w)
+        kw = wp.dot(r, knife.e_w) - _edge_w(knife, ku)  # height above the local edge
         if wp.abs(kv) < 1.5 * dx and kw > -2.0 * dx and kw < 0.5 * dx and wp.abs(ku) <= knife.half_length:
             b = int(wp.floor((wp.dot(xp - cut_o[active_cut], cut_u[active_cut]) - umin) / dx))
             if b >= 0 and b < nbins:
@@ -227,6 +268,10 @@ def _advance_crack(
     lead: float,
     board_z: float,
     first_crack: wp.array(dtype=float),
+    slice_push: int,
+    slide: wp.array(dtype=float),
+    slide_alpha: float,
+    xi_max: float,
 ):
     b = wp.tid()
     # Where along the edge is this bin, in the cut's frame?
@@ -238,10 +283,26 @@ def _advance_crack(
     s = (ub - wp.dot(o, cut_u[c])) / denom
     if wp.abs(s) > knife.half_length:
         return
-    w_edge = wp.dot(o + s * knife.e_u, cut_w[c])
+    arm = s * knife.e_u + _edge_w(knife, s) * knife.e_w  # edge point, from the knife origin
+    w_edge = wp.dot(o + arm, cut_w[c])
+    threshold = psi_crit
+    if slice_push == 1:
+        # Slicing: the edge's speed along itself (its envelope) against its speed into the material.
+        slope = _edge_slope(knife, s)
+        tangent = wp.normalize(knife.e_u + slope * knife.e_w)
+        normal = wp.normalize(knife.e_w - slope * knife.e_u)
+        vel = knife.lin_vel + wp.cross(knife.ang_vel, arm)
+        along = wp.abs(wp.dot(vel, tangent))
+        if along >= slide[b]:
+            slide[b] = along
+        else:
+            slide[b] = slide[b] + slide_alpha * (along - slide[b])
+        push = -wp.dot(vel, normal)
+        xi = wp.min(slide[b] / wp.max(push, 1.0e-6), xi_max)
+        threshold = psi_crit / (1.0 + xi * xi)
     if w_edge >= front[c, b]:
         return
-    by_energy = edge_psi[b] >= psi_crit
+    by_energy = edge_psi[b] >= threshold
     crack = by_energy
     # A crack front is continuous along the edge: where the neighbouring bin is already cut
     # below the edge, this one goes too. Without this, the less confined material at the
@@ -253,7 +314,7 @@ def _advance_crack(
         if front[c, b + 1] <= w_edge:
             crack = True
     # The last layer pinched between the edge and the board parts as well.
-    gap = knife.origin[2] + s * knife.e_u[2] - board_z
+    gap = knife.origin[2] + arm[2] - board_z
     if gap <= knife.dilation:
         crack = True
     if crack:
@@ -360,9 +421,10 @@ def _grid_update(
         r = xi - knife.origin
         ku = wp.dot(r, knife.e_u)
         kv = wp.dot(r, knife.e_v)
-        kw = wp.dot(r, knife.e_w)
+        edge = _edge_w(knife, ku)
+        kw = wp.dot(r, knife.e_w) - edge  # height above the local edge
         reach = knife.dilation + dx
-        near = wp.abs(ku) <= knife.half_length + dx and kw <= knife.height + dx and kw >= -reach
+        near = wp.abs(ku) <= knife.half_length + dx and kw <= _spine_w(knife, ku) - edge + dx and kw >= -reach
         if near and wp.abs(kv) <= knife.spine_thickness + reach:
             kvel = knife.lin_vel + wp.cross(knife.ang_vel, r)
             separated = int(0)
@@ -526,6 +588,11 @@ class SimConfig:
         gravity: Gravitational acceleration [m/s^2].
         jitter: Random offset of the initial particles, as a fraction of their spacing.
         seed: Seed for that jitter.
+        slice_push: Lower the crack threshold where the edge slides along itself (see the
+            module docstring); False cuts every stroke at the full threshold.
+        slice_averaging: Decay time of the edge's sliding-speed envelope [s]; longer than half
+            a sawing stroke.
+        slice_push_max: Largest slice-to-push ratio that counts (see the module docstring).
     """
 
     dx: float = 2.5e-3
@@ -542,6 +609,9 @@ class SimConfig:
     gravity: float = 9.81
     jitter: float = 0.1
     seed: int = 0
+    slice_push: bool = True
+    slice_averaging: float = 0.25
+    slice_push_max: float = 2.0
 
 
 class MPMCuttingSim:
@@ -660,6 +730,7 @@ class MPMCuttingSim:
         self.cut_w = wp.zeros(mc, dtype=wp.vec3, device=dev)
         self.front = wp.array(np.full((mc, self.n_bins), 1.0e3, dtype=np.float32), dtype=float, device=dev)
         self.edge_psi = wp.zeros(self.n_bins, dtype=float, device=dev)
+        self.slide = wp.zeros(self.n_bins, dtype=float, device=dev)  # averaged sliding speed per bin
         self.first_crack = wp.array(np.full(mc, -1.0e3, dtype=np.float32), dtype=float, device=dev)
         self.pair_a = wp.zeros(config.max_pairs, dtype=int, device=dev)
         self.pair_b = wp.zeros(config.max_pairs, dtype=int, device=dev)
@@ -702,6 +773,9 @@ class MPMCuttingSim:
         k.friction = self.material.knife_friction
         k.dilation = self.config.dilation * self.dx
         k.enabled = 1
+        k.tip_rise = g.tip_rise
+        k.belly_length = g.belly_length
+        k.spine_taper = g.taper
         self._knife = k
         self.knife_pose = pose
 
@@ -782,6 +856,7 @@ class MPMCuttingSim:
         front = self.front.numpy()
         front[c] = 1.0e3
         self.front.assign(front)
+        self.slide.zero_()  # its bins belong to the previous cut's frame
         self._cut_frames.append((o, e_u, e_v, e_w))
         self.n_cuts += 1
         self.active_cut = c
@@ -842,6 +917,9 @@ class MPMCuttingSim:
                     self.front, self.edge_psi, self._knife, self.active_cut,
                     self.cut_o, self.cut_u, self.cut_w, self.bin_umin, self.n_bins, self.dx,
                     self.psi_crit, cfg.crack_lead * self.dx, self.board_z, self.first_crack,
+                    1 if cfg.slice_push else 0, self.slide,
+                    min(1.0, dt / cfg.slice_averaging) if cfg.slice_averaging > 0.0 else 1.0,
+                    cfg.slice_push_max,
                 ],
                 device=dev,
             )

@@ -382,42 +382,60 @@ class Renderer:
         H, W = cam.height, cam.width
         depth = np.full((H, W), np.inf)
         color = np.zeros((H, W, 3))
-        # Blade: the plane v = 0, a chef's knife in outline. The edge is straight, as the solver
-        # has it; the spine curves down over the last 38 % of the length to a point.
+        # Blade: the plane v = 0, in the outline the solver uses (KnifeGeometry.edge_height and
+        # spine_height): for a chef's knife, an edge curving up to the tip and a spine
+        # curving down to meet it.
         denom = cam.rays @ e_v
         with np.errstate(divide="ignore", invalid="ignore"):
             t = ((o - cam.eye) @ e_v) / denom
         hit = cam.eye[None, None, :] + t[..., None] * cam.rays - o
         u = hit @ e_u
         w = hit @ e_w
-        taper = 0.38 * 2.0 * g.half_length
-        sp = np.clip((u - (g.half_length - taper)) / taper, 0.0, 1.0)
-        w_max = g.height * (1.0 - sp * sp)
-        on_blade = (t > 0) & (np.abs(u) <= g.half_length) & (w >= 0.0) & (w <= w_max)
+        above_edge = w - g.edge_height(u)
+        on_blade = (t > 0) & (np.abs(u) <= g.half_length) & (above_edge >= 0.0) & (w <= g.spine_height(u))
         facing = np.abs(denom)
         n_view = np.where((denom > 0)[..., None], -e_v, e_v)
         key = np.clip(n_view @ self.key, 0.0, 1.0)
-        bevel = np.clip(w / g.bevel_height, 0.0, 1.0)
+        bevel = np.clip(above_edge / g.bevel_height, 0.0, 1.0)
         brushed = 1.0 + 0.025 * np.sin(u * 1700.0 + 2.0 * np.sin(w * 420.0))
         shade = (0.42 + 0.35 * facing + 0.35 * key) * brushed
         steel_rgb = np.asarray(self.style.steel_rgb, dtype=float)
         steel = steel_rgb[None, None, :] * (1.06 - 0.10 * bevel[..., None]) * shade[..., None]
-        steel = np.where((w < 0.6e-3)[..., None], np.array([0.94, 0.95, 0.97]), steel)
+        steel = np.where((above_edge < 0.6e-3)[..., None], np.array([0.94, 0.95, 0.97]), steel)
         depth = np.where(on_blade, t * cam.cos_fwd, depth)
         color = np.where(on_blade[..., None], np.clip(steel, 0.0, 1.0), color)
         alpha = np.where(on_blade, self.blade_alpha, 1.0)
-        # Handle: a box past the heel, its top level with the spine, in the knife frame.
+        # Bolster and handle: boxes past the heel, their tops level with the spine, in the knife
+        # frame; the handle's three rivets show on its sides.
         R = np.stack([e_u, e_v, e_w], axis=0)
         ro = R @ (cam.eye - o)
         rd = cam.rays @ R.T
-        lo = np.array([-g.half_length - g.handle_length, -0.010, max(0.0, g.height - 0.026)])
-        hi = np.array([-g.half_length, 0.010, g.height - 0.001])
-        th, _ = _ray_box(ro, rd, lo, hi)
-        dh = th * cam.cos_fwd
-        closer = dh < depth
-        color = np.where(closer[..., None], HANDLE_RGB[None, None, :] * (0.8 + 0.4 * facing[..., None]), color)
-        depth = np.where(closer, dh, depth)
-        alpha = np.where(closer, 1.0, alpha)
+        top = g.height - 0.001
+        parts = (
+            (np.array([-g.half_length - 0.012, -0.004, max(0.0, g.height - 0.03)]), np.array([-g.half_length, 0.004, top]), "bolster"),
+            (np.array([-g.half_length - 0.012 - g.handle_length, -0.010, max(0.0, g.height - 0.026)]),
+             np.array([-g.half_length - 0.012, 0.010, top]), "handle"),
+        )
+        for lo, hi, name in parts:
+            th, _ = _ray_box(ro, rd, lo, hi)
+            dh = th * cam.cos_fwd
+            closer = dh < depth
+            if name == "bolster":
+                shade_b = (0.5 + 0.3 * facing + 0.3 * key)[..., None]
+                c = np.clip(steel_rgb[None, None, :] * shade_b, 0.0, 1.0)
+            else:
+                c = HANDLE_RGB[None, None, :] * (0.8 + 0.4 * facing[..., None])
+                p = ro[None, None, :] + np.where(np.isfinite(th), th, 0.0)[..., None] * rd
+                mid_w = 0.5 * (lo[2] + hi[2])
+                rivet = np.zeros(th.shape, dtype=bool)
+                for f in (0.2, 0.5, 0.8):
+                    cu = hi[0] - f * g.handle_length
+                    rivet |= (p[..., 0] - cu) ** 2 + (p[..., 2] - mid_w) ** 2 < 0.0025 ** 2
+                rivet &= np.abs(np.abs(p[..., 1]) - 0.010) < 1e-4
+                c = np.where(rivet[..., None], np.array([0.85, 0.86, 0.88]) * (0.7 + 0.3 * facing[..., None]), c)
+            color = np.where(closer[..., None], c, color)
+            depth = np.where(closer, dh, depth)
+            alpha = np.where(closer, 1.0, alpha)
         return depth, color, alpha
 
     def _surface(self, x, piece):

@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Kitchen-knife geometry, pose and scripted cutting strokes.
 
-The knife frame has its origin at the midpoint of the cutting edge:
+The knife frame has its origin at the midpoint of the cutting edge's straight part:
 
     e_u  along the edge (blade length), towards the tip
     e_w  from the edge towards the spine
     e_v  = e_w x e_u, the blade normal (the thickness direction)
+
+A chef's knife's edge is straight from the heel and curves up towards the tip (the belly), and
+its spine curves down to meet it at the point; ``KnifeGeometry.edge_height`` and
+``spine_height`` give both, and the solver and the renderer use the same profile.
 
 A blade held vertically with yaw 0 cuts along the plane y = const. Pitch rotates the blade
 within its own plane (a rocking cut: the tip goes down), which leaves the cut plane where it
@@ -31,6 +35,11 @@ class KnifeGeometry:
         spine_thickness: Thickness at the spine.
         bevel_height: Height over which the blade thickens from edge to spine.
         handle_length: Length of the handle, for rendering only.
+        tip_rise: How far the tip stands above the edge's straight part (the belly) [m];
+            0 keeps the edge straight to the tip.
+        belly_length: Length over which the edge curves up to the tip [m].
+        spine_taper: Length over which the spine curves down to the tip [m]; None takes
+            38 % of the blade, as on a chef's knife.
     """
 
     half_length: float = 0.10
@@ -39,6 +48,44 @@ class KnifeGeometry:
     spine_thickness: float = 2.0e-3
     bevel_height: float = 0.02
     handle_length: float = 0.11
+    tip_rise: float = 0.0
+    belly_length: float = 0.0
+    spine_taper: float = None
+
+    @property
+    def taper(self) -> float:
+        """Length over which the spine curves down to the tip [m]."""
+        return 0.38 * 2.0 * self.half_length if self.spine_taper is None else self.spine_taper
+
+    def edge_height(self, u):
+        """Height of the edge above its straight part at ``u`` along the blade [m]."""
+        u = np.asarray(u, dtype=float)
+        if self.belly_length <= 0.0 or self.tip_rise <= 0.0:
+            return np.zeros_like(u)
+        s = np.clip((u - (self.half_length - self.belly_length)) / self.belly_length, 0.0, 1.0)
+        return self.tip_rise * s * s
+
+    def spine_height(self, u):
+        """Height of the spine above the edge's straight part at ``u`` [m]."""
+        u = np.asarray(u, dtype=float)
+        if self.taper <= 0.0:
+            return np.full_like(u, self.height)
+        s = np.clip((u - (self.half_length - self.taper)) / self.taper, 0.0, 1.0)
+        return self.tip_rise + (self.height - self.tip_rise) * (1.0 - s * s)
+
+    def lowest_edge_point(self, pose: "KnifePose", samples: int = 400) -> np.ndarray:
+        """World position of the edge's lowest point for a pose."""
+        e_u, _, e_w = pose.axes()
+        u = np.linspace(-self.half_length, self.half_length, samples)
+        pts = np.asarray(pose.origin, dtype=float)[None, :] + u[:, None] * e_u + self.edge_height(u)[:, None] * e_w
+        return pts[np.argmin(pts[:, 2])]
+
+
+# The Chef'd cook's knife, as the clip shows it held flat: a 20 cm chef's knife, the blade at the
+# heel 4.6 cm tall, the edge curving up over its last 40 % to a tip 0.43 blade heights above the
+# straight part, the spine curving down over 37 %.
+CHEF_KNIFE = KnifeGeometry(half_length=0.10, height=0.046, spine_thickness=2.2e-3, bevel_height=0.02,
+                           tip_rise=0.020, belly_length=0.08, spine_taper=0.075)
 
 
 @dataclass(frozen=True)
@@ -264,14 +311,22 @@ class KnifeTrajectory:
         rock_steps: int = 24,
         slide: float = 0.0,
         slide_speed: float = 0.3,
+        geometry: KnifeGeometry = None,
+        glide: float = 0.0,
+        roll_glide: float = 0.0,
     ) -> "KnifeTrajectory":
         """Rocking cuts as a cook makes them (the Chef'd reference clip).
 
         The blade comes down tilted, tip first, until the tip touches the board just beyond
-        the food; then it rocks about the tip until the whole edge lies on the board. Both
-        phases keep the blade in the cut's plane. With ``slide`` the knife is then drawn back
-        along its edge, towards the handle, before it lifts: the Chef'd cook pulls it out of
-        the cut that way rather than lifting it through the food.
+        the food; then it rocks down until the whole straight edge lies on the board. With a
+        belly (``geometry.tip_rise``) the edge's lowest point is what stays on the board, so
+        the knife rolls on the belly and its tip ends up raised, as a chef's knife lies. Both
+        phases keep the blade in the cut's plane. ``glide`` and ``roll_glide`` push the knife
+        forward along its length while it comes down and while it rocks: the Chef'd cook
+        does (4.2 and 2.4 cm), and the sliding is what makes it cut easily (see mpm.py on
+        slicing). With ``slide`` the knife is then drawn back along its edge, towards the
+        handle, before it lifts: the Chef'd cook pulls it out of the cut that way rather than
+        lifting it through the food.
 
         Args:
             cuts: Iterable of (x, y, yaw): a point of the cut's plane over the food and the
@@ -286,16 +341,22 @@ class KnifeTrajectory:
             rock_steps: Straight segments approximating the rock about the tip.
             slide: How far the knife is drawn back along its edge at the board [m].
             slide_speed: Speed of that draw [m/s].
+            geometry: The blade, for its belly; a straight edge of ``knife_half_length`` if None.
+            glide: Forward travel along the blade while it comes down [m].
+            roll_glide: Forward travel along the blade while it rocks [m].
             Other arguments: as in ``strokes``.
         """
         segs = []
-        L = knife_half_length
+        g = geometry if geometry is not None else KnifeGeometry(half_length=knife_half_length)
 
-        def tip_pose(x, y, yaw, tip_z, pitch):
-            e_u = _axes(yaw, pitch, 0.0)[0]
-            tip = np.array([x, y, 0.0]) + tip_reach * np.array([math.cos(yaw), math.sin(yaw), 0.0])
-            tip[2] = tip_z
-            return KnifePose(origin=tip - L * e_u, yaw=yaw, pitch=pitch)
+        def tip_pose(x, y, yaw, low_z, pitch, forward=0.0):
+            # The tip above (x, y) + (tip_reach + forward) along the yaw, the edge's lowest point at low_z.
+            e_u, _, e_w = _axes(yaw, pitch, 0.0)
+            level = np.array([math.cos(yaw), math.sin(yaw), 0.0])
+            origin = np.array([x, y, 0.0]) + (tip_reach + forward) * level - (g.half_length * e_u + g.tip_rise * e_w)
+            origin[2] = 0.0
+            origin[2] = low_z - g.lowest_edge_point(KnifePose(origin=origin, yaw=yaw, pitch=pitch))[2]
+            return KnifePose(origin=origin, yaw=yaw, pitch=pitch)
 
         cuts = list(cuts)
         hover_z = top_z + clearance
@@ -311,13 +372,13 @@ class KnifeTrajectory:
                 dt = max(dist / travel_speed, abs(yaw - pose.yaw) / 1.5, 1e-3)
                 segs.append(_move(t, t + dt, pose, start))
                 t += dt
-            down = tip_pose(x, y, yaw, bottom_z, tilt)
+            down = tip_pose(x, y, yaw, bottom_z, tilt, glide)
             dt = (hover_z - bottom_z) / descend_speed
             segs.append(_move(t, t + dt, start, down, begins_cut=True))
             t += dt
             prev = down
             for k in range(1, rock_steps + 1):
-                nxt = tip_pose(x, y, yaw, bottom_z, tilt * (1.0 - k / rock_steps))
+                nxt = tip_pose(x, y, yaw, bottom_z, tilt * (1.0 - k / rock_steps), glide + roll_glide * k / rock_steps)
                 dt = tilt / rock_rate / rock_steps
                 segs.append(_move(t, t + dt, prev, nxt))
                 t += dt
