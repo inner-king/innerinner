@@ -91,6 +91,22 @@ def cut_once():
     return sim, forces
 
 
+def test_viscoelastic_tofu_keeps_settling_under_its_weight():
+    def sag(material, t_end):
+        sim = _sim(material)
+        top = sim.x0[:, 2] > sim.block_max[2] - DX
+        sim.advance(t_end)
+        return float((sim.x0[top, 2] - sim.positions()[top, 2]).mean())
+
+    elastic = replace(FIRM_TOFU, relaxed_modulus=0.0)
+    quick = replace(FIRM_TOFU, relaxation_time=0.25)
+    assert quick.viscoelastic and not elastic.viscoelastic
+    s_elastic = sag(elastic, 1.0)
+    s_visco = sag(quick, 1.0)
+    # Four times softer once relaxed: the block keeps sinking well past the elastic sag.
+    assert s_visco > 2.0 * s_elastic > 0.0
+
+
 def test_one_stroke_cuts_the_block_in_two_that_stay_apart(cut_once):
     sim, forces = cut_once
     assert sim.n_pieces == 2
@@ -168,3 +184,80 @@ def test_a_tougher_tofu_needs_more_force_to_cut():
         means.append(np.mean(cutting))
         assert sim.cut_complete(0)
     assert means[1] > 1.2 * means[0]
+
+
+def test_shaped_solid_fills_only_its_shape():
+    # A block with a quarter cut away along its length: an L in cross-section.
+    def inside(p):
+        return ~((p[:, 1] > 0.5 * BLOCK[1]) & (p[:, 2] > 0.5 * BLOCK[2]))
+
+    sim = MPMCuttingSim(FIRM_TOFU, BLOCK, config=CONFIG, device="cpu", inside=inside)
+    full = _sim()
+    volume = 0.75 * float(np.prod(BLOCK))
+    assert sim.n_particles * sim.particle_volume == pytest.approx(volume, rel=0.05)
+    assert sim.particle_volume == pytest.approx(full.particle_volume, rel=1e-9)
+    local = sim.x0 - sim.block_min
+    assert not ((local[:, 1] > 0.5 * BLOCK[1] + 0.2 * DX) & (local[:, 2] > 0.5 * BLOCK[2] + 0.2 * DX)).any()
+    # The faces of the notch are skin, like the block's own faces; the core is not.
+    notch_face = (np.abs(local[:, 2] - 0.5 * BLOCK[2]) < 0.5 * DX) & (local[:, 1] > 0.5 * BLOCK[1] + DX)
+    assert notch_face.any() and sim.skin[notch_face].all()
+    core = (np.abs(local - np.array([0.5, 0.25, 0.25]) * np.array(BLOCK)) < 0.6 * DX).all(axis=1)
+    assert core.any() and not sim.skin[core].any()
+
+
+def test_opencv_camera_projects_like_opencv():
+    from simfoundry.cutting.render import Camera
+
+    K = np.array([[800.0, 0.0, 300.0], [0.0, 760.0, 200.0], [0.0, 0.0, 1.0]])
+    a = math.radians(20.0)
+    # Camera axes (x right, y down, z forward) in the world: looking along +y, tipped down.
+    R = np.array([[1.0, 0.0, 0.0], [0.0, -math.sin(a), math.cos(a)], [0.0, -math.cos(a), -math.sin(a)]])
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = [0.1, -0.5, 0.3]
+    cam = Camera.from_opencv(T, K, 1200, 800, calib_size=(600, 400))
+    pts = np.array([[0.12, 0.05, 0.02], [0.05, 0.1, 0.0], [0.2, -0.1, 0.1]])
+    pc = (pts - T[:3, 3]) @ R  # camera coordinates
+    u = 2.0 * (K[0, 0] * pc[:, 0] / pc[:, 2] + K[0, 2])
+    v = 2.0 * (K[1, 1] * pc[:, 1] / pc[:, 2] + K[1, 2])
+    px, py, z = cam.project(pts)
+    np.testing.assert_allclose(px, u, atol=1e-6)
+    np.testing.assert_allclose(py, v, atol=1e-6)
+    np.testing.assert_allclose(z, pc[:, 2], atol=1e-9)
+    # The ray of a pixel passes through what projects onto that pixel.
+    i, j = int(px[0]), int(py[0])
+    ray = cam.rays[j, i]
+    d = pts[0] - cam.eye
+    assert np.linalg.norm(np.cross(ray, d / np.linalg.norm(d))) < 2e-3
+
+
+def test_food_from_a_mesh_is_placed_level_and_long_side_along_x():
+    trimesh = pytest.importorskip("trimesh")
+    from simfoundry.cutting.real2sim import place_food
+
+    box = trimesh.creation.box(extents=(0.07, 0.10, 0.05))  # long side along y
+    T = trimesh.transformations.rotation_matrix(math.radians(25.0), (0, 0, 1))
+    T[:3, 3] = (0.3, -0.2, 0.025 + 0.012)  # resting on a board 12 mm above the table
+    box.apply_transform(T)
+    place = place_food(box)
+    np.testing.assert_allclose(place.block_size, (0.10, 0.07, 0.05), atol=1e-9)
+    assert math.degrees(place.yaw) == pytest.approx(25.0 + 90.0 - 180.0, abs=1e-6)
+    assert place.inside(0.5 * place.block_size[None, :]).all()
+    assert not place.inside(1.1 * place.block_size[None, :]).any()
+    S = place.sim_from_world(np.array([0.02, 0.02, 0.01]))
+    corners = box.vertices @ S[:3, :3].T + S[:3, 3]
+    np.testing.assert_allclose(corners.min(axis=0), (0.02, 0.02, 0.01), atol=1e-9)
+    np.testing.assert_allclose(corners.max(axis=0), (0.12, 0.09, 0.06), atol=1e-9)
+    # A groove across the top, as an occluder leaves in a single-view reconstruction: the mesh
+    # keeps it, its convex hull fills it. (Built from voxels: no triangulation engine needed.)
+    pytest.importorskip("skimage")
+    occ = np.zeros((42, 30, 22), dtype=bool)  # 2.5 mm voxels, one empty layer around
+    occ[1:41, 1:29, 1:21] = True  # 10 x 7 x 5 cm
+    occ[17:25, 1:29, 15:21] = False  # 2 cm wide, 1.5 cm deep, across the width
+    grooved = trimesh.voxel.VoxelGrid(occ).marching_cubes  # in voxel units
+    grooved.apply_scale(2.5e-3)
+    as_is = place_food(grooved)
+    filled = place_food(grooved, convex=True)
+    groove = np.array([[0.05, 0.035, 0.045]])
+    assert not as_is.inside(groove).any() and filled.inside(groove).all()
+    assert filled.local_mesh.volume > as_is.local_mesh.volume + 0.8 * 0.02 * 0.07 * 0.015

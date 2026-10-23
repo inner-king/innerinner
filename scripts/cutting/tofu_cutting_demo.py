@@ -8,6 +8,12 @@ Scenarios:
     score   a 1 cm deep cut (a slit, as for scoring tofu): one piece, the slit stays open
     push    the knife is pushed down with a constant force through a compliant holder, as a
             robot under impedance control would; the tofu's reaction slows it (two-way coupling)
+    rock    rocking cuts of 3 cm slices off a 10 x 7 x 5 cm block, as in the Chef'd reference clip
+    slab    a press cut 1.2 cm from the end, then a twist that tips the slab over (HDMD clip)
+
+The rock and slab scenarios reproduce real clips in Data/tofu_reference with a block of a
+typical size. scripts/cutting/tofu_real2sim.py cuts the tofu SimFoundry reconstructed from a
+frame of the Chef'd clip instead, and sets the result beside the clip.
 
 Example (run from the repository root; the GPU is shared, see --allow-busy-gpu):
     PYTHONPATH=$PWD ~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_cutting_demo.py \
@@ -29,11 +35,23 @@ from simfoundry.cutting.export import export_pieces
 from simfoundry.cutting.knife import KnifeGeometry, KnifePose, KnifeTrajectory
 from simfoundry.cutting.materials import PRESETS
 from simfoundry.cutting.mpm import MPMCuttingSim, SimConfig
-from simfoundry.cutting.render import Camera, Renderer
+from simfoundry.cutting.render import KITCHEN, STUDIO, Camera, Renderer, tofu_look
 
 # Blade along y cuts the block's length (x); yaws chosen so the handle points away from the camera.
 ACROSS = -math.pi / 2.0
 ALONG = 0.0
+# A US 14 oz firm block, the kind in the Chef'd and Blender Kitchen clips (length : height
+# about 1.9 in the Chef'd side view).
+REFERENCE_BLOCK = (0.10, 0.07, 0.05)
+CHEF_KNIFE = KnifeGeometry(half_length=0.10, height=0.055, spine_thickness=2.0e-3, bevel_height=0.025)
+CLEAVER = KnifeGeometry(half_length=0.09, height=0.09, spine_thickness=3.0e-3, bevel_height=0.03)
+SCENARIO_DEFAULTS = {
+    # scenario: (block, knife, descend speed [m/s], view, style)
+    "rock": (REFERENCE_BLOCK, CHEF_KNIFE, 0.06, "side", "kitchen"),
+    "slab": (REFERENCE_BLOCK, CLEAVER, 0.035, "front", "studio"),
+}
+# The HDMD cook drains the tofu under a weight for 45 minutes first.
+SCENARIO_MATERIAL = {"slab": "pressed_tofu"}
 
 
 def gpu_busy_reason():
@@ -158,6 +176,12 @@ def build_cuts(scenario, sim):
     c = 0.5 * (lo + hi)
     if scenario in ("single", "saw", "score", "push"):
         return [(c[0], c[1], ACROSS)]
+    if scenario == "rock":
+        # Two 3 cm slices off the +x end; the tip points to +y, away from the camera.
+        return [(hi[0] - 0.03, c[1], math.pi / 2.0), (hi[0] - 0.06, c[1], math.pi / 2.0)]
+    if scenario == "slab":
+        # A 1.2 cm slab off the -x end; e_v = +x, so a positive twist pushes the slab over.
+        return [(lo[0] + 0.012, c[1], ACROSS)]
     if scenario == "dice":
         lx, ly = hi[0] - lo[0], hi[1] - lo[1]
         xs = [lo[0] + lx * f for f in (0.25, 0.5, 0.75)]
@@ -172,6 +196,19 @@ def build_driver(args, sim):
     if args.scenario == "push":
         x, y, yaw = cuts[0]
         return PushedKnife(x, y, yaw, top_z=top_z, board_z=sim.board_z, push_force=args.push_force)
+    if args.scenario == "rock":
+        reach = (sim.block_max[1] - 0.5 * (sim.block_min[1] + sim.block_max[1])) + 0.012
+        traj = KnifeTrajectory.rock_strokes(
+            cuts, top_z=top_z, board_z=sim.board_z, knife_half_length=sim.knife_geometry.half_length,
+            tip_reach=reach, descend_speed=args.descend_speed,
+        )
+        return ScriptedKnife(traj)
+    if args.scenario == "slab":
+        traj = KnifeTrajectory.press_twist(
+            cuts[0], top_z=top_z, board_z=sim.board_z, descend_speed=args.descend_speed,
+            twist=math.radians(args.twist_deg),
+        )
+        return ScriptedKnife(traj)
     bottom = sim.board_z
     if args.scenario == "score":
         bottom = top_z - 0.010 - 0.3e-3  # stop 10 mm into the tofu
@@ -184,19 +221,25 @@ def build_driver(args, sim):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scenario", default="single", choices=["single", "saw", "dice", "score", "push"])
-    ap.add_argument("--material", default="firm_tofu", choices=sorted(PRESETS))
+    ap.add_argument("--scenario", default="single", choices=["single", "saw", "dice", "score", "push", "rock", "slab"])
+    ap.add_argument("--material", default=None, choices=sorted(PRESETS), help="default: firm_tofu (slab: pressed_tofu)")
     ap.add_argument("--fracture-energy", type=float, default=None, help="override the preset's G_c [J/m^2]")
-    ap.add_argument("--block", type=float, nargs=3, default=[0.08, 0.05, 0.03], help="tofu block size [m]")
+    ap.add_argument("--block", type=float, nargs=3, default=None, help="tofu block size [m] (default per scenario)")
     ap.add_argument("--dx", type=float, default=2.5e-3, help="grid spacing [m]")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--allow-busy-gpu", action="store_true", help="run on a GPU other jobs are using")
-    ap.add_argument("--descend-speed", type=float, default=0.05, help="knife speed while cutting [m/s]")
+    ap.add_argument("--descend-speed", type=float, default=None, help="knife speed while cutting [m/s]")
     ap.add_argument("--push-force", type=float, default=0.6, help="push scenario: downward force [N]")
+    ap.add_argument("--twist-deg", type=float, default=15.0, help="slab scenario: tilt of the blade while it pushes [deg]")
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--no-video", action="store_true")
+    ap.add_argument("--view", choices=["oblique", "side", "front"], default=None, help="camera (default per scenario)")
+    ap.add_argument("--style", choices=["studio", "kitchen"], default=None, help="lights and backdrop")
+    ap.add_argument("--blade-alpha", type=float, default=1.0, help="blade opacity; below 1 shows the cut through it")
+    ap.add_argument("--no-overlay", action="store_true", help="no text on the frames")
+    ap.add_argument("--png-every", type=float, default=1.0, help="save a PNG frame every this many seconds")
     ap.add_argument("--out", type=Path, default=Path("results/tofu_cutting/single"))
     args = ap.parse_args()
 
@@ -206,10 +249,17 @@ def main():
             raise SystemExit(f"Refusing to use the shared GPU ({reason}); use --device cpu or --allow-busy-gpu.")
 
     args.out.mkdir(parents=True, exist_ok=True)
+    args.material = args.material or SCENARIO_MATERIAL.get(args.scenario, "firm_tofu")
     material = PRESETS[args.material]
     if args.fracture_energy is not None:
         material = replace(material, fracture_energy=args.fracture_energy)
-    knife = KnifeGeometry()
+    block, knife, speed, view, style = SCENARIO_DEFAULTS.get(
+        args.scenario, ((0.08, 0.05, 0.03), KnifeGeometry(), 0.05, "oblique", "studio")
+    )
+    args.block = list(block) if args.block is None else args.block
+    args.descend_speed = speed if args.descend_speed is None else args.descend_speed
+    view = args.view or view
+    style = {"studio": STUDIO, "kitchen": KITCHEN}[args.style or style]
     sim = MPMCuttingSim(material, args.block, knife=knife, config=SimConfig(dx=args.dx), device=args.device)
     top_z = sim.block_max[2]
     driver = build_driver(args, sim)
@@ -217,12 +267,23 @@ def main():
     center = 0.5 * (sim.block_min + sim.block_max)
     span = float(np.max(sim.block_max - sim.block_min))
     target = np.array([center[0], center[1], sim.board_z + 0.35 * (top_z - sim.board_z)])
-    eye = target + span * np.array([0.95, -2.45, 1.55])
-    cam = Camera(eye, target, fov_deg=32.0, width=args.width, height=args.height)
+    offset, fov, lift = {
+        "oblique": ((0.95, -2.45, 1.55), 32.0, 0.0),
+        # Chef'd: a low view of the long side, far enough back to see the knife come down.
+        "side": ((1.35, -2.9, 1.0), 34.0, 0.012),
+        # HDMD: the long face from the front, a little above.
+        "front": ((0.05, -2.5, 0.75), 34.0, 0.01),
+    }[view]
+    target = target + np.array([0.0, 0.0, lift])
+    eye = target + span * np.array(offset)
+    cam = Camera(eye, target, fov_deg=fov, width=args.width, height=args.height)
     margin = 0.06
     board_rect = (-margin, -margin, sim.domain_size[0] + margin, sim.domain_size[1] + margin)
     spacing = args.dx / sim.config.particles_per_axis
-    renderer = Renderer(cam, sim.board_z, board_rect, knife, particle_radius=1.1 * spacing, particle_spacing=spacing)
+    renderer = Renderer(
+        cam, sim.board_z, board_rect, knife, particle_radius=1.1 * spacing, particle_spacing=spacing,
+        blade_alpha=args.blade_alpha, style=style, look=tofu_look(sim.x0, sim.skin),
+    )
 
     writer = None
     if not args.no_video:
@@ -249,20 +310,31 @@ def main():
             o = sim._cut_frames[sim.active_cut][0]
             if fr.min() < 999.0:
                 front = float(fr.min() + o[2] - sim.board_z)
+        # Tilt of piece 0 (in the slab scenario, the slab): its thinnest axis from vertical,
+        # 90 deg while it stands, 0 once it lies flat.
+        x_now = sim.positions()
+        sel0 = sim.pieces() == 0
+        tilt0 = float("nan")
+        if sel0.sum() > 10:
+            w0, v0 = np.linalg.eigh(np.cov((x_now[sel0] - x_now[sel0].mean(0)).T))
+            tilt0 = math.degrees(math.acos(min(1.0, abs(float(v0[2, 0])))))
         rows.append(dict(
             t=t, edge_height=float(pose.origin[2] - sim.board_z), depth=float(top_z - pose.origin[2]),
             fx=force[0], fy=force[1], fz=force[2], pieces=sim.connected_pieces(), cut=sim.active_cut,
-            crack_front_height=front,
+            crack_front_height=front, piece0_thin_axis_from_vertical_deg=tilt0,
         ))
         overlay = [
             f"{material.name.replace('_', ' ')}   t = {t:5.2f} s",
             f"knife force  Fz = {force[2]:+.2f} N",
             f"pieces: {rows[-1]['pieces']}",
         ]
-        save_png = fi % args.fps == 0 or fi == 1
+        save_png = fi == 1 or (fi % max(1, int(round(args.png_every * args.fps))) == 0)
         if writer is not None or save_png:
             x_now = sim.positions()
-            img = renderer.render(x_now, sim.piece_groups()[sim.pieces()], pose, overlay, sim.crack_faces(x_now))
+            img = renderer.render(
+                x_now, sim.piece_groups()[sim.pieces()], pose, None if args.no_overlay else overlay,
+                sim.crack_faces(x_now),
+            )
         if writer is not None:
             writer.append_data(img)
         if save_png:
@@ -275,7 +347,10 @@ def main():
     import imageio.v2 as imageio
 
     x_now = sim.positions()
-    img = renderer.render(x_now, sim.piece_groups()[sim.pieces()], sim.knife_pose, overlay, sim.crack_faces(x_now))
+    img = renderer.render(
+        x_now, sim.piece_groups()[sim.pieces()], sim.knife_pose, None if args.no_overlay else overlay,
+        sim.crack_faces(x_now),
+    )
     imageio.imwrite(frames_dir / f"frame_{fi:04d}.png", img)
     if writer is not None:
         writer.close()
@@ -290,9 +365,14 @@ def main():
     for p in range(sim.n_pieces):
         sel = pc == p
         if sel.any():
+            # The thinnest principal axis: horizontal for a slab standing up (90 deg), vertical
+            # for one lying flat (0 deg).
+            evals, evecs = np.linalg.eigh(np.cov((x[sel] - x[sel].mean(0)).T))
+            thin = evecs[:, 0]
             pieces.append(dict(
                 piece=p, particles=int(sel.sum()), mass_g=round(1e3 * sim.particle_mass * float(sel.sum()), 2),
                 centroid=x[sel].mean(0).round(5).tolist(), extent=(x[sel].max(0) - x[sel].min(0)).round(5).tolist(),
+                thin_axis_from_vertical_deg=round(math.degrees(math.acos(min(1.0, abs(float(thin[2]))))), 1),
             ))
     cutting = [r for r in rows if r["depth"] > 0.002 and r["cut"] >= 0 and r["fz"] > 0.0]
     metrics = dict(
@@ -301,6 +381,11 @@ def main():
         duration_s=round(sim.time, 4), substeps=int(round(sim.time / sim.dt)),
         sim_wall_s=round(sim_wall, 1), total_wall_s=round(time.time() - t_wall, 1),
         cuts=sim.n_cuts, cuts_complete=[sim.cut_complete(c) for c in range(sim.n_cuts)],
+        # How far below the top the edge was when each cut first cracked (the dent before it cuts).
+        crack_onset_depth_mm=[
+            None if not np.isfinite(h) else round(1e3 * (top_z - h), 2)
+            for h in (sim.crack_onset_height(c) for c in range(sim.n_cuts))
+        ],
         connected_pieces=sim.connected_pieces(),
         pieces=pieces, max_knife_force_z_N=max((r["fz"] for r in rows), default=0.0),
         mean_knife_force_z_while_cutting_N=float(np.mean([r["fz"] for r in cutting])) if cutting else 0.0,
@@ -350,8 +435,8 @@ def main():
     fig.suptitle(f"{material.name}: {args.scenario}, dx = {1e3 * args.dx:.1f} mm")
     fig.tight_layout()
     fig.savefig(args.out / "knife_force.png", dpi=120)
-    keys = ("particles", "cuts_complete", "sim_wall_s", "total_wall_s", "max_knife_force_z_N",
-            "mean_knife_force_z_while_cutting_N")
+    keys = ("particles", "cuts_complete", "crack_onset_depth_mm", "sim_wall_s", "total_wall_s",
+            "max_knife_force_z_N", "mean_knife_force_z_while_cutting_N")
     print(json.dumps({k: metrics[k] for k in keys}, indent=1))
     if isinstance(driver, PushedKnife):
         print("push:", {k: metrics[k] for k in ("deepest_edge_depth_mm", "reached_board_at_s", "push_time_s")})

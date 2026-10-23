@@ -110,6 +110,22 @@ def _stress(F: wp.mat33, C: wp.mat33, mu: float, lam: float, eta: float):
     return tau, psi
 
 
+@wp.func
+def _maxwell_stress(Fn: wp.mat33, mu_n: float):
+    """Kirchhoff stress and energy density of the deviatoric Hencky spring of the Maxwell branch."""
+    U = wp.mat33()
+    sig = wp.vec3()
+    V = wp.mat33()
+    wp.svd3(Fn, U, sig, V)
+    e0 = wp.log(wp.max(wp.abs(sig[0]), 1.0e-4))
+    e1 = wp.log(wp.max(wp.abs(sig[1]), 1.0e-4))
+    e2 = wp.log(wp.max(wp.abs(sig[2]), 1.0e-4))
+    m = (e0 + e1 + e2) / 3.0
+    d = wp.vec3(e0 - m, e1 - m, e2 - m)
+    tau = U @ wp.diag(2.0 * mu_n * d) @ wp.transpose(U)
+    return tau, mu_n * wp.dot(d, d)
+
+
 @wp.kernel
 def _clear_grid(
     grid_m: wp.array4d(dtype=float), grid_v: wp.array4d(dtype=wp.vec3), grid_g: wp.array4d(dtype=wp.vec3)
@@ -127,11 +143,13 @@ def _p2g(
     C: wp.array(dtype=wp.mat33),
     F: wp.array(dtype=wp.mat33),
     piece: wp.array(dtype=int),
+    Fn: wp.array(dtype=wp.mat33),
     pmass: float,
     pvol: float,
     mu: float,
     lam: float,
     eta: float,
+    mu_n: float,
     dx: float,
     dt: float,
     grid_m: wp.array4d(dtype=float),
@@ -151,6 +169,10 @@ def _p2g(
     xp = x[p]
     f = piece[p]
     tau, psi = _stress(F[p], C[p], mu, lam, eta)
+    if mu_n > 0.0:
+        tau_n, psi_n = _maxwell_stress(Fn[p], mu_n)
+        tau = tau + tau_n
+        psi = psi + psi_n
     psi_out[p] = psi
     affine = (-dt * pvol * 4.0 * inv_dx * inv_dx) * tau + pmass * C[p]
     mv = pmass * v[p]
@@ -204,6 +226,7 @@ def _advance_crack(
     psi_crit: float,
     lead: float,
     board_z: float,
+    first_crack: wp.array(dtype=float),
 ):
     b = wp.tid()
     # Where along the edge is this bin, in the cut's frame?
@@ -218,7 +241,8 @@ def _advance_crack(
     w_edge = wp.dot(o + s * knife.e_u, cut_w[c])
     if w_edge >= front[c, b]:
         return
-    crack = edge_psi[b] >= psi_crit
+    by_energy = edge_psi[b] >= psi_crit
+    crack = by_energy
     # A crack front is continuous along the edge: where the neighbouring bin is already cut
     # below the edge, this one goes too. Without this, the less confined material at the
     # food's free side faces never reaches the threshold and stays joined.
@@ -233,9 +257,15 @@ def _advance_crack(
     if gap <= knife.dilation:
         crack = True
     if crack:
+        if by_energy and front[c, b] >= 0.5 * NO_CRACK:
+            # Where the edge was when the tofu itself first gave way under it (not where the
+            # crack merely spread along the edge, which reaches bins far outside the food).
+            wp.atomic_max(first_crack, c, w_edge)
         new_front = w_edge - lead
         if gap <= knife.dilation:
-            new_front = w_edge - gap - dx
+            # Well below the board: the nodes just under it still carry mass from the bottom
+            # layer, and a front level with them would leave the pieces bonded there.
+            new_front = w_edge - gap - 3.0 * dx
         front[c, b] = new_front
 
 
@@ -428,6 +458,9 @@ def _g2p(
     dt: float,
     lo: float,
     hi: wp.vec3,
+    Fn: wp.array(dtype=wp.mat33),
+    relax: float,
+    viscoelastic: int,
 ):
     p = wp.tid()
     inv_dx = 1.0 / dx
@@ -456,7 +489,22 @@ def _g2p(
     C[p] = nC
     xn = xp + dt * nv
     x[p] = wp.vec3(wp.clamp(xn[0], lo, hi[0]), wp.clamp(xn[1], lo, hi[1]), wp.clamp(xn[2], lo, hi[2]))
-    F[p] = (wp.identity(n=3, dtype=float) + dt * nC) @ F[p]
+    step = wp.identity(n=3, dtype=float) + dt * nC
+    F[p] = step @ F[p]
+    if viscoelastic == 1:
+        # Maxwell branch: deform with the material, then let the deviatoric log strain relax by
+        # exp(-dt / tau), the exact decay of a linear Maxwell element over the step (as in
+        # Fang et al., "Silly Rubber", SIGGRAPH 2019).
+        U = wp.mat33()
+        sig = wp.vec3()
+        V = wp.mat33()
+        wp.svd3(step @ Fn[p], U, sig, V)
+        e0 = wp.log(wp.max(wp.abs(sig[0]), 1.0e-4))
+        e1 = wp.log(wp.max(wp.abs(sig[1]), 1.0e-4))
+        e2 = wp.log(wp.max(wp.abs(sig[2]), 1.0e-4))
+        m = (e0 + e1 + e2) / 3.0
+        s = wp.vec3(wp.exp((e0 - m) * relax), wp.exp((e1 - m) * relax), wp.exp((e2 - m) * relax))
+        Fn[p] = U @ wp.diag(s) @ wp.transpose(V)
 
 
 @dataclass(frozen=True)
@@ -502,6 +550,17 @@ class MPMCuttingSim:
     The block is axis-aligned and rests on a board at ``board_z``; the domain spans
     [0, domain_size] in each axis. Drive the knife with ``set_knife`` and ``begin_cut``, or
     hand ``advance`` a ``KnifeTrajectory``.
+
+    Args:
+        material: The solid.
+        block_size: Size of the block, or of the box around ``inside`` [m].
+        knife: Blade geometry.
+        config: Discretisation settings.
+        device: Warp device.
+        inside: Optional shape within that box, for food that is not a box (a reconstructed
+            mesh, say): a function taking points relative to the box's lower corner, shape
+            (N, 3), and returning which lie in the solid. Its lowest point should touch the
+            box's floor, which rests on the board. None fills the box.
     """
 
     def __init__(
@@ -512,6 +571,7 @@ class MPMCuttingSim:
         knife: KnifeGeometry = KnifeGeometry(),
         config: SimConfig = SimConfig(),
         device: str = "cpu",
+        inside=None,
     ):
         if config.max_pieces > MAX_PIECES:
             raise ValueError(f"max_pieces is limited to {MAX_PIECES}")
@@ -542,9 +602,30 @@ class MPMCuttingSim:
         pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
         rng = np.random.default_rng(config.seed)
         spacing = block_size / np.array(counts)
-        pts = pts + rng.uniform(-config.jitter, config.jitter, pts.shape) * spacing + self.block_min
+        if inside is None:
+            pts = pts + rng.uniform(-config.jitter, config.jitter, pts.shape) * spacing + self.block_min
+            depth = np.minimum(pts - self.block_min, self.block_max - pts).min(axis=1)
+            skin = depth < float(spacing.max())
+            self.particle_volume = float(np.prod(block_size)) / len(pts)
+        else:
+            # A lattice point is skin when a neighbour along some axis lies outside the solid.
+            keep = np.asarray(inside(pts), dtype=bool)
+            skin = np.zeros(len(pts), dtype=bool)
+            for a in range(3):
+                for s in (-1.0, 1.0):
+                    q = pts.copy()
+                    q[:, a] += s * spacing[a]
+                    skin |= (q[:, a] < 0.0) | (q[:, a] > block_size[a]) | ~np.asarray(inside(q), dtype=bool)
+            pts, skin = pts[keep], skin[keep]
+            if not len(pts):
+                raise ValueError("the shape holds no lattice point; is it given in the box's frame?")
+            pts = pts + rng.uniform(-config.jitter, config.jitter, pts.shape) * spacing + self.block_min
+            self.particle_volume = float(np.prod(spacing))
         self.n_particles = len(pts)
-        self.particle_volume = float(np.prod(block_size)) / self.n_particles
+        # Where each particle started, and whether it was on the solid's outer skin: a cut face
+        # is whatever surface shows later that was not skin (used for drawing).
+        self.x0 = pts.copy()
+        self.skin = skin
         self.particle_mass = material.density * self.particle_volume
 
         # Time step: elastic waves (CFL) and explicit viscosity, both with margin.
@@ -558,6 +639,8 @@ class MPMCuttingSim:
         self.v = wp.zeros(n, dtype=wp.vec3, device=dev)
         self.C = wp.zeros(n, dtype=wp.mat33, device=dev)
         self.F = wp.array(np.tile(np.eye(3, dtype=np.float32), (n, 1, 1)), dtype=wp.mat33, device=dev)
+        # Elastic deformation of the Maxwell (non-equilibrium) branch; unused for an elastic material.
+        self.Fn = wp.array(np.tile(np.eye(3, dtype=np.float32), (n, 1, 1)), dtype=wp.mat33, device=dev)
         self.piece = wp.zeros(n, dtype=int, device=dev)
         self.psi = wp.zeros(n, dtype=float, device=dev)
 
@@ -577,6 +660,7 @@ class MPMCuttingSim:
         self.cut_w = wp.zeros(mc, dtype=wp.vec3, device=dev)
         self.front = wp.array(np.full((mc, self.n_bins), 1.0e3, dtype=np.float32), dtype=float, device=dev)
         self.edge_psi = wp.zeros(self.n_bins, dtype=float, device=dev)
+        self.first_crack = wp.array(np.full(mc, -1.0e3, dtype=np.float32), dtype=float, device=dev)
         self.pair_a = wp.zeros(config.max_pairs, dtype=int, device=dev)
         self.pair_b = wp.zeros(config.max_pairs, dtype=int, device=dev)
         self.pair_cut = wp.zeros(config.max_pairs, dtype=int, device=dev)
@@ -636,7 +720,15 @@ class MPMCuttingSim:
             raise RuntimeError("too many cuts")
         c = self.n_cuts
         o = np.asarray(self.knife_pose.origin, dtype=float)
-        e_u, e_v, e_w = self.knife_pose.axes()
+        # The cut's frame lies in the blade's plane but stays level: a rocking blade turns in
+        # that plane, and the board check (cut_complete) wants e_w to be "up" within it.
+        e_v = np.asarray(self.knife_pose.axes()[1], dtype=float)
+        up = np.array([0.0, 0.0, 1.0])
+        e_w = up - (up @ e_v) * e_v
+        if np.linalg.norm(e_w) < 1e-6:
+            raise ValueError("a horizontal blade cannot start a cut")
+        e_w = e_w / np.linalg.norm(e_w)
+        e_u = np.cross(e_v, e_w)
         x = self.x.numpy().astype(float)
         piece = self.piece.numpy()
 
@@ -695,6 +787,19 @@ class MPMCuttingSim:
         self.active_cut = c
         return c
 
+    def _drop_finished_pairs(self):
+        """Stops bonding across the active cut as soon as it has gone all the way through.
+
+        Waiting for the next stroke would keep the two sides joined at the board until then,
+        a hinge that holds a cut slab upright.
+        """
+        c = self.active_cut
+        if c < 0 or not any(pc == c for _, _, pc in self._pairs):
+            return
+        if self.cut_complete(c):
+            self._pairs = [p for p in self._pairs if p[2] != c]
+            self._upload_pairs()
+
     def _upload_pairs(self):
         a = np.zeros(self.config.max_pairs, dtype=np.int32)
         b = np.zeros_like(a)
@@ -719,9 +824,9 @@ class MPMCuttingSim:
             _p2g,
             dim=self.n_particles,
             inputs=[
-                self.x, self.v, self.C, self.F, self.piece,
+                self.x, self.v, self.C, self.F, self.piece, self.Fn,
                 self.particle_mass, self.particle_volume,
-                mat.shear_modulus, mat.lame_lambda, mat.viscosity,
+                mat.equilibrium_shear_modulus, mat.lame_lambda, mat.viscosity, mat.maxwell_shear_modulus,
                 self.dx, dt,
                 self.grid_m, self.grid_v, self.grid_g, self.psi,
                 self._knife, self.active_cut, self.cut_o, self.cut_u,
@@ -736,7 +841,7 @@ class MPMCuttingSim:
                 inputs=[
                     self.front, self.edge_psi, self._knife, self.active_cut,
                     self.cut_o, self.cut_u, self.cut_w, self.bin_umin, self.n_bins, self.dx,
-                    self.psi_crit, cfg.crack_lead * self.dx, self.board_z,
+                    self.psi_crit, cfg.crack_lead * self.dx, self.board_z, self.first_crack,
                 ],
                 device=dev,
             )
@@ -759,7 +864,11 @@ class MPMCuttingSim:
         wp.launch(
             _g2p,
             dim=self.n_particles,
-            inputs=[self.x, self.v, self.C, self.F, self.piece, self.grid_v, self.dx, dt, 2.0 * self.dx, hi],
+            inputs=[
+                self.x, self.v, self.C, self.F, self.piece, self.grid_v, self.dx, dt, 2.0 * self.dx, hi,
+                self.Fn, math.exp(-dt / mat.relaxation_time) if mat.relaxation_time > 0.0 else 1.0,
+                1 if mat.maxwell_shear_modulus > 0.0 else 0,
+            ],
             device=dev,
         )
         self.time += dt
@@ -792,6 +901,7 @@ class MPMCuttingSim:
                 pose, lin, ang = trajectory.state(self.time + 0.5 * dt)
                 self.set_knife(pose, lin, ang)
             self.substep(dt)
+        self._drop_finished_pairs()
         span = max(self.time - t_start, 1e-12)
         imp = self.knife_impulse.numpy()[0].astype(float)
         mom = self.knife_moment.numpy()[0].astype(float)
@@ -810,6 +920,14 @@ class MPMCuttingSim:
     def strain_energy(self) -> np.ndarray:
         """Strain energy density of each particle at the last step [J/m^3]."""
         return self.psi.numpy().astype(float)
+
+    def crack_onset_height(self, c: int) -> float:
+        """World height of the knife's edge where cut c first cracked (NaN if it has not)."""
+        w = float(self.first_crack.numpy()[c])
+        if w < -999.0:
+            return float("nan")
+        o, _, _, e_w = self._cut_frames[c]
+        return float(o[2] + w * e_w[2])
 
     def crack_front(self, c: int) -> np.ndarray:
         """Crack-front height of cut c per bin, in the cut's frame (1000 = not cracked)."""

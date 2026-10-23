@@ -6,6 +6,14 @@ energy does not: no measured J/m^2 value for tofu was found, so the presets use 
 order-of-magnitude estimate for soft food gels and say so. Treat ``fracture_energy`` as
 the first parameter to calibrate against a real cut.
 
+Tofu is strongly viscoelastic, so the presets carry a Maxwell branch: ``youngs_modulus`` is
+the stiffness under quick loading and ``relaxed_modulus`` what is left after a few
+``relaxation_time``s. Boes et al. tested in confined compression, whose slope is the P-wave
+modulus lambda + 2 mu, not E: their fast peak for firm tofu (18.9 kPa at 30 %, i.e. about
+63 kPa) is E ~ 29 kPa at nu = 0.4, in line with St. Pierre et al.'s 26.4 kPa, while their
+equilibrium stress is 7.7 times lower. The presets take the measured modulus as the quick one
+and a more cautious factor of 4 for the relaxed one; the 2 s relaxation time is an estimate.
+
 Sources:
     St. Pierre et al., "The mechanical and sensory signature of plant-based and animal
     meat", npj Science of Food 8, 94 (2024): firm 26.4 +/- 4.0 kPa and extra-firm
@@ -40,6 +48,9 @@ class SoftSolidMaterial:
         knife_friction: Coulomb friction between blade and material.
         board_friction: Coulomb friction between material and cutting board.
         contact_friction: Coulomb friction between two cut pieces.
+        relaxed_modulus: Young's modulus left after full relaxation [Pa]; 0 makes the
+            material purely elastic with ``youngs_modulus``.
+        relaxation_time: Relaxation time of the Maxwell branch [s].
     """
 
     name: str
@@ -51,11 +62,29 @@ class SoftSolidMaterial:
     knife_friction: float = 0.3
     board_friction: float = 0.5
     contact_friction: float = 0.3
+    relaxed_modulus: float = 0.0
+    relaxation_time: float = 0.0
 
     @property
     def shear_modulus(self) -> float:
-        """Lame mu [Pa]."""
+        """Lame mu under quick loading [Pa]."""
         return self.youngs_modulus / (2.0 * (1.0 + self.poisson_ratio))
+
+    @property
+    def viscoelastic(self) -> bool:
+        return 0.0 < self.relaxed_modulus < self.youngs_modulus and self.relaxation_time > 0.0
+
+    @property
+    def equilibrium_shear_modulus(self) -> float:
+        """Shear modulus of the elastic (equilibrium) branch [Pa]."""
+        if not self.viscoelastic:
+            return self.shear_modulus
+        return self.relaxed_modulus / (2.0 * (1.0 + self.poisson_ratio))
+
+    @property
+    def maxwell_shear_modulus(self) -> float:
+        """Shear modulus of the Maxwell branch, which relaxes [Pa]; 0 if elastic."""
+        return self.shear_modulus - self.equilibrium_shear_modulus
 
     @property
     def lame_lambda(self) -> float:
@@ -78,6 +107,8 @@ FIRM_TOFU = SoftSolidMaterial(
     density=1060.0,
     viscosity=2.0,
     fracture_energy=3.0,
+    relaxed_modulus=26.4e3 / 4.0,
+    relaxation_time=2.0,
 )
 
 # Silken tofu scaled from firm by the ratio of the peak compressive stresses in Boes et al.
@@ -89,6 +120,8 @@ SILKEN_TOFU = SoftSolidMaterial(
     density=1040.0,
     viscosity=1.0,
     fracture_energy=1.0,
+    relaxed_modulus=26.4e3 * 3.74 / 18.91 / 3.0,
+    relaxation_time=2.0,
 )
 
 # St. Pierre et al. measured almost the same stiffness for firm and extra-firm tofu, while
@@ -101,6 +134,22 @@ EXTRA_FIRM_TOFU = SoftSolidMaterial(
     density=1070.0,
     viscosity=2.0,
     fracture_energy=6.0,
+    relaxed_modulus=27.5e3 / 4.0,
+    relaxation_time=2.0,
 )
 
-PRESETS = {m.name: m for m in (FIRM_TOFU, SILKEN_TOFU, EXTRA_FIRM_TOFU)}
+# Firm tofu pressed under a weight to drain it, as in the HDMD clip (45 minutes). Boes et al.
+# found stress rising more than tenfold for six percent less water; four times firm tofu is an
+# estimate, not a measurement.
+PRESSED_TOFU = SoftSolidMaterial(
+    name="pressed_tofu",
+    youngs_modulus=4.0 * 26.4e3,
+    poisson_ratio=0.40,
+    density=1080.0,
+    viscosity=2.0,
+    fracture_energy=6.0,
+    relaxed_modulus=26.4e3,
+    relaxation_time=2.0,
+)
+
+PRESETS = {m.name: m for m in (FIRM_TOFU, SILKEN_TOFU, EXTRA_FIRM_TOFU, PRESSED_TOFU)}
