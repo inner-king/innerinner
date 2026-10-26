@@ -22,6 +22,10 @@ from simfoundry.utils.processing_utils import pad_image_to_ratio, remove_backgro
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 from simfoundry.utils.python_utils import assert_valid_key
 from simfoundry.pipeline.upsample_check import resolve_thresholds, run_reference_check
+from simfoundry.pipeline.upsample_color import (
+    color_match_files, composite_infill_file, resolve_color_match, resolve_infill_mode, resolve_rim_trim_px,
+    trim_infill_rim_file,
+)
 import torch
 from pathlib import Path
 from PIL import Image
@@ -91,6 +95,17 @@ def main(cfg):
     reference_check_enabled = bool(reference_check_cfg is not None and reference_check_cfg.get("enabled", False))
     reference_thresholds = resolve_thresholds(reference_check_cfg) if reference_check_enabled else None
     reference_checks = {}
+    # Infill over the occluded part only, and the colour match (upsample_color.py). Both are off by default, and when
+    # off neither runs and neither key is written.
+    infill_mode = resolve_infill_mode(cfg.s6_upsample.get("infill_mode", "full"))
+    infill_occluded = bool(cfg.s6_upsample.infill) and infill_mode == "occluded_only"
+    infill_feather_px = int(cfg.s6_upsample.get("infill_feather_px", 3))
+    infill_rim_trim_px = resolve_rim_trim_px(cfg.s6_upsample.get("infill_rim_trim_px", 0))
+    infill_composites = {}
+    color_match_cfg = cfg.s6_upsample.get("color_match", None)
+    color_match_enabled = bool(color_match_cfg is not None and color_match_cfg.get("enabled", False))
+    color_match_settings = resolve_color_match(color_match_cfg) if color_match_enabled else None
+    color_matches = {}
     if model_name == "gemini":
         model = Gemini(
             project=cfg.gcloud_project,
@@ -338,6 +353,17 @@ def main(cfg):
                 session=rembg_session,
                 max_side=remove_bg_max_side,
             )
+
+            if infill_occluded:
+                composite = composite_infill_file(input_img_padded, infilled_img_fpath, infill_feather_px)
+                infill_composites[img_name] = {"mode": "occluded_only", **composite}
+                if composite["composited"]:
+                    rim_record = trim_infill_rim_file(input_img_padded, infilled_img_fpath, infill_rim_trim_px)
+                else:
+                    rim_record = {"rim_trim_px": infill_rim_trim_px, "rim_trimmed_pixels": 0}
+                infill_composites[img_name].update(rim_record)
+                if not composite["composited"]:
+                    logger.warning(f"Object [{obj_phrase}] infill not composited over the crop: {composite['reason']}")
         
         else:
             infilled_img_fpath = input_img_padded_path
@@ -420,8 +446,8 @@ def main(cfg):
         ########### REFERENCE CHECK STEP: does the upsampled silhouette still match the stage-5 crop?
         ###########
         #########################################################################################################
+        transparent_fpath = f"{out_dir}/upsampled/{img_name}_transparent.png"
         if reference_check_enabled:
-            transparent_fpath = f"{out_dir}/upsampled/{img_name}_transparent.png"
             reference_checks[img_name] = run_reference_check(
                 input_img_padded, upsampled_img_fpath, transparent_fpath, reference_thresholds,
             )
@@ -434,6 +460,16 @@ def main(cfg):
                 )
             if check["reverted"]:
                 logger.warning(f"Object [{obj_phrase}] reverted to its stage-5 crop")
+
+        if color_match_enabled and not (reference_check_enabled and reference_checks[img_name]["reverted"]):
+            match = color_match_files(input_img_padded, transparent_fpath, upsampled_img_fpath, color_match_settings)
+            color_matches[img_name] = {key: match[key] for key in (
+                "delta_e_before", "delta_e_after", "delta_e_visible_before", "delta_e_visible_after",
+                "delta_e_pixel_before", "delta_e_pixel_after", "filled_fraction",
+                "filled_vs_visible_delta_e_before", "filled_vs_visible_delta_e_after", "strength", "match_std", "skipped",
+            )}
+            if match["skipped"] is not None:
+                logger.info(f"Object [{obj_phrase}] colour match skipped: {match['skipped']}")
 
         #########################################################################################################
         ########### CHECK OBJECTS STEP: check if the objects are valid
@@ -478,6 +514,8 @@ def main(cfg):
             "invalid_objects": invalid_objects,
             **served_models,
             **({"reference_checks": reference_checks} if reference_check_enabled else {}),
+            **({"infill_composites": infill_composites} if infill_occluded else {}),
+            **({"color_matches": color_matches} if color_match_enabled else {}),
         }),
     )
 

@@ -110,6 +110,16 @@ for `min_iou`. With `infill: true` the model paints the hidden part of the objec
 for a good reason; then a flag means the picture differs from the crop, not that it is wrong. With the check disabled,
 stage 6 writes nothing extra.
 
+Two options against colour drift are off by default (`simfoundry/pipeline/upsample_color.py`). With
+`s6_upsample.infill_mode: occluded_only` the crop's visible pixels are kept and the infill is taken only where the
+object was hidden, with a seam `infill_feather_px` wide; by default the model repaints the visible surface too.
+`s6_upsample.infill_rim_trim_px` (default 0, off) takes that many pixels off the infill's outer edge, which can be a
+dark rim, and leaves the visible surface alone. With
+`s6_upsample.color_match.enabled` the upsampled object's Lab colour statistics are moved onto the crop's visible
+surface, and the match is skipped when more than `max_filled_fraction` of the object was painted. When either is on,
+`stage_info.json` records the numbers under `infill_composites` and `color_matches`: the headline ΔE compares each
+object's own alpha, and the visible-surface and per-pixel distances sit beside it.
+
 ### Mesh Generators
 
 Stage 7 supports three image-to-3D backends, selected with `s7_mesh.shape_model` and
