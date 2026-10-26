@@ -334,6 +334,12 @@ s8_pose:          # env: simfoundry
   height_percentile: 95       # the depth's height is this percentile of its points above the surface
   height_ring_px: 6           # the floor is read from the band of pixels at least height_ring_gap_px from every object's removal mask and within this many pixels of the object's own mask (band width ring_px - gap)
   height_ring_gap_px: 3       # provisional: from one scene, tofu's depth height is 15.2 mm with neighbouring masks in the ring and 26.9 mm without them
+  # A height counts as off only when it is also this many floor spreads (1.4826 x MAD of the floor's points) away: the
+  # floor scatters by a few millimetres, and a smaller mismatch is noise. Provisional, not tuned on any object; null: ratio only.
+  height_noise_sigmas: 2.0
+  # When the object's own ring has fewer than min_ring_points points (a neighbour fills it), read the floor from the
+  # neighbouring pixels instead: the most populated 5 mm height bin of the band around the object, not the ring. Off: skipped.
+  height_floor_fallback: true
   height_fit:
     enabled: false            # stretch the mesh along the vertical to the depth's height when they differ by more than threshold; off until a table of measured heights sets the numbers
     threshold: 0.25
