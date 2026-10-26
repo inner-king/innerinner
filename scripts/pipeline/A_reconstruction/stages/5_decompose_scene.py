@@ -49,7 +49,7 @@ from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.pipeline.support_graph import support_levels
 from simfoundry.pipeline.removal_ghosts import GHOST_SKIP_REASON, RemovedRegion, find_ghosts, grow_region, \
-    load_removed_regions
+    load_removed_regions, point_in_removed_regions
 from simfoundry.utils.python_utils import atomic_output_path
 import hydra
 import logging
@@ -1102,6 +1102,8 @@ def main(cfg):
     point_prompts = {}
     vlm_obj_prompt_points = {}
     vlm_obj_prompt_bboxes = {}
+    # The iteration whose image the VLM saw when it gave vlm_obj_prompt_points.
+    vlm_points_iteration = 0
     if use_feedback:
         logger.info("="*60)
         logger.info("Processing feedback from 5b_visualize_decomposition.py...")
@@ -1442,6 +1444,7 @@ def main(cfg):
                         )
                 vlm_obj_prompt_points = parsed_vlm_points
                 vlm_obj_prompt_bboxes = parsed_vlm_bboxes
+                vlm_points_iteration = current_iteration
 
                 logger.info(f"\n Detected categories: {obj_cat_list}")
                 if len(detections) > 0:
@@ -1520,6 +1523,19 @@ def main(cfg):
                 obj_point_xy = vlm_obj_prompt_points.get(obj_cat)
                 if obj_point_xy is None:
                     obj_point_xy = vlm_obj_prompt_points.get(get_primary_object_name(obj_cat))
+
+                # A point given before a removal can sit on pixels that removal repainted; SAM3 would
+                # then segment whatever the repaint left there, so the point is not used.
+                if obj_point_xy is not None and len(masks) == 0:
+                    stale_removal = point_in_removed_regions(
+                        obj_point_xy, removed_regions, (H, W), since_iter=vlm_points_iteration,
+                    )
+                    if stale_removal is not None:
+                        logger.info(
+                            f"VLM point {obj_point_xy} for '{obj_cat}' was given at iteration {vlm_points_iteration}, "
+                            f"and iteration {stale_removal.iteration} removed the region under it: not using it"
+                        )
+                        obj_point_xy = None
 
                 if obj_point_xy is not None and len(masks) == 0:
                     used_vlm_point_guidance = True
@@ -2128,7 +2144,9 @@ def main(cfg):
         if ghost_to_remove is not None:
             # The image chain moves on from this edit, but no object came out of it: no
             # manifest, so stage 6 onward never see it, and the categories stay unchanged so
-            # that the next detection looks for the ghost again.
+            # that the next detection looks for the ghost again, by its text mask. Its VLM point
+            # was given before this edit, so the point fallback skips it while this region covers it
+            # (point_in_removed_regions in removal_ghosts.py).
             write_skipped_iteration(out_dir, {
                 "iteration": current_iteration,
                 "reason": GHOST_SKIP_REASON,

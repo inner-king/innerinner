@@ -21,6 +21,12 @@ is drawn inside the marked region and comes out smaller: in the scene above the 
 Stage 5 removes a ghost again with a prompt type its object has not had yet, and drops it
 once every type has been tried. It records the prompt types each iteration tried, so
 :func:`load_removed_regions` rebuilds the same state when a run resumes.
+
+The ghost's phrase keeps its VLM point, which was given before the removal and can name pixels
+that removal has since repainted. In the induction cooktop run the pot had stood on that point;
+after its removal SAM3 segmented the whole empty cooktop from it, and stage 5 removed the cooktop
+as a new object. :func:`point_in_removed_regions` finds such a point, one inside a region that a
+removal made at or after the iteration which gave the point, so stage 5 does not fall back to it.
 """
 
 from __future__ import annotations
@@ -126,6 +132,40 @@ def find_ghosts(masks, removed_regions: Sequence[RemovedRegion], prompt_order, t
         untried = [t for t in prompt_order if t not in tried]
         ghosts.append(Ghost(index=index, origin_iter=origin_iter, overlap=overlap, untried_prompt_types=untried))
     return ghosts
+
+
+def point_in_removed_regions(point_xy, removed_regions: Sequence[RemovedRegion], frame_shape,
+                             since_iter: int = 0) -> Optional[RemovedRegion]:
+    """The latest removal at or after ``since_iter`` whose region holds ``point_xy``, or None.
+
+    A VLM point names the object the VLM saw on the image it was given. A removal made after that
+    image repaints the object's pixels, so a point still inside such a region would make SAM3
+    segment whatever the removal left under it. A removal before ``since_iter`` is not counted:
+    the VLM already saw that edit when it gave the point.
+
+    Args:
+        point_xy: ``(x, y)`` column and row, rounded to the nearest pixel.
+        removed_regions: RemovedRegion records in iteration order.
+        frame_shape: ``(H, W)`` of the frame the point lies in.
+        since_iter: Iteration of the image the point was given on.
+
+    Returns:
+        The RemovedRegion that matched last, or None.
+    """
+    x, y = int(round(point_xy[0])), int(round(point_xy[1]))
+    height, width = frame_shape
+    # A negative index would wrap around to the far edge and match a pixel that is not the point.
+    if not (0 <= x < width and 0 <= y < height):
+        return None
+    match = None
+    for removed in removed_regions:
+        if removed.iteration < since_iter or removed.region is None:
+            continue
+        if removed.region.shape != tuple(frame_shape):
+            continue
+        if removed.region[y, x]:
+            match = removed
+    return match
 
 
 def load_removed_regions(out_dir: str, before_iter: int, default_prompt_type: str) -> list:
