@@ -254,14 +254,31 @@ with a warning. Without the GLB, stage 14 warns and goes on without it. The save
 Stage 8 fits one scale per object, so a placed mesh can disagree with the depth and nothing says so. Stage 8 now
 compares each placed mesh with its depth: the two sides of the minimum-area rectangle of the footprint on the plane
 perpendicular to gravity, and the height against the depth's height above the surface the object stands on. A
-difference above `s8_pose.size_warn_ratio` (0.15, provisional) is logged and recorded in `info/<img>.json` under
-`size_check`, and listed in `stage_info.json` under `size_warnings`. The mesh is not changed by this. With
-`s8_pose.height_fit.enabled: true` (off by default) a height that differs by more than its threshold is stretched
-to the depth's height, provided the factor is within its limits; the decision, and any refusal, is recorded under
-`height_fit`. `size_warn_ratio: null` turns the check off entirely. If fewer than 50 points
-(`size_check.DEFAULT_MIN_RING_POINTS`) fall in the floor band, the height is not compared and `size_check.height`
-holds a `skipped` reason in `info/<img>.json`; a skip means the height was not checked, not that it passed. For
-example, tofu in the lidar scene can leave too few floor points once the neighbouring objects' masks are removed.
+footprint difference above `s8_pose.size_warn_ratio` (0.15, provisional) is logged and recorded in `info/<img>.json`
+under `size_check`, and listed in `stage_info.json` under `size_warnings`. A height is reported only when it is also
+outside the noise of its own floor: `s8_pose.height_noise_sigmas` (2.0, provisional) times the floor's robust spread
+(`floor_spread_m`, 1.4826 times the median absolute deviation of the floor points). The floor is the median of the
+object's ring; when the ring has fewer than 50 points (`size_check.DEFAULT_MIN_RING_POINTS`) and
+`s8_pose.height_floor_fallback` is true (the default), the floor is read from the pixels around the object with no
+neighbour excluded, as the most populated 5 mm height bin of them (`floor_source: "neighbour_masks"`, logged as
+"floor read from the neighbouring object's pixels"); otherwise the height is skipped with the reason. The mesh is not
+changed by the check. With `s8_pose.height_fit.enabled: true` (off by default) a height that differs by more than its
+threshold, and more than the floor's noise, is stretched to the depth's height, provided the factor is within its
+limits; the decision, and any refusal, is recorded under `height_fit`. The stretch works on a canonical GLB that
+carries a node transform: the transform is baked into the vertices, the stretch is made there, and the node is reset,
+so the file reads back in the frame the check measured. `size_warn_ratio: null` turns the check off entirely.
+
+Known false warnings, from the lidar run (`b2_check`), that the check does not detect yet:
+
+- A container or tray whose rim is thin: the depth's 95th percentile reads the inner bottom, not the rim. The tray
+  (iter_5) had a depth maximum of 41 mm against a mesh of 38 mm, but a 95th percentile of 14 mm, because about 1 % of
+  its masked points lie above 23 mm.
+- A mask covering two objects: the pot (iter_6) was segmented together with its glass lid, and its mesh contains
+  both. The footprint then differs from the depth's by 65 %, and the height cannot be read as the pot's alone.
+- A floor from a ring that also sees other surfaces: the tray's ring spread is 11 mm, so a 25 mm mismatch is only
+  just outside the noise.
+
+These are not handled by any rule here, so a warning on such an object is a prompt to look, not a measurement.
 
 Stage 8 seeds Python's `random`, numpy and Open3D from the global `seed` once per object, offset by the object's index (`seed` + index), so the CPD pose search and the Poisson-disk target of an object do not depend on which other objects this run processed. The FoundationPose call, when enabled, is also seeded for each object, from the global `seed`; whether its GPU kernels are deterministic is not verified.
 
