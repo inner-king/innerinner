@@ -36,6 +36,7 @@ from simfoundry.pipeline.front_canonicalization import canonicalize_front, yaw_s
 from simfoundry.pipeline.upright_from_fit import decide_tilt, resolve_bake_fitted_tilt, tilt_from_fit
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.utils.python_utils import atomic_output_path
+from simfoundry.pipeline.size_check import decide_height_fit, fit_height, ring_mask, size_report
 import multiprocessing
 from tqdm import trange
 import logging
@@ -285,6 +286,38 @@ def sample_fits(source, target, n_samples=10, update_scale=True, return_inverse=
 _MIN_SOURCE_POINTS = 10
 
 
+def _stretch_canonical_height(glb_path, up_canonical, scale):
+    """Stretch the canonical mesh file along `up_canonical` (size_check.fit_height). Returns None, or why it did not.
+
+    Only a file holding one geometry with no node transform is rewritten: the stretch is in that geometry's own
+    frame, and a file with several parts (some backends write a scene) would need each part's transform kept.
+    """
+    scene = trimesh.load(glb_path)
+    nodes = list(scene.graph.nodes_geometry)
+    if len(nodes) != 1:
+        return f"the canonical mesh has {len(nodes)} geometries; height fit rewrites one"
+    transform, geometry_name = scene.graph[nodes[0]]
+    if not np.allclose(transform, np.eye(4)):
+        return "the canonical mesh's geometry has a node transform; height fit does not rewrite it"
+    geometry = scene.geometry[geometry_name]
+    geometry.vertices = fit_height(geometry.vertices, up_canonical, scale)
+    with atomic_output_path(glb_path) as tmp:
+        scene.export(tmp)
+    return None
+
+
+def _size_warning_text(img_name, report, threshold) -> str:
+    parts = []
+    if "footprint" in report["warnings"]:
+        fp = report["footprint"]
+        parts.append(f"footprint {fp['mesh_sides_m']} m against the depth's {fp['depth_sides_m']} m "
+                     f"(ratios {fp['ratios']})")
+    if "height" in report["warnings"]:
+        hg = report["height"]
+        parts.append(f"height {hg['mesh_m']:.4f} m against the depth's {hg['depth_m']:.4f} m (ratio {hg['ratio']:.3f})")
+    return f"Size check for {img_name}: {'; '.join(parts)}; threshold {threshold}"
+
+
 def _write_object_failure(out_dir: str, img_name: str, reason: str, **counts) -> None:
     """Write a failure record to the per-object info JSON and log a warning."""
     info = {"error": "pose_matching_skipped", "reason": reason, **counts}
@@ -312,6 +345,24 @@ def main(cfg):
     # Store hyperparam data
     source_voxel_scale_factor = cfg.s8_pose.source_voxel_scale_factor
     # voxel_size = cfg.s8_pose.voxel_size
+
+    # Size check (simfoundry/pipeline/size_check.py). size_warn_ratio: null turns it off entirely: no calls, and no
+    # size_check / height_fit / size_warnings keys, so the outputs stay as they were before it existed.
+    size_warn_ratio = cfg.s8_pose.get("size_warn_ratio", None)
+    size_check_on = size_warn_ratio is not None
+    size_warnings = {}
+    height_fit_cfg = cfg.s8_pose.get("height_fit", None) or {}
+    height_fit_settings = {
+        "enabled": bool(height_fit_cfg.get("enabled", False)),
+        "threshold": float(height_fit_cfg.get("threshold", 0.25)),
+        "min_scale": float(height_fit_cfg.get("min_scale", 0.5)),
+        "max_scale": float(height_fit_cfg.get("max_scale", 2.0)),
+    }
+    size_settings = {
+        "size_warn_ratio": float(size_warn_ratio) if size_check_on else None,
+        "visible_only": bool(cfg.s8_pose.get("size_check_visible_only", True)),
+        "height_percentile": float(cfg.s8_pose.get("height_percentile", 95)),
+    }
 
     # Load source files
     source_padded_resized = np.array(Image.open(f"{scene_dir}/source_padded_resized.png"))
@@ -349,6 +400,15 @@ def main(cfg):
     # axes, hence world +Z in camera coordinates is the third row.
     cam2world_tf = np.load(f"{cfg.s4_frame.out_dir}/image_{img_idx}_cam2world.npy")
     gravity_up_cam = cam2world_tf[:3, :3].T @ np.array([0.0, 0.0, 1.0])
+
+    # Every removed object's mask on the depth grid, read the way the object's own mask is read below. The size check's
+    # ring must keep off all of them: a point beside a neighbour shows the neighbour, not the surface under this object.
+    # Built once here, before the object loop, and shared by every object.
+    all_object_px = None
+    if size_check_on:
+        for mask_file in sorted(Path(scene_dir, "removal_mask").glob("iter_*.png")):
+            removed = unpad_image(cv2.resize(np.array(Image.open(mask_file)), (W, H)), delta_w, delta_h) > 0
+            all_object_px = removed if all_object_px is None else (all_object_px | removed)
 
     requested_indices = resolve_requested_indices(cfg)
     if requested_indices is not None:
@@ -405,6 +465,14 @@ def main(cfg):
 
         # Compose object point cloud
         pc = compute_point_cloud_from_depth(depth=depth, K=K).reshape(-1, 3) #, world_to_cam_tf=cam2world_tf).reshape(-1, 3)
+        if size_check_on:
+            # The surface around the object: within height_ring_px of its mask, and clear by height_ring_gap_px of every
+            # removed object's mask (size_check.ring_mask). Points beside a neighbour show the neighbour, not the floor.
+            object_px = mask_resized_unpadded > 0
+            ring_px = int(cfg.s8_pose.get("height_ring_px", 6))
+            gap_px = int(cfg.s8_pose.get("height_ring_gap_px", 3))
+            ring = ring_mask(object_px, object_px if all_object_px is None else all_object_px, ring_px, gap_px)
+            size_ring_points = pc[ring.flatten()]
         obj_pc = pc[mask_resized_unpadded_eroded.flatten()]
         obj_rgb = (rgb_resized_unpadded.reshape(-1, 3) / 255)[mask_resized_unpadded_eroded.flatten()]
         obj_pcd = o3d.geometry.PointCloud()
@@ -433,6 +501,8 @@ def main(cfg):
         # source.points = o3d.utility.Vector3dVector(source_pts) # * np.array([1.0, 1.0, 1.0]) * SOURCE_VOXEL_SCALE_FACTOR)
         source = o3d.io.read_point_cloud(obj_pc_path)
         source = source.remove_non_finite_points()
+        # The depth's points for the size check, taken before the voxel downsampling below.
+        size_depth_points = np.asarray(source.points) if size_check_on else None
         # o3d.visualization.draw_geometries([source])
 
         n_source_pts = len(source.points)
@@ -848,6 +918,38 @@ def main(cfg):
         vertices = top_info["tf_z_up"].scale * vertices @ top_info["tf_z_up"].rot.T + top_info["tf_z_up"].t
         mesh_updated.vertices = o3d.utility.Vector3dVector(vertices)
 
+        # Size check: the placed mesh against the depth. A height the depth disagrees with may be stretched to it
+        # (height_fit, off by default); the mesh is then placed and measured again, so the record describes the mesh
+        # that was written. Only a warning otherwise: the values are left as the fit produced them.
+        if size_check_on:
+            up_cam = gravity_up_cam
+            size_check_record = size_report(
+                np.asarray(mesh_updated.vertices), np.asarray(canonical_mesh.triangles),
+                size_depth_points, size_ring_points, up_cam, size_settings,
+            )
+            before_m = size_check_record["height"].get("mesh_m")
+            height_fit_record = decide_height_fit(size_check_record, height_fit_settings)
+            if height_fit_record["applied"]:
+                reason = _stretch_canonical_height(
+                    canonical_mesh_fpath, top_info["tf_z_up"].rot.T @ up_cam, height_fit_record["scale"])
+                if reason is None:
+                    canonical_mesh = o3d.io.read_triangle_mesh(canonical_mesh_fpath, enable_post_processing=True)
+                    mesh_updated = deepcopy(canonical_mesh)
+                    vertices = np.asarray(mesh_updated.vertices)
+                    vertices = top_info["tf_z_up"].scale * vertices @ top_info["tf_z_up"].rot.T + top_info["tf_z_up"].t
+                    mesh_updated.vertices = o3d.utility.Vector3dVector(vertices)
+                    size_check_record = size_report(
+                        np.asarray(mesh_updated.vertices), np.asarray(canonical_mesh.triangles),
+                        size_depth_points, size_ring_points, up_cam, size_settings,
+                    )
+                else:
+                    height_fit_record = {"applied": False, "scale": None, "skipped": reason}
+            height_fit_record = {**height_fit_record, "before_m": before_m,
+                                 "after_m": size_check_record["height"].get("mesh_m")}
+            if size_check_record["warnings"]:
+                size_warnings[img_name] = size_check_record["warnings"]
+                logger.warning(_size_warning_text(img_name, size_check_record, size_warn_ratio))
+
         if cfg.visualize:
             # # draw result
             # result = top_info["result"]
@@ -886,6 +988,9 @@ def main(cfg):
             "front_canonicalization_post_tilt": front_info_post_tilt,
             "tilt_canonicalization": tilt_info,
         }
+        if size_check_on:
+            out_info["size_check"] = size_check_record
+            out_info["height_fit"] = height_fit_record
 
         with atomic_output_path(f"{out_dir}/info/{img_name}.json") as _tmp_info, open(_tmp_info, "w") as f:
             json.dump(out_info, f, indent=4)
@@ -897,7 +1002,7 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s8_pose,
         out_dir=cfg.s8_pose.out_dir,
-        result=StageResult(success=True),
+        result=StageResult(success=True, additional_info={"size_warnings": size_warnings} if size_check_on else None),
     )
 
 

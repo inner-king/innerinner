@@ -176,6 +176,20 @@ is kept even when its only failing gate is `max_clipped_frac`, with a warning. I
 still fail the run. Changing the selection after a run invalidates the `image_<idx>_*`
 artifacts stages 4-14 wrote for the previous frame, so rerun from stage 3.
 
+### Size Check
+
+Stage 8 fits one scale per object, so a placed mesh can disagree with the depth and nothing says so. Stage 8 now
+compares each placed mesh with its depth: the two sides of the minimum-area rectangle of the footprint on the plane
+perpendicular to gravity, and the height against the depth's height above the surface the object stands on. A
+difference above `s8_pose.size_warn_ratio` (0.15, provisional) is logged and recorded in `info/<img>.json` under
+`size_check`, and listed in `stage_info.json` under `size_warnings`. The mesh is not changed by this. With
+`s8_pose.height_fit.enabled: true` (off by default) a height that differs by more than its threshold is stretched
+to the depth's height, provided the factor is within its limits; the decision, and any refusal, is recorded under
+`height_fit`. `size_warn_ratio: null` turns the check off entirely. If fewer than 50 points
+(`size_check.DEFAULT_MIN_RING_POINTS`) fall in the floor band, the height is not compared and `size_check.height`
+holds a `skipped` reason in `info/<img>.json`; a skip means the height was not checked, not that it passed. For
+example, tofu in the lidar scene can leave too few floor points once the neighbouring objects' masks are removed.
+
 ### Inputs And Outputs
 
 Inputs:
