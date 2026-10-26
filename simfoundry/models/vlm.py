@@ -410,6 +410,44 @@ def join_gemini_result_text(result, model="gemini"):
     return "".join(res.text for res in result if getattr(res, "text", None) is not None)
 
 
+def gemini_cache_request(model, prompt, image_paths, temperature, top_p, seed, max_tokens, modalities):
+    """The request that identifies a Gemini call in the remote cache.
+
+    When Ollama answers the call (local serving on, text model), the answer depends on the Ollama options the
+    environment sets, so the options that are set go into the key. Without them the request, and so the key, is
+    what it was before the options existed.
+
+    Args:
+        model: the Gemini model id the call names.
+        prompt: the text prompt.
+        image_paths: the normalized list of reference image paths.
+        temperature: sampling temperature of the call.
+        top_p: nucleus sampling value of the call.
+        seed: sampling seed of the call.
+        max_tokens: the model's output-token cap.
+        modalities: the response modalities the model is asked for.
+
+    Returns:
+        dict: the request to hash together with the provider and the model name.
+    """
+    from simfoundry.models import local_backends
+
+    request = {
+        "prompt": prompt,
+        "image_inputs": image_digests(image_paths),
+        "temperature": temperature,
+        "top_p": top_p,
+        "seed": seed,
+        "max_output_tokens": max_tokens,
+        "response_modalities": modalities,
+    }
+    if local_backends.answered_by_ollama(model):
+        options = local_backends.ollama_options()
+        if options:
+            request["local_backend_options"] = options
+    return request
+
+
 class VLM_API:
     """
     Class for interfacing with remote VLM APIs, e.g.: ChatGPT, Gemini, etc.
@@ -703,15 +741,10 @@ class Gemini(VLM_API):
         """
         image_paths = [] if image_paths is None else [image_paths] if isinstance(image_paths, (str, os.PathLike)) else list(image_paths)
         cache = RemoteModelCache.from_env()
-        cache_request = {
-            "prompt": prompt,
-            "image_inputs": image_digests(image_paths),
-            "temperature": temperature,
-            "top_p": top_p,
-            "seed": seed,
-            "max_output_tokens": self.VERSIONS[self.model]["max_tokens"],
-            "response_modalities": self.VERSIONS[self.model]["modalities"],
-        }
+        cache_request = gemini_cache_request(
+            self.model, prompt, image_paths, temperature, top_p, seed,
+            self.VERSIONS[self.model]["max_tokens"], self.VERSIONS[self.model]["modalities"],
+        )
         cache_key = cache.key_for(provider="gemini", model=self.model, request=cache_request)
         if cache.test_enabled:
             return _deserialize_gemini_result(cache.load_response(provider="gemini", key=cache_key))

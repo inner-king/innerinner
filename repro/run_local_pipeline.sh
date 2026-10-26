@@ -41,6 +41,14 @@ case "${pipeline}" in
 esac
 export SIMFOUNDRY_OLLAMA_MODEL="${SIMFOUNDRY_OLLAMA_MODEL:-${vlm_default}}"
 export SIMFOUNDRY_OLLAMA_THINK="${SIMFOUNDRY_OLLAMA_THINK:-0}"
+# Ollama picks its micro-batch (n_batch) from the VRAM that is free when a model loads, and the answer depends on it.
+# 1024 is what Ollama picks with the card free; 99 keeps every layer on the GPU, so a card that is too full fails the
+# call instead of quietly moving layers to the CPU. Reasons: repro/README.md, chapter 32.
+export SIMFOUNDRY_OLLAMA_NUM_BATCH="${SIMFOUNDRY_OLLAMA_NUM_BATCH:-1024}"
+export SIMFOUNDRY_OLLAMA_NUM_GPU="${SIMFOUNDRY_OLLAMA_NUM_GPU:-99}"
+# Qwen-Image-2.1-Turbo: the other run scripts in this folder export it too, and Edit-2511 lost the stage-6 A/B. The code
+# default stays edit2511 (local_backends.IMAGE_BACKEND), so a direct call behaves as it always did.
+export SIMFOUNDRY_IMAGE_BACKEND="${SIMFOUNDRY_IMAGE_BACKEND:-qwen21}"
 # The config interpolates GCLOUD_PROJECT; no Google service is contacted in local mode.
 export GCLOUD_PROJECT="${GCLOUD_PROJECT:-local}"
 # 12 GB leaves little slack; expandable segments avoid OOMs from allocator fragmentation.

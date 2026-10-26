@@ -13,7 +13,7 @@ from simfoundry.utils.prompt_utils import prompt_list_articulated_objects, parse
 from simfoundry.utils.processing_utils import dump_json
 from simfoundry.utils.python_utils import sanitize_path_component
 from simfoundry.models.vlm import Gemini
-from simfoundry.models.local_backends import served_model_name
+from simfoundry.models.local_backends import ollama_options_record, served_model_name
 from omegaconf import OmegaConf
 from pathlib import Path
 import shutil
@@ -329,6 +329,7 @@ def main(cfg):
         "vlm_model": served_model_name(vlm.model),
         "vlm_model_configured": cfg.s9_articulate_objects.vlm_model,
     }
+    served_models.update(ollama_options_record())
 
     prompt = prompt_list_articulated_objects(list(object_list.keys()))
     query_image_path = get_articulation_query_image_path(cfg)

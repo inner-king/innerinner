@@ -14,7 +14,7 @@ import cv2
 import logging
 
 from simfoundry.models.vlm import GPT, FLUX1, Gemini
-from simfoundry.models.local_backends import served_model_name
+from simfoundry.models.local_backends import ollama_options_record, served_model_name
 from simfoundry.utils.prompt_utils import prompt_upsample_image, prompt_upsample_image_rotate, \
     prompt_flux_object_completion_and_upsample_preserve, prompt_upsample_image_gemini, prompt_infill_image, prompt_infill_image_no_conditioning, \
     prompt_check_object_validity, parse_json_response
@@ -167,6 +167,7 @@ def main(cfg):
         "model": served_model_name(model.model) if isinstance(model, Gemini) else model_name,
         "model_configured": model_name,
     }
+    served_models.update(ollama_options_record())
 
     try:
         from rembg import new_session

@@ -22,7 +22,7 @@ from supervision import draw_rectangle
 import shutil
 
 from simfoundry.models.vlm import Gemini, Imagen3, FLUX1
-from simfoundry.models.local_backends import served_model_name
+from simfoundry.models.local_backends import ollama_options_record, served_model_name
 from simfoundry.models.sam_v3_gmask import SAM3
 from simfoundry.models.clip import CLIPEncoder
 from simfoundry.models.sbert import SBERTEncoder
@@ -984,6 +984,7 @@ def main(cfg):
         "removal_model": served_model_name(removal_model.model) if isinstance(removal_model, Gemini) else removal_model_name,
         "removal_model_configured": removal_model_name,
     }
+    served_models.update(ollama_options_record())
 
     # Create text encoder
     text_encoder = SBERTEncoder()

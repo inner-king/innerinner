@@ -38,6 +38,10 @@ OLLAMA_MAX_TOKENS = int(os.environ.get("SIMFOUNDRY_OLLAMA_MAX_TOKENS", "4096"))
 # Layers to place on the GPU; unset lets Ollama fit what is free, 0 keeps the VLM entirely on CPU
 # so it never competes with SAM3 / ComfyUI for the 12 GB card.
 OLLAMA_NUM_GPU = os.environ.get("SIMFOUNDRY_OLLAMA_NUM_GPU")
+# Micro-batch size (Ollama's n_batch). Ollama 0.40 picks it when it loads the model, from the VRAM that is free at
+# that moment: 1024 with about 9.3 GiB or more free, 512 below that. The answer depends on it, so runs that must agree
+# pin it; unset keeps Ollama's choice.
+OLLAMA_NUM_BATCH = os.environ.get("SIMFOUNDRY_OLLAMA_NUM_BATCH")
 # Whether a thinking model reasons before answering: 0 sends think=false, 1 think=true; unset sends
 # nothing and the model keeps its default. Qwen3.5 thinks by default and needs 0: its reasoning counts
 # against OLLAMA_MAX_TOKENS, and while thinking it writes boxes in the [y, x] order a prompt asks for
@@ -120,6 +124,55 @@ def served_model_name(model):
 # ----------------------------------------------------------------------------------------------
 # Request decoding
 # ----------------------------------------------------------------------------------------------
+
+def _ollama_option(name, raw, minimum):
+    """An Ollama option read from its environment variable: an integer no smaller than `minimum`.
+
+    Checked before a request is sent. Ollama would drop or refuse a value it cannot use, and a value read as a
+    different number would change the answer without anyone choosing that.
+
+    Raises:
+        ValueError: when `raw` is not an integer of at least `minimum`. The message names the variable and the value.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = None
+    if value is None or value < minimum:
+        raise ValueError(f"{name} must be an integer of at least {minimum}, got {raw!r}")
+    return value
+
+
+def ollama_options():
+    """The Ollama options the environment sets, validated; {} when neither is set.
+
+    Only the options that are set appear, so an environment that sets neither sends the request body and writes the
+    cache key it always did.
+    """
+    options = {}
+    if OLLAMA_NUM_GPU not in (None, ""):
+        # -1 (Ollama's own automatic placement) stays allowed, as the old code passed every integer through; 0 keeps
+        # every layer on the CPU (see OLLAMA_NUM_GPU)
+        options["num_gpu"] = _ollama_option("SIMFOUNDRY_OLLAMA_NUM_GPU", OLLAMA_NUM_GPU, minimum=-1)
+    if OLLAMA_NUM_BATCH not in (None, ""):
+        options["num_batch"] = _ollama_option("SIMFOUNDRY_OLLAMA_NUM_BATCH", OLLAMA_NUM_BATCH, minimum=1)
+    return options
+
+
+def answered_by_ollama(model):
+    """Whether a call made with the Gemini model id `model` is answered by the Ollama model in this process."""
+    return is_enabled() and not _is_image_model(model)
+
+
+def ollama_options_record():
+    """The Ollama options the environment sets, for stage_info.json: {} when none is set or local serving is off.
+
+    Recorded beside the model name, so a file says which pinned options its answers were made with.
+    """
+    if not is_enabled():
+        return {}
+    return {f"vlm_{name}": value for name, value in ollama_options().items()}
+
 
 def _image_bytes(data):
     """Raw image bytes from a Part's inline data.
@@ -238,8 +291,7 @@ def ollama_chat(prompt, images, temperature=0.0, seed=0, max_tokens=None, verbos
             "num_ctx": OLLAMA_NUM_CTX,
         },
     }
-    if OLLAMA_NUM_GPU not in (None, ""):
-        body["options"]["num_gpu"] = int(OLLAMA_NUM_GPU)
+    body["options"].update(ollama_options())
     if OLLAMA_THINK not in (None, ""):
         body["think"] = OLLAMA_THINK.strip().lower() in {"1", "true", "yes", "on"}
     try:
