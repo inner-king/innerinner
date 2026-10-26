@@ -14,6 +14,7 @@ import numpy as np
 from matplotlib import colormaps
 import open3d as o3d
 import os
+import random
 import sys
 from pathlib import Path
 from PIL import Image
@@ -71,6 +72,22 @@ def resolve_requested_indices(cfg):
     if isinstance(raw, int):
         return {raw}
     return {int(v) for v in raw}
+
+
+def seed_everything_stage8(seed):
+    """Seeds every random source stage 8 draws from, from the one global seed.
+
+    Python's `random`, numpy's global state (the candidate rotations of `sample_fits`, and the start of
+    `quaternion_kmeans`) and Open3D's sampler (the Poisson-disk target) each keep their own state, so all three are
+    set. The same seed then gives the same poses.
+
+    Args:
+        seed: the global seed, `cfg.seed`.
+    """
+    seed = int(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    o3d.utility.random.seed(seed)
 
 
 def quaternion_distance(q1, q2):
@@ -140,7 +157,19 @@ def quaternion_kmeans(quaternions, k, max_iters=100):
     return centers, clusters
 
 
-def _sample_fits(source_pts, target_pts, ori_mats, process_id):
+def _gather_in_batch_order(async_results):
+    """The worker results in batch order.
+
+    Polling for readiness returns them in completion order, which depends on scheduling. The sort that follows keeps
+    equal distances in input order, so the order gathered here decides which of two equal fits is the top one.
+    """
+    return [result.get() for result in async_results]
+
+
+def _sample_fits(source_pts, target_pts, ori_mats, process_id, seed):
+    # A pool worker starts from a copy of the parent's random state, which depends on what ran before the pool was made.
+    # Each batch sets its own seed, so what it draws depends only on that seed, never on which worker ran it or when.
+    np.random.seed(seed)
     info = []
     source = o3d.geometry.PointCloud()
     source.points = o3d.utility.Vector3dVector(source_pts)
@@ -192,31 +221,25 @@ def _sample_fits(source_pts, target_pts, ori_mats, process_id):
     return top_info
 
 
-def sample_fits_multiprocess(source, target, n_samples=10, n_threads=8):
+# Not called by stage 8's main (8b only has it commented out); its results do not pickle, so here it cannot return one.
+def sample_fits_multiprocess(source, target, n_samples=10, n_threads=8, *, seed):
     # Transform to offset automatic rotation from +Y-up / +Z-forward to +Z-up / -Y-forward
-    ori_mats = R.random(n_samples).as_matrix()
+    # Drawn from the candidates' own RandomState, so the call does not depend on what ran before it.
+    ori_mats = R.random(n_samples, random_state=seed).as_matrix()
     ori_mats_batches = np.array_split(ori_mats, n_threads)
 
     with multiprocessing.Pool(processes=n_threads) as pool:
         pid = 0
         results = []
         for ori_mat_batch in ori_mats_batches:
-            results.append(pool.apply_async(_sample_fits, args=(np.asarray(source.points), np.asarray(target.points), ori_mat_batch, pid)))
+            batch_seed = seed + pid
+            results.append(pool.apply_async(_sample_fits, args=(np.asarray(source.points), np.asarray(target.points), ori_mat_batch, pid, batch_seed)))
             pid += 1
 
         pool.close()
 
-        # Loop until all threads are completed, aggregating results along the way
-        info = []
-        while len(results) > 0:
-            idx = 0
-            while idx < len(results):
-                if results[idx].ready():
-                    # Dynamically synthesize results
-                    new_info = results.pop(idx).get()
-                    info.append(new_info)
-                else:
-                    idx += 1
+        # Gather in batch order, not completion order (see _gather_in_batch_order)
+        info = _gather_in_batch_order(results)
 
         # Sort and return
         info_sorted = sorted(info, key=lambda x: x["dist"])
@@ -342,6 +365,10 @@ def main(cfg):
     logger.info(f"Output directory: {out_dir}")
     logger.info("="*60)
 
+    # One global seed for every random draw in this stage: the target sampling and the pose search both draw from it.
+    seed = int(cfg.seed)
+    seed_everything_stage8(seed)
+
     # Store hyperparam data
     source_voxel_scale_factor = cfg.s8_pose.source_voxel_scale_factor
     # voxel_size = cfg.s8_pose.voxel_size
@@ -440,6 +467,8 @@ def main(cfg):
         idx = int(img_name.split("iter_")[-1])
         if requested_indices is not None and idx not in requested_indices:
             continue
+        # Streaming and object_indices reruns can run only some objects, so each object draws from its own seed.
+        seed_everything_stage8(seed + idx)
 
         mesh_path = f"{mesh_dir}/{filename}"
         base_iter = resolve_base_iteration(scene_dir, idx)
@@ -755,7 +784,7 @@ def main(cfg):
             from Utils import set_logging_format, set_seed
 
             set_logging_format()
-            set_seed(0)
+            set_seed(seed)
 
             # Export updated mesh to load into trimesh and run FoundationPose
             with tempfile.TemporaryDirectory() as tmpdir:

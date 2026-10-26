@@ -263,6 +263,8 @@ to the depth's height, provided the factor is within its limits; the decision, a
 holds a `skipped` reason in `info/<img>.json`; a skip means the height was not checked, not that it passed. For
 example, tofu in the lidar scene can leave too few floor points once the neighbouring objects' masks are removed.
 
+Stage 8 seeds Python's `random`, numpy and Open3D from the global `seed` once per object, offset by the object's index (`seed` + index), so the CPD pose search and the Poisson-disk target of an object do not depend on which other objects this run processed. The FoundationPose call, when enabled, is also seeded for each object, from the global `seed`; whether its GPU kernels are deterministic is not verified.
+
 ### Inputs And Outputs
 
 Inputs:
