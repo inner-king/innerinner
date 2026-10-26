@@ -9,6 +9,7 @@ Requires installing:
 - simfoundry, see the main README
 """
 from simfoundry.models.sam_v3 import SAM3
+from simfoundry.models.local_backends import served_model_name
 from simfoundry.utils.processing_utils import compute_point_cloud_from_depth, annotate
 import numpy as np
 import open3d as o3d
@@ -348,10 +349,17 @@ def main(cfg):
     with open(f"{out_dir}/image_{img_idx}_floor_info.json", "w") as f:
         json.dump(out_info, f, indent=4)
     
+    # The VLM answers only in the fallback used when SAM3 finds no support surface, and in frame
+    # selection: with frame_selection.vlm_model null (the default), frame selection inherits
+    # detection_model. stage_info.json records the model that answers, and keeps the configured name beside it.
+    served_models = {
+        "detection_model": served_model_name(cfg.s3_ground.detection_model),
+        "detection_model_configured": cfg.s3_ground.detection_model,
+    }
     finalize_stage(
         stage_cfg=cfg.s3_ground,
         out_dir=cfg.s3_ground.out_dir,
-        result=StageResult(success=True, additional_info={"resolved_img_idx": int(img_idx)}),
+        result=StageResult(success=True, additional_info={"resolved_img_idx": int(img_idx), **served_models}),
     )
 
 

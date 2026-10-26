@@ -14,6 +14,7 @@ from pathlib import Path
 import json
 from simfoundry.utils.asset_conversion_utils import import_custom_object, import_articulated_object
 from simfoundry.models.vlm import Gemini
+from simfoundry.models.local_backends import served_model_name
 import hydra
 import trimesh
 import random
@@ -303,6 +304,11 @@ def main(cfg):
         location="global",
         model=vlm_model,
     )
+    # stage_info.json records the model that answered, with the configured name beside it.
+    served_models = {
+        "vlm_model": served_model_name(vlm.model),
+        "vlm_model_configured": vlm_model,
+    }
 
     # Load articulation classification from stage 9
     articulation_root = resolve_articulation_root(cfg.s9_articulate_objects.out_dir)
@@ -510,7 +516,7 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s11_sim,
         out_dir=cfg.s11_sim.out_dir,
-        result=StageResult(success=True),
+        result=StageResult(success=True, additional_info=served_models),
     )
 
 

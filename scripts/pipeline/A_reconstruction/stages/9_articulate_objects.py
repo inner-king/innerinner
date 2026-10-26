@@ -13,6 +13,7 @@ from simfoundry.utils.prompt_utils import prompt_list_articulated_objects, parse
 from simfoundry.utils.processing_utils import dump_json
 from simfoundry.utils.python_utils import sanitize_path_component
 from simfoundry.models.vlm import Gemini
+from simfoundry.models.local_backends import served_model_name
 from omegaconf import OmegaConf
 from pathlib import Path
 import shutil
@@ -321,6 +322,13 @@ def main(cfg):
         location="global",
         model=cfg.s9_articulate_objects.vlm_model,
     )
+    # stage_info.json records the model that answered this classification, with the configured name
+    # beside it. tree_model, merge_model and s5_model are called inside articulate-anything (deps/,
+    # not in this checkout), so whether they reach a local backend cannot be checked here.
+    served_models = {
+        "vlm_model": served_model_name(vlm.model),
+        "vlm_model_configured": cfg.s9_articulate_objects.vlm_model,
+    }
 
     prompt = prompt_list_articulated_objects(list(object_list.keys()))
     query_image_path = get_articulation_query_image_path(cfg)
@@ -397,7 +405,7 @@ def main(cfg):
         finalize_stage(
             stage_cfg=stage_cfg,
             out_dir=out_dir,
-            result=StageResult(success=success, additional_info=additional_info),
+            result=StageResult(success=success, additional_info={**served_models, **additional_info}),
         )
 
     for obj_name in articulated:
