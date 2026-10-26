@@ -190,11 +190,14 @@ bash scripts/pipeline/A_reconstruction/run.sh --scene-name <scene> --bg-mesh --i
 ```
 
 Every depth pixel becomes a vertex and neighbouring pixels are joined into triangles; the clean plate is the
-texture. Pixels under an object's removal mask are moved onto the support plane (z = 0), because the depth there
-is the object, and triangles that would stretch across a depth jump (a bottle against the wall behind it) are
-dropped. Vertices within `s_bg_mesh.plane_snap_tol_m` of the plane are set onto it, so the mesh neither floats
-above nor buries the objects, which are placed at z = 0. The settings are in `s_bg_mesh` of
-`scripts/cfg/real2sim_cfg.yaml`; all of them are provisional and none is fitted to more than one scene.
+texture. The depth under an object's removal mask is the object, so those pixels are moved onto the surface the
+object stood on, read from the measured ring around it: a plane fitted to the ring when the ring is one flat
+surface (`s_bg_mesh.mask_surface: local`), otherwise a horizontal plane at the ring's dominant height, and z = 0
+only when the ring is too small to read. A triangle is judged by how much its edges stretch: one whose vertices
+all lie on the support plane within `s_bg_mesh.plane_snap_tol_m` by `plane_max_edge_ratio`, any other by
+`relief_max_edge_ratio`, so a depth jump (a bottle against the wall behind it) is dropped. Border pixels, and
+connected pieces smaller than `min_component_triangles` triangles, are dropped too. The settings are in
+`s_bg_mesh` of `scripts/cfg/real2sim_cfg.yaml`; all of them are provisional and none is fitted to more than one scene.
 
 Output: `Data/<scene>/s_bg_mesh/background_mesh.glb`, `background_texture.png` and `stage_info.json` (counts,
 settings, which stage-5 files were used). The GLB is Y-up, as glTF requires, with the support plane at y = 0.
@@ -203,9 +206,22 @@ world with the support plane at z = 0, so the background lands in the frame the 
 Z-up world unchanged would lie on its side after that import.) Registering the result as a room needs the
 `.usd` and `.background.json` of `light_editor/background_io.py`, which this stage does not write.
 
-Limits, from the method rather than from a measurement: one viewpoint, so a bottle is a flat cut-out and the
-space behind it is empty; an object that stood on something higher than the support plane (a pot on a cooktop)
-is replaced by the plane under it, which is the wrong height there; and the mesh is only as good as the depth.
+Limits, from the method rather than from a measurement:
+
+- One viewpoint, so a bottle is a flat cut-out and the space behind it is empty. The holes behind bottles and
+  taps stay. Two options: (i) a thin back wall behind each relief layer, which hides the holes from other views
+  but shows a false wall behind a bottle and collides in physics; (ii) leave the holes, which show nothing that
+  is not there. This stage takes (ii).
+- A glass cooktop lies lower than the counter, so the local surface fills it lower. Stage 14 places objects on
+  z = 0, so a pot on that glass appears to float above the visible glass by about that height difference. This
+  is only what is seen: the physics uses the floor plane, which is not visible here.
+- A ring that is not one surface is filled at its widest surface's height, so a ring that also holds a
+  lower surface (a sink beside a counter) can leave a step on the other side of the mask edge.
+- The measured counter of the reference scene sits +1.2 cm above z = 0 at its median, with a 5-95% spread of
+  -1.9 to +2.0 cm. `plane_snap_tol_m` (1 cm) therefore puts only part of the counter on the plane; the rest is
+  relief, and the front edge keeps its sawtooth and the curtain-like stretch of grazing surfaces.
+- The 22 mm step between the counter and the cooktop glass is cut by the relief limit (`relief_max_edge_ratio` 4.0), so a low side view shows holes at the mask edge; measured on one scene (the rerun copy), where the glass box drops 502 triangles against 1050 for 894363c, and the provisional 2.0 removes the front-edge sawtooth but grows the largest dropped piece from 3423 to 10003 triangles, so the value is a trade-off, not a fix.
+- The mesh is only as good as the depth.
 
 ### Inputs And Outputs
 

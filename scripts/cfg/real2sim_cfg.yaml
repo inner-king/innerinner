@@ -177,9 +177,20 @@ s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mes
   rerun: true
   out_dirname: s_bg_mesh
   out_dir: "${root_dir}/${scene_name}/${s_bg_mesh.out_dirname}"
-  # Every value below is provisional: none is fitted to more than one scene (simfoundry/pipeline/depth_mesh.py says why each is there).
-  mask_dilate_px: 3         # pixels (depth grid) the object masks grow by before their pixels are moved onto the support plane
-  max_edge_ratio: 4.0       # triangles with an edge longer than this many pixel footprints are dropped (depth jumps, grazing surfaces)
+  # Every value below is provisional, from one scene (the rerun copy); none is fitted to more than one scene.
+  # In that scene the counter's measured height is +1.2 cm at the median, 5-95% -1.9..+2.0 cm, so plane_snap_tol_m
+  # (1 cm) keeps only part of it on the plane. 2 cm was tried: it brings back 25 cracked pieces in the plane layer.
+  # simfoundry/pipeline/depth_mesh.py says what each one does.
+  mask_dilate_px: 3         # pixels (depth grid) the object masks grow by before their pixels are moved onto their surface
+  mask_surface: local       # local: each object's pixels move onto the plane read from the ring around it (fitted if flat, else the ring's dominant height; z = 0 only if the ring is too small); plane: z = 0 for every object
+  ring_px: 6                # pixels of the ring around an object that define the surface under it (provisional)
+  min_ring_points: 30       # measured ring points needed for a local surface; fewer -> z = 0 (provisional, no measurement behind it)
+  max_local_tilt: 0.05      # hypot(dz/dx, dz/dy) of a local surface; steeper -> z = 0 (provisional)
+  max_local_mad_m: 0.005    # metres; spread of the ring about its fitted plane; above it the ring's dominant height is used instead (provisional)
+  border_trim_px: 4         # pixels from each frame edge dropped with their vertices and triangles (provisional)
+  relief_max_edge_ratio: 4.0    # relief triangles (a vertex off the plane): edges longer than this many pixel footprints are dropped (provisional, ~75 degrees; 2.0 removes the front-edge sawtooth but grows the largest hole 3423 -> 10003 triangles on the rerun copy)
+  plane_max_edge_ratio: 8.0     # plane-layer triangles: safety net against a far grazing edge only (provisional)
+  min_component_triangles: 200  # connected pieces of fewer triangles are dropped; 0 keeps all (provisional, no measurement behind it)
   plane_snap_tol_m: 0.01    # metres; vertices this close to the support plane are set onto it (0 disables)
   z_far: null               # metres in the camera frame; null -> s4_frame.z_far
 s6_upsample:      # env: simfoundry
