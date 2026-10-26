@@ -3,7 +3,7 @@ defaults:
 #  - arch: ???
   - task: droid_desk_put_cup_in_bowl
 #  - robot: ???
-  - override hydra/hydra_logging: disabled
+  - override hydra/hydra_logging: keep_loggers
   - override hydra/job_logging: custom
 
 # ===== main cfg =====

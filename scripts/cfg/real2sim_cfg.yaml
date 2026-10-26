@@ -3,7 +3,7 @@ defaults:
 #  - arch: ???
   - task: load_scene
 #  - robot: ???
-  - override hydra/hydra_logging: disabled
+  - override hydra/hydra_logging: keep_loggers
   - override hydra/job_logging: custom
 
 # ===== main cfg =====
