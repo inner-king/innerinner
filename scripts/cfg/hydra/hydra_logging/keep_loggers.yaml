@@ -1,0 +1,10 @@
+# @package hydra.hydra_logging
+# Hydra's built-in "disabled" setting, except that it keeps existing loggers. With
+# disable_existing_loggers: true, every logger a module created before hydra.main ran (the
+# simfoundry.* loggers) was switched off, so stage INFO and WARNING lines never reached stdout or
+# the job log, and job_logging's later re-enable does not reach children of "simfoundry". The root
+# level stays ERROR so that third-party library output stays quiet.
+version: 1
+root:
+  level: ERROR
+disable_existing_loggers: false

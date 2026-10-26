@@ -3,7 +3,7 @@ defaults:
 #  - arch: ???
   - task: serve_banana_final
 #  - robot: ???
-  - override hydra/hydra_logging: disabled
+  - override hydra/hydra_logging: keep_loggers
   - override hydra/job_logging: custom
 
 # ===== main cfg =====
