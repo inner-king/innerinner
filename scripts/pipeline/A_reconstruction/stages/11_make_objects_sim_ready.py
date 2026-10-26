@@ -25,7 +25,7 @@ from simfoundry import CFG_DIR
 from simfoundry.utils.processing_utils import extract_numbers_from_str
 from simfoundry.utils.python_utils import sanitize_path_component
 from simfoundry.utils.prompt_utils import mass_prompt_volumes, prompt_object_mass_friction, prompt_articulated_object_parts_properties, parse_json_response
-from simfoundry.utils.mass_estimation import estimate_rigid_mass
+from simfoundry.utils.mass_estimation import estimate_rigid_mass, mass_flags
 from simfoundry.pipeline.articulation_physics import resolve_articulation_physics
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 
@@ -268,6 +268,13 @@ def import_rigid_scene_object(
     }
     if estimate is not None:
         out["mass_estimate"] = {k: estimate[k] for k in ("typical_g", "material_g", "material", "errors")}
+    # Only the estimate's own mass gets flags: when it gave none, the mass above came from the direct question.
+    if estimate is not None and estimate["mass_kg"] is not None:
+        out["mass_flags"] = mass_flags(mass, estimate["typical_g"], estimate["material_g"], estimate["material"],
+                                       estimate["geometry"])
+        if out["mass_flags"]["flags"]:
+            logger.warning(f"Mass of {obj_phrase} flagged {out['mass_flags']['flags']}: {mass} kg "
+                           f"(typical {estimate['typical_g']} g, from material {estimate['material_g']} g)")
     return out
 
 
