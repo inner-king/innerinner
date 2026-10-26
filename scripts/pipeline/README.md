@@ -90,6 +90,7 @@ frame throughout.*
 | `3` | `A_reconstruction/stages/3_segment_ground_plane.py` | `simfoundry` | Pick the canonical frame and find the support plane. | `s3_ground/` |
 | `4` | `A_reconstruction/stages/4_unify_world_frame.py` | `simfoundry` | Align the scene to a stable world frame. | `s4_frame/` |
 | `5` | `A_reconstruction/stages/5_decompose_scene.py` | `simfoundry` | Detect objects and create object-removal crops. | `s5_scene/` |
+| `5c` | `A_reconstruction/stages/5c_depth_mesh_background.py` | `simfoundry` | Optional (`--bg-mesh`): textured mesh of the surroundings from the canonical frame's depth and stage 5's clean plate. | `s_bg_mesh/` |
 | `6` | `A_reconstruction/stages/6_upsample_object_images.py` | `simfoundry` | Create cleaner object images for mesh generation. | `s6_upsample/` |
 | `7` | `A_reconstruction/stages/7_generate_object_meshes.py` | `hunyuan` (`--env-mesh`) | Generate 3D meshes. | `s7_mesh/` |
 | `8` | `A_reconstruction/stages/8_match_object_poses.py` | `simfoundry` | Estimate object poses. | `s8_pose/` |
@@ -175,6 +176,36 @@ input, or `frame_selection.max_candidates: 1`): there is no other frame to prefe
 is kept even when its only failing gate is `max_clipped_frac`, with a warning. Its other gates
 still fail the run. Changing the selection after a run invalidates the `image_<idx>_*`
 artifacts stages 4-14 wrote for the previous frame, so rerun from stage 3.
+
+### Background Mesh (optional stage 5c)
+
+The pipeline reconstructs the objects of a scene and leaves its surroundings out: the support surface is a
+plane and everything else is missing. `--bg-mesh` adds stage 5c, which builds a textured mesh of the surroundings
+from what the run already has: the canonical frame's depth (stage 2), the world frame (stages 3-4) and the
+clean plate stage 5 leaves behind (the frame repainted with every detected object removed).
+
+```bash
+bash scripts/pipeline/A_reconstruction/run.sh --scene-name <scene> --video-fpath <video> --bg-mesh
+bash scripts/pipeline/A_reconstruction/run.sh --scene-name <scene> --bg-mesh --include 5c   # on a finished run
+```
+
+Every depth pixel becomes a vertex and neighbouring pixels are joined into triangles; the clean plate is the
+texture. Pixels under an object's removal mask are moved onto the support plane (z = 0), because the depth there
+is the object, and triangles that would stretch across a depth jump (a bottle against the wall behind it) are
+dropped. Vertices within `s_bg_mesh.plane_snap_tol_m` of the plane are set onto it, so the mesh neither floats
+above nor buries the objects, which are placed at z = 0. The settings are in `s_bg_mesh` of
+`scripts/cfg/real2sim_cfg.yaml`; all of them are provisional and none is fitted to more than one scene.
+
+Output: `Data/<scene>/s_bg_mesh/background_mesh.glb`, `background_texture.png` and `stage_info.json` (counts,
+settings, which stage-5 files were used). The GLB is Y-up, as glTF requires, with the support plane at y = 0.
+The light editor's mesh import (`up axis: auto`) rotates a glTF by +90 degrees about X, which gives back the Z-up
+world with the support plane at z = 0, so the background lands in the frame the objects are in. (Writing the
+Z-up world unchanged would lie on its side after that import.) Registering the result as a room needs the
+`.usd` and `.background.json` of `light_editor/background_io.py`, which this stage does not write.
+
+Limits, from the method rather than from a measurement: one viewpoint, so a bottle is a flat cut-out and the
+space behind it is empty; an object that stood on something higher than the support plane (a pot on a cooktop)
+is replaced by the plane under it, which is the wrong height there; and the mesh is only as good as the depth.
 
 ### Inputs And Outputs
 

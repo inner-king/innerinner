@@ -173,6 +173,15 @@ s5_scene:     # env: simfoundry
   pda_K: 5
   pda_geometric_backend: da3    # options: depth_pro, da3  (geometric depth source for PriorDepthAnything)
   pda_da3_resolution: 504             # DA3 processing resolution (must be multiple of 14, only used when pda_geometric_backend=da3)
+s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mesh of the surroundings from the canonical frame's depth and stage 5's clean plate
+  rerun: true
+  out_dirname: s_bg_mesh
+  out_dir: "${root_dir}/${scene_name}/${s_bg_mesh.out_dirname}"
+  # Every value below is provisional: none is fitted to more than one scene (simfoundry/pipeline/depth_mesh.py says why each is there).
+  mask_dilate_px: 3         # pixels (depth grid) the object masks grow by before their pixels are moved onto the support plane
+  max_edge_ratio: 4.0       # triangles with an edge longer than this many pixel footprints are dropped (depth jumps, grazing surfaces)
+  plane_snap_tol_m: 0.01    # metres; vertices this close to the support plane are set onto it (0 disables)
+  z_far: null               # metres in the camera frame; null -> s4_frame.z_far
 s6_upsample:      # env: simfoundry
   rerun: true
   out_dirname: s6_upsample

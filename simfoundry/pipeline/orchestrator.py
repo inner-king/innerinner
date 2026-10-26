@@ -154,7 +154,9 @@ def append_timing_log(log_path: Path, *, stage_id: str, description: str, elapse
         )
 
 
-def get_reconstruction_stage_plan(input_mode: str, *, detect_articulation: bool = False, bg_splat: bool = False) -> list[StageSpec]:
+def get_reconstruction_stage_plan(
+    input_mode: str, *, detect_articulation: bool = False, bg_splat: bool = False, bg_mesh: bool = False,
+) -> list[StageSpec]:
     """Return ordered stage plan for the real2sim reconstruction pipeline."""
     if input_mode not in {"video", "stereo"}:
         raise ValueError(f"Unsupported input_mode={input_mode}")
@@ -172,6 +174,10 @@ def get_reconstruction_stage_plan(input_mode: str, *, detect_articulation: bool 
         StageSpec("3", f"{base}/3_segment_ground_plane.py", "s3_ground", "simfoundry", "Segment ground plane"),
         StageSpec("4", f"{base}/4_unify_world_frame.py", "s4_frame", "simfoundry", "Unify world frame"),
         StageSpec("5", f"{base}/5_decompose_scene.py", "s5_scene", "simfoundry", "Decompose scene"),
+        *(
+            [StageSpec("5c", f"{base}/5c_depth_mesh_background.py", "s_bg_mesh", "simfoundry", "Build background mesh from depth")]
+            if bg_mesh else []
+        ),
         StageSpec("6", f"{base}/6_upsample_object_images.py", "s6_upsample", "simfoundry", "Upsample objects"),
         StageSpec("7", f"{base}/7_generate_object_meshes.py", "s7_mesh", "mesh", "Generate meshes"),
         StageSpec("8", f"{base}/8_match_object_poses.py", "s8_pose", "simfoundry", "Match object poses"),
@@ -236,10 +242,13 @@ def get_stage_plan(
     include_p2p: bool = False,
     detect_articulation: bool = False,
     bg_splat: bool = False,
+    bg_mesh: bool = False,
 ) -> list[StageSpec]:
     """Return ordered stage plan for a named sub-pipeline."""
     if pipeline_name in {"reconstruction", "A_reconstruction", "A"}:
-        return get_reconstruction_stage_plan(input_mode, detect_articulation=detect_articulation, bg_splat=bg_splat)
+        return get_reconstruction_stage_plan(
+            input_mode, detect_articulation=detect_articulation, bg_splat=bg_splat, bg_mesh=bg_mesh,
+        )
     if pipeline_name in {"augmentation", "B_augmentation", "B"}:
         return get_augmentation_stage_plan(include_p2p=include_p2p)
     if pipeline_name in {"application", "C_application", "C"}:
@@ -469,6 +478,7 @@ def run_pipeline(
     detect_articulation: bool = False,
     bg_splat: bool = False,
     skip_successful: bool = False,
+    bg_mesh: bool = False,
 ) -> PipelineTimingResult:
     wall_start = time.perf_counter()
     timing_log_path = None if dry_run else resolve_scene_timing_log_path(extra_overrides)
@@ -479,6 +489,7 @@ def run_pipeline(
         include_p2p=include_p2p,
         detect_articulation=detect_articulation,
         bg_splat=bg_splat,
+        bg_mesh=bg_mesh,
     )
     selected = select_stages(plan, include_ids=_parse_csv_set(include_ids_csv), exclude_ids=_parse_csv_set(exclude_ids_csv))
     if skip_successful:

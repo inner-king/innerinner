@@ -41,6 +41,7 @@ Options:
   --max-vram-gb N                 Opt-in absolute hard VRAM budget for streaming, in GiB. Default: unset (uses the fraction)
   --detect-articulation           Run automated articulation decomposition stage 9 after stage 8.
   --bg-splat                      Include stage 2c (nerfstudio background Gaussian splat). Opt-in only — not run by default.
+  --bg-mesh                       Include stage 5c (textured background mesh from depth and the stage-5 clean plate). Opt-in only — not run by default.
   --skip-successful               Skip stages already recorded as successful for this scene
                                   (stage_info.json). Means "completed once", not "up to date":
                                   re-running an earlier stage does not invalidate later markers.
@@ -76,6 +77,7 @@ MAX_VRAM_FRAC="${MAX_VRAM_FRAC:-}"
 MAX_VRAM_GB="${MAX_VRAM_GB:-}"
 DETECT_ARTICULATION="${DETECT_ARTICULATION:-0}"
 BG_SPLAT="${BG_SPLAT:-0}"
+BG_MESH="${BG_MESH:-0}"
 SKIP_SUCCESSFUL="${SKIP_SUCCESSFUL:-0}"
 CACHE_MODE_ENABLED=0
 TEST_MODE_ENABLED=0
@@ -173,6 +175,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bg-splat)
       BG_SPLAT=1
+      shift
+      ;;
+    --bg-mesh)
+      BG_MESH=1
       shift
       ;;
     --skip-successful)
@@ -286,6 +292,9 @@ if [[ "${DETECT_ARTICULATION}" == "1" ]]; then
 fi
 if [[ "${BG_SPLAT}" == "1" ]]; then
   CMD+=("--bg-splat")
+fi
+if [[ "${BG_MESH}" == "1" ]]; then
+  CMD+=("--bg-mesh")
 fi
 if [[ "${SKIP_SUCCESSFUL}" == "1" ]]; then
   CMD+=("--skip-successful")
