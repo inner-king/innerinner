@@ -37,7 +37,7 @@ from simfoundry.pipeline.front_canonicalization import canonicalize_front, yaw_s
 from simfoundry.pipeline.upright_from_fit import decide_tilt, resolve_bake_fitted_tilt, tilt_from_fit
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.utils.python_utils import atomic_output_path
-from simfoundry.pipeline.size_check import decide_height_fit, fit_height, ring_mask, size_report
+from simfoundry.pipeline.size_check import decide_height_fit, final_scale_record, fit_height, ring_mask, size_report
 import multiprocessing
 from tqdm import trange
 import logging
@@ -312,18 +312,22 @@ _MIN_SOURCE_POINTS = 10
 def _stretch_canonical_height(glb_path, up_canonical, scale):
     """Stretch the canonical mesh file along `up_canonical` (size_check.fit_height). Returns None, or why it did not.
 
-    Only a file holding one geometry with no node transform is rewritten: the stretch is in that geometry's own
-    frame, and a file with several parts (some backends write a scene) would need each part's transform kept.
+    `up_canonical` is in the frame both trimesh and Open3D read the file in, which is the node transform applied (see
+    the size check in main). So the transform is baked into the vertices, the stretch is made there, and the node is
+    reset to the identity: the file then reads back in that same frame. Only a file holding one geometry is rewritten;
+    a file with several parts (some backends write a scene) would need each part's transform kept.
     """
     scene = trimesh.load(glb_path)
     nodes = list(scene.graph.nodes_geometry)
     if len(nodes) != 1:
         return f"the canonical mesh has {len(nodes)} geometries; height fit rewrites one"
-    transform, geometry_name = scene.graph[nodes[0]]
-    if not np.allclose(transform, np.eye(4)):
-        return "the canonical mesh's geometry has a node transform; height fit does not rewrite it"
+    node = nodes[0]
+    transform, geometry_name = scene.graph[node]
+    parent = scene.graph.transforms.parents.get(node)
     geometry = scene.geometry[geometry_name]
+    geometry.apply_transform(transform)
     geometry.vertices = fit_height(geometry.vertices, up_canonical, scale)
+    scene.graph.update(frame_to=node, frame_from=parent, matrix=np.eye(4))
     with atomic_output_path(glb_path) as tmp:
         scene.export(tmp)
     return None
@@ -338,7 +342,10 @@ def _size_warning_text(img_name, report, threshold) -> str:
     if "height" in report["warnings"]:
         hg = report["height"]
         parts.append(f"height {hg['mesh_m']:.4f} m against the depth's {hg['depth_m']:.4f} m (ratio {hg['ratio']:.3f})")
-    return f"Size check for {img_name}: {'; '.join(parts)}; threshold {threshold}"
+    text = f"Size check for {img_name}: {'; '.join(parts)}; threshold {threshold}"
+    if "height" in report["warnings"] and report["height"].get("floor_source") == "neighbour_masks":
+        text += "; floor read from the neighbouring object's pixels"
+    return text
 
 
 def _write_object_failure(out_dir: str, img_name: str, reason: str, **counts) -> None:
@@ -378,17 +385,24 @@ def main(cfg):
     size_warn_ratio = cfg.s8_pose.get("size_warn_ratio", None)
     size_check_on = size_warn_ratio is not None
     size_warnings = {}
+    # height_noise_sigmas: a height must also be this many floor spreads off to count (null: the ratio alone).
+    # height_floor_fallback: read the floor from the neighbouring object's pixels when the object's own ring is too thin.
+    height_noise_sigmas = cfg.s8_pose.get("height_noise_sigmas", 2.0)
+    height_noise_sigmas = None if height_noise_sigmas is None else float(height_noise_sigmas)
     height_fit_cfg = cfg.s8_pose.get("height_fit", None) or {}
     height_fit_settings = {
         "enabled": bool(height_fit_cfg.get("enabled", False)),
         "threshold": float(height_fit_cfg.get("threshold", 0.25)),
         "min_scale": float(height_fit_cfg.get("min_scale", 0.5)),
         "max_scale": float(height_fit_cfg.get("max_scale", 2.0)),
+        "height_noise_sigmas": height_noise_sigmas,
     }
     size_settings = {
         "size_warn_ratio": float(size_warn_ratio) if size_check_on else None,
         "visible_only": bool(cfg.s8_pose.get("size_check_visible_only", True)),
         "height_percentile": float(cfg.s8_pose.get("height_percentile", 95)),
+        "height_noise_sigmas": height_noise_sigmas,
+        "floor_fallback": bool(cfg.s8_pose.get("height_floor_fallback", True)),
     }
 
     # Load source files
@@ -502,6 +516,9 @@ def main(cfg):
             gap_px = int(cfg.s8_pose.get("height_ring_gap_px", 3))
             ring = ring_mask(object_px, object_px if all_object_px is None else all_object_px, ring_px, gap_px)
             size_ring_points = pc[ring.flatten()]
+            # The fallback floor's points, read only when the ring is too thin: the same band with no neighbour excluded.
+            size_fallback_points = (pc[ring_mask(object_px, object_px, ring_px, gap_px).flatten()]
+                                    if size_settings["floor_fallback"] else None)
         obj_pc = pc[mask_resized_unpadded_eroded.flatten()]
         obj_rgb = (rgb_resized_unpadded.reshape(-1, 3) / 255)[mask_resized_unpadded_eroded.flatten()]
         obj_pcd = o3d.geometry.PointCloud()
@@ -599,7 +616,7 @@ def main(cfg):
         scale_multipliers = np.arange(0.8, 1.25, 0.05)
         scale_multipliers = scale_multipliers[np.abs(scale_multipliers - 1.0) > 0.01]  # Exclude 1.0 (already computed)
         
-        logger.info(f"Running scale grid search with multipliers: {scale_multipliers}")
+        logger.info("Scale grid search is off; fitting at the base pre_scale_factor only")
         
         # for scale_mult in scale_multipliers:
         #     # Compute the new pre_scale_factor for this multiplier
@@ -632,9 +649,7 @@ def main(cfg):
         
         # Extract the final pre_scale_factor from the best result
         final_pre_scale_factor = top_info["pre_scale_factor"]
-        final_scale_multiplier = top_info["scale_multiplier"]
-        logger.info(f"Best fit found at scale_multiplier={final_scale_multiplier:.2f} "
-                   f"(final_pre_scale_factor={final_pre_scale_factor:.4f}, dist={top_info['dist']:.6f})")
+        logger.info(f"Best fit found (final_pre_scale_factor={final_pre_scale_factor:.4f}, dist={top_info['dist']:.6f})")
 
         # Tilt canonicalization: the direction the best fit sends onto the scene's gravity
         # axis is the object's true up in mesh coordinates. When the fit is trusted, the
@@ -775,6 +790,12 @@ def main(cfg):
                 o3d.visualization.draw_geometries([source, target, result_check])
         
                 # from IPython import embed; embed()
+
+        # The total is recorded before FoundationPose, which resets the pose's scale to one below; after that the
+        # info file's z_up.scale no longer says how big the object was placed.
+        scale_record = final_scale_record(final_pre_scale_factor, top_info["tf_z_up"].scale)
+        logger.info(f"final scale = pre {final_pre_scale_factor:.4f} x cpd {np.round(scale_record['cpd_scale'], 4).tolist()}"
+                    f" = {np.round(scale_record['final_scale'], 4).tolist()}")
 
         # Potentially load FoundationPose if requested
         use_foundationpose = cfg.s8_pose.use_foundationpose
@@ -954,7 +975,7 @@ def main(cfg):
             up_cam = gravity_up_cam
             size_check_record = size_report(
                 np.asarray(mesh_updated.vertices), np.asarray(canonical_mesh.triangles),
-                size_depth_points, size_ring_points, up_cam, size_settings,
+                size_depth_points, size_ring_points, up_cam, size_settings, size_fallback_points,
             )
             before_m = size_check_record["height"].get("mesh_m")
             height_fit_record = decide_height_fit(size_check_record, height_fit_settings)
@@ -969,12 +990,15 @@ def main(cfg):
                     mesh_updated.vertices = o3d.utility.Vector3dVector(vertices)
                     size_check_record = size_report(
                         np.asarray(mesh_updated.vertices), np.asarray(canonical_mesh.triangles),
-                        size_depth_points, size_ring_points, up_cam, size_settings,
+                        size_depth_points, size_ring_points, up_cam, size_settings, size_fallback_points,
                     )
                 else:
                     height_fit_record = {"applied": False, "scale": None, "skipped": reason}
             height_fit_record = {**height_fit_record, "before_m": before_m,
                                  "after_m": size_check_record["height"].get("mesh_m")}
+            if size_check_record["height"].get("floor_source") == "neighbour_masks":
+                logger.info(f"Size check for {img_name}: the object's own ring had too few points; the floor was read "
+                            f"from the neighbouring object's pixels")
             if size_check_record["warnings"]:
                 size_warnings[img_name] = size_check_record["warnings"]
                 logger.warning(_size_warning_text(img_name, size_check_record, size_warn_ratio))
@@ -1011,8 +1035,11 @@ def main(cfg):
                 "rot": top_info["tf_y_up"].rot.tolist(),
                 "scale": np.asarray(top_info["tf_y_up"].scale).tolist(),
             },
-            # Total scale = pre_scale_factor * tf_scale
+            # z_up.scale is cpd_scale alone (FoundationPose resets it to one); final_scale is the total,
+            # pre_scale_factor x cpd_scale.
             "pre_scale_factor": float(pre_scale_factor),
+            "cpd_scale": scale_record["cpd_scale"],
+            "final_scale": scale_record["final_scale"],
             "front_canonicalization": front_info,
             "front_canonicalization_post_tilt": front_info_post_tilt,
             "tilt_canonicalization": tilt_info,
@@ -1020,6 +1047,8 @@ def main(cfg):
         if size_check_on:
             out_info["size_check"] = size_check_record
             out_info["height_fit"] = height_fit_record
+            # The stretch is along up only, so it is kept apart from final_scale rather than multiplied into it.
+            out_info["height_fit_scale"] = height_fit_record["scale"] if height_fit_record["applied"] else 1.0
 
         with atomic_output_path(f"{out_dir}/info/{img_name}.json") as _tmp_info, open(_tmp_info, "w") as f:
             json.dump(out_info, f, indent=4)
