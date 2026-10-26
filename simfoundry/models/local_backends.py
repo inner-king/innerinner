@@ -335,14 +335,28 @@ def _comfy_torch_vram():
 
 
 def _drop_opaque_alpha(png_bytes):
-    """Qwen-Image-2.1 always decodes RGBA. Stage 5 treats the result as a 3-channel frame
-    (`get_num_pixels_with_color` reshapes to 3), so an all-but-opaque alpha is dropped; a real
-    cutout (cousin images asked for a transparent background) keeps its alpha for rembg."""
+    """Drop the alpha channel unless the frame is a real cutout.
+
+    Qwen-Image-2.1 always decodes RGBA, but stage 5 reads a frame as 3-channel. A real cutout
+    (cousin images asked for a transparent background) keeps its alpha, which Pixal3D requires. A
+    frame with at least 0.5% of its pixels under alpha 128 is a cutout; anything else is saved as
+    RGB, with its colours left as they are rather than composited onto a background.
+
+    Args:
+        png_bytes: PNG bytes returned by ComfyUI.
+
+    Returns:
+        The input bytes for non-RGBA input and for cutouts, otherwise an RGB PNG.
+    """
     image = Image.open(io.BytesIO(png_bytes))
     if image.mode != "RGBA":
         return png_bytes
-    alpha = image.getchannel("A")
-    if alpha.getextrema()[0] < 250:
+    # Count transparent pixels rather than taking the lowest alpha: one pixel at alpha 249 kept a
+    # 1184x864 frame RGBA, and stage 5 then crashed on the 4-channel array.
+    alpha_cutoff = 128
+    cutout_fraction = 0.005
+    transparent = sum(image.getchannel("A").histogram()[:alpha_cutoff])
+    if transparent / (image.width * image.height) >= cutout_fraction:
         return png_bytes
     buf = io.BytesIO()
     image.convert("RGB").save(buf, format="PNG")
