@@ -9,7 +9,7 @@ Requires installing:
 - simfoundry, see the main README
 """
 from simfoundry.models.sam_v3 import SAM3
-from simfoundry.models.local_backends import served_model_name
+from simfoundry.models.local_backends import ollama_options_record, served_model_name
 from simfoundry.utils.processing_utils import compute_point_cloud_from_depth, annotate
 import numpy as np
 import open3d as o3d
@@ -356,6 +356,7 @@ def main(cfg):
         "detection_model": served_model_name(cfg.s3_ground.detection_model),
         "detection_model_configured": cfg.s3_ground.detection_model,
     }
+    served_models.update(ollama_options_record())
     finalize_stage(
         stage_cfg=cfg.s3_ground,
         out_dir=cfg.s3_ground.out_dir,

@@ -14,7 +14,7 @@ from pathlib import Path
 import json
 from simfoundry.utils.asset_conversion_utils import import_custom_object, import_articulated_object
 from simfoundry.models.vlm import Gemini
-from simfoundry.models.local_backends import served_model_name
+from simfoundry.models.local_backends import ollama_options_record, served_model_name
 import hydra
 import trimesh
 import random
@@ -309,6 +309,7 @@ def main(cfg):
         "vlm_model": served_model_name(vlm.model),
         "vlm_model_configured": vlm_model,
     }
+    served_models.update(ollama_options_record())
 
     # Load articulation classification from stage 9
     articulation_root = resolve_articulation_root(cfg.s9_articulate_objects.out_dir)

@@ -197,10 +197,12 @@ def test_stage6_validity_record_stays_inside_check_valid():
     # check_valid defaults to false. If the record leaked out of its branch, validity_model would be
     # undefined under the default config and the stage would fail with NameError.
     main, _, _ = _main_and_finalize_calls("6_upsample_object_images.py")
+    # served_models.update(ollama_options_record()) is unconditional (it is {} unless the Ollama options are set);
+    # this test is about the keyword update that the validity branch makes
     updates = [
         n for n in ast.walk(main)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "update" and getattr(n.func.value, "id", None) == "served_models"
+        and n.func.attr == "update" and getattr(n.func.value, "id", None) == "served_models" and n.keywords
     ]
     assert len(updates) == 1
     guards = [
@@ -225,6 +227,8 @@ def _evaluate_recorded(stage_name, namespace):
         key=lambda n: n.lineno,
     )
     ns = dict(namespace)
+    # the Ollama options are not under test here: with none set, their record is {}
+    ns.setdefault("ollama_options_record", lambda: {})
     recorded = eval(compile(ast.Expression(body=assign.value), stage_name, "eval"), ns)
     ns["served_models"] = recorded
     for node in ast.walk(main):
