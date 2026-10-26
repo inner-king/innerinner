@@ -31,6 +31,13 @@ from omegaconf import OmegaConf
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.utils.og_utils import set_obj_materials
+from simfoundry.pipeline.background_usd import (
+    BACKGROUND_NAME,
+    add_background_object,
+    make_scene_cfg,
+    relativize_background_path,
+    write_background_usd,
+)
 import numpy as np
 import sys
 
@@ -162,6 +169,19 @@ def main(cfg):
     # Load physics objects info
     include_gs = cfg.s14_og.include_gs
 
+    # --bg-mesh: stage 5c's mesh becomes mesh_background_0. It is not combined with the 3DGS background (both
+    # would sit in the same place), and nothing is attached without the GLB, so each case says so and goes on.
+    include_bg_mesh = bool(cfg.s14_og.get("include_bg_mesh", False))
+    bg_mesh_glb = f"{cfg.s_bg_mesh.out_dir}/background_mesh.glb"
+    attach_bg_mesh = include_bg_mesh
+    if attach_bg_mesh and include_gs:
+        print("[WARN] include_bg_mesh and include_gs would put two backgrounds in the same place. Skipping the background mesh.")
+        attach_bg_mesh = False
+    if attach_bg_mesh and not os.path.exists(bg_mesh_glb):
+        print(f"[WARN] include_bg_mesh=True but {bg_mesh_glb} does not exist. Run stage 5c (--bg-mesh) first. Skipping the background mesh.")
+        attach_bg_mesh = False
+    bg_mesh_record = {"attached": False, "usd": None}
+
 
     scene_objects_info_fpath = f"{sim_dir}/scene_objects_info.json"
     obj_frictions = dict()
@@ -186,12 +206,7 @@ def main(cfg):
 
     # Create scene config
 
-    scene_cfg = {
-        "type": "Scene",
-        "use_floor_plane": True,
-        "floor_plane_visible": not include_gs,
-        "use_skybox": not include_gs,
-    }
+    scene_cfg = make_scene_cfg(include_gs, attach_bg_mesh)
     robots_cfg = []
     if cfg.s14_og.include_robot:
         # Add the robot we want to load
@@ -408,6 +423,14 @@ def main(cfg):
 
         # TODO: Get camK2cam0 tf as well, since 3DGS is taken wrt first cam frame
 
+    # --bg-mesh: the stage-5c mesh goes in as a visual-only USD in the stage-4 world (not the Y-up glTF it was
+    # written as). It is added before the robot and the save, so the saved scene has it.
+    if attach_bg_mesh:
+        bg_usd = write_background_usd(bg_mesh_glb, f"{out_dir}/background/{BACKGROUND_NAME}.usd")
+        add_background_object(env, bg_usd["usd_path"])
+        bg_mesh_record = {"attached": True, "usd": f"background/{BACKGROUND_NAME}.usd", **bg_usd}
+        print(f"Attached background mesh {BACKGROUND_NAME}: {bg_usd['vertices']} vertices, {bg_usd['faces']} faces")
+
    
 
     # joint_targets = th.tensor([])
@@ -472,6 +495,9 @@ def main(cfg):
     env.scene.update_initial_file()
     json_path = f"{out_dir}/reconstructed_og_scene.json"
     og.sim.save(json_paths=[json_path])
+    # Saved with the absolute path the object was built with; a relative one is what keeps the scene portable.
+    if attach_bg_mesh and not relativize_background_path(json_path):
+        print(f"[WARN] {BACKGROUND_NAME} is missing from the saved scene, so its usd_path was not made relative.")
 
     img_path = f"{out_dir}/reconstructed_scene.png"
     image_captured = False
@@ -482,18 +508,18 @@ def main(cfg):
             camera_ori=cfg.s14_og.auto_camera_ori,
         )
     
+    additional_info = {
+        "scene_json": json_path,
+        "preview_image": img_path if image_captured else None,
+        "num_objects": len(objs),
+        "interactive": bool(cfg.s14_og.get("interactive", False)),
+    }
+    if include_bg_mesh:
+        additional_info["bg_mesh"] = bg_mesh_record
     finalize_stage(
         stage_cfg=cfg.s14_og,
         out_dir=cfg.s14_og.out_dir,
-        result=StageResult(
-            success=True,
-            additional_info={
-                "scene_json": json_path,
-                "preview_image": img_path if image_captured else None,
-                "num_objects": len(objs),
-                "interactive": bool(cfg.s14_og.get("interactive", False)),
-            },
-        ),
+        result=StageResult(success=True, additional_info=additional_info),
     )
 
     if cfg.s14_og.get("interactive", False):

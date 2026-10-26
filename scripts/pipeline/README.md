@@ -207,6 +207,13 @@ Limits, from the method rather than from a measurement: one viewpoint, so a bott
 space behind it is empty; an object that stood on something higher than the support plane (a pot on a cooktop)
 is replaced by the plane under it, which is the wrong height there; and the mesh is only as good as the depth.
 
+`--bg-mesh` also turns on stage 14 (`s14_og.include_bg_mesh`). Stage 14 writes the GLB as a USD in the stage-4
+world (`s14_og/background/mesh_background_0.usd`, with its texture beside it), adds it to the scene as the
+visual-only object `mesh_background_0`, and records it in `reconstructed_og_scene.json` by a path relative to that
+file. Nobody attaches it by hand in the light editor. It has no collision: the objects rest on the floor plane,
+which is hidden while the mesh is shown. It is not combined with `include_gs`; with both on, the mesh is skipped
+with a warning. Without the GLB, stage 14 warns and goes on without it.
+
 ### Inputs And Outputs
 
 Inputs:

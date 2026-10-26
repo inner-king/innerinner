@@ -416,6 +416,10 @@ s14_og:
   # floor_plane_visible and use_skybox off, so turning it on without a splat yields a scene
   # with an invisible floor and no sky.
   include_gs: false
+  # --bg-mesh turns this on. Stage 5c's background mesh (s_bg_mesh/background_mesh.glb) is then attached
+  # as mesh_background_0: a visual-only USD in the scene JSON, referenced by a relative path. It is not
+  # combined with include_gs (the two would sit in the same place), so with both on the mesh is skipped.
+  include_bg_mesh: false
   randomize_xy_range: 0.01
   randomize_z_rotation_deg: 50           # Z-axis rotation range: 360 = full [0,360°), else ±N degrees (e.g. 30 = ±30°)
   randomize_settle_steps: 100

@@ -110,6 +110,20 @@ def _parse_overrides(extra_overrides: list[str]) -> dict[str, str]:
     return parsed
 
 
+def bg_mesh_overrides(extra_overrides: list[str], bg_mesh: bool) -> list[str]:
+    """Add `s14_og.include_bg_mesh=true` for every stage when --bg-mesh is on, unless the user set it.
+
+    Stage 14 is the one that attaches the mesh, and every stage gets the override so that the flag
+    reaches it whatever the stage selection is. A value the user gave on the command line wins.
+    """
+    if not bg_mesh:
+        return list(extra_overrides)
+    keys = {item.split("=", 1)[0] for item in extra_overrides if "=" in item}
+    if "s14_og.include_bg_mesh" in keys:
+        return list(extra_overrides)
+    return [*extra_overrides, "s14_og.include_bg_mesh=true"]
+
+
 def _load_default_runtime_values() -> dict[str, str]:
     values: dict[str, str] = {}
     for line in DEFAULT_CFG_PATH.read_text(encoding="utf-8").splitlines():
@@ -481,6 +495,7 @@ def run_pipeline(
     bg_mesh: bool = False,
 ) -> PipelineTimingResult:
     wall_start = time.perf_counter()
+    extra_overrides = bg_mesh_overrides(extra_overrides, bg_mesh)
     timing_log_path = None if dry_run else resolve_scene_timing_log_path(extra_overrides)
     scene_dir = None if dry_run else resolve_scene_dir(extra_overrides)
     plan = get_stage_plan(
