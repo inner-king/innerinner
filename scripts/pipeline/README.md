@@ -166,8 +166,14 @@ bash scripts/pipeline/A_reconstruction/run.sh --scene-name pull_scene_2 \
   -- s3_ground.img_idx=4
 ```
 
+The pinned index is written to `s3_ground/frame_selection.json` as well, so a stage that reads
+`img_idx: auto` follows the same frame rather than a selection left by an earlier automatic run.
+
 If every candidate is rejected, stage 3 fails with the per-frame reasons; loosen the gate it
-names or pin a frame. Changing the selection after a run invalidates the `image_<idx>_*`
+names or pin a frame. The one exception is a run with a single candidate frame (a single-image
+input, or `frame_selection.max_candidates: 1`): there is no other frame to prefer, so that frame
+is kept even when its only failing gate is `max_clipped_frac`, with a warning. Its other gates
+still fail the run. Changing the selection after a run invalidates the `image_<idx>_*`
 artifacts stages 4-14 wrote for the previous frame, so rerun from stage 3.
 
 ### Inputs And Outputs
