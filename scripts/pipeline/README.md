@@ -210,6 +210,10 @@ Known false warnings, from the lidar run (`b2_check`), that the check does not d
 
 These are not handled by any rule here, so a warning on such an object is a prompt to look, not a measurement.
 
+### CPD scale limit
+
+Stage 8 scales the mesh by `pre_scale_factor` and then lets CPD choose a further scale m (`tf_z_up.scale`). With `s8_pose.cpd_scale_limit` set to r, where 0 < r < 1, each scaled CPD fit whose m lies outside [1 - r, 1 + r] is moved to the nearest bound and refitted there by a fixed-scale rigid CPD; the fits inside the bounds are unchanged, and the fit with the lowest `dist` is chosen as before. The default is `null`, which keeps the current code path. The setting is off because its only evidence is one scene (research 2's B9 study, where onion and pot came out at m 1.27 and 1.29); it is provisional and not tuned on any object. With a limit set the info file also records `cpd_scale_limit`, `cpd_scale_clamped` and `cpd_scale_unclamped`, and the log says when the chosen fit was clamped. Known and not fixed: `dist` is measured after the source is scaled by 1/m, so the `dist` values of fits with different m are not in one unit; a unit correction (dist * m^2) was tried and withdrawn (`b9_scale/report_pre_ko.md`, research 2).
+
 ### Inputs And Outputs
 
 Inputs:

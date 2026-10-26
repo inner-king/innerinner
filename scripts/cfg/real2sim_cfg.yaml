@@ -272,6 +272,10 @@ s8_pose:          # env: simfoundry
   source_voxel_scale_factor: 0.25
   voxel_size: 0.04
   n_samples: 20
+  # cpd_scale_limit (B11, off by default): a scaled CPD fit whose scale m is outside [1 - r, 1 + r] is clamped to the nearest
+  # bound and refitted there, for 0 < r < 1; null keeps the current code path. Provisional and not tuned: the only evidence
+  # is one scene (research 2, B9), so it stays off until more scenes say what r should be.
+  cpd_scale_limit: null
   use_foundationpose: true
   est_refine_iter: 5  # Number of refinement iterations for FoundationPose
   object_indices: null  # null = all, or [1,2] for selective streaming/reruns

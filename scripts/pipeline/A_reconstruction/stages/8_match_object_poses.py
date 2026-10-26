@@ -37,6 +37,7 @@ from simfoundry.pipeline.upright_from_fit import decide_tilt, resolve_bake_fitte
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.utils.python_utils import atomic_output_path
 from simfoundry.pipeline.size_check import decide_height_fit, final_scale_record, fit_height, ring_mask, size_report
+from simfoundry.pipeline.cpd_scale import apply_cpd_scale_limit, cpd_scale_limit_record, cpd_scale_of, validate_cpd_scale_limit
 import multiprocessing
 from tqdm import trange
 import logging
@@ -353,6 +354,11 @@ def main(cfg):
     source_voxel_scale_factor = cfg.s8_pose.source_voxel_scale_factor
     # voxel_size = cfg.s8_pose.voxel_size
 
+    # cpd_scale_limit (cpd_scale.py): a scaled CPD fit whose scale is outside [1 - r, 1 + r] is clamped to that bound and
+    # refitted there. Checked here, so a bad value stops the run before any object is fitted.
+    cpd_scale_limit = cfg.s8_pose.get("cpd_scale_limit", None)
+    validate_cpd_scale_limit(cpd_scale_limit)
+
     # Size check (simfoundry/pipeline/size_check.py). size_warn_ratio: null turns it off entirely: no calls, and no
     # size_check / height_fit / size_warnings keys, so the outputs stay as they were before it existed.
     size_warn_ratio = cfg.s8_pose.get("size_warn_ratio", None)
@@ -574,6 +580,9 @@ def main(cfg):
         # We expect this to be degenerate because we already pre-scale the raw mesh to a "reasonable" order of magnitude
         # based on the real-world partial point cloud...so it shouldn't be more than +/- 1 order of magnitude
         info_scaled_sorted = [info for info in info_scaled_sorted if (info["tf_z_up"].scale > 0.1 and info["tf_z_up"].scale < 10.0)]
+        # The optional CPD scale limit (B11). It runs after the prune and before the fits are pooled, so the pool, the sort
+        # and the choice all see the clamped fits; with the limit null the list comes back unchanged.
+        info_scaled_sorted = apply_cpd_scale_limit(info_scaled_sorted, cpd_scale_limit, target, tf_y_up)
         
         # Add pre_scale_factor metadata to each info entry for the base scale (multiplier=1.0)
         for info in info_unscaled_sorted + info_scaled_sorted:
@@ -617,6 +626,9 @@ def main(cfg):
         # Sort all results by distance and select the best
         info_sorted = sorted(all_info, key=lambda x: x["dist"])
         top_info = info_sorted[0]
+        if top_info.get("cpd_scale_clamped", False):
+            logger.info(f"CPD scale m={top_info['cpd_scale_unclamped']:.2f} clamped to {cpd_scale_of(top_info['tf_z_up']):.2f} "
+                        f"(limit {cpd_scale_limit:g}) for {img_name}")
         
         # Extract the final pre_scale_factor from the best result
         final_pre_scale_factor = top_info["pre_scale_factor"]
@@ -1015,6 +1027,8 @@ def main(cfg):
             "front_canonicalization_post_tilt": front_info_post_tilt,
             "tilt_canonicalization": tilt_info,
         }
+        # The limit's own keys, present only when a limit is set (null leaves the file as it was).
+        out_info.update(cpd_scale_limit_record(cpd_scale_limit, top_info))
         if size_check_on:
             out_info["size_check"] = size_check_record
             out_info["height_fit"] = height_fit_record
