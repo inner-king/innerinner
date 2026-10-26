@@ -24,6 +24,7 @@ from simfoundry.pipeline.removal_ghosts import (
     grow_region,
     load_removed_regions,
     mask_coverage,
+    point_in_removed_regions,
     prompt_types_tried,
 )
 
@@ -212,3 +213,104 @@ def test_the_serve_fruits_ghosts_are_recognised_and_its_real_objects_are_not():
                                      region=grow_region(mask), prompt_types_tried=["mask"]))
 
     assert ghosts_of == {3: 1, 6: 1}
+
+
+# --------------------------------------------------------------------------------------
+# VLM points that a removal has made stale
+# --------------------------------------------------------------------------------------
+
+
+def test_a_point_inside_a_removed_region_returns_that_region():
+    removal = _removed(3, _box(40, 80, 30, 110))
+    assert point_in_removed_regions((70, 60), [removal], (H, W)) is removal
+
+
+def test_a_point_outside_every_removed_region_is_none():
+    regions = [_removed(0, _box(0, 20, 0, 20)), _removed(1, _box(40, 80, 30, 110))]
+    assert point_in_removed_regions((140, 10), regions, (H, W)) is None
+
+
+def test_no_removed_regions_means_no_point_is_stale():
+    assert point_in_removed_regions((70, 60), [], (H, W)) is None
+
+
+def test_a_region_not_on_disk_is_ignored():
+    banana = _removed(1, _box(40, 80, 30, 110))
+    not_on_disk = RemovedRegion(iteration=2, origin_iter=2, region=None)
+    assert point_in_removed_regions((70, 60), [banana, not_on_disk], (H, W)) is banana
+    assert point_in_removed_regions((70, 60), [not_on_disk], (H, W)) is None
+
+
+def test_a_region_of_another_resolution_is_ignored():
+    banana = _removed(1, _box(40, 80, 30, 110))
+    # Without the shape check the larger region would match, and the smaller one would index out of bounds.
+    too_big = RemovedRegion(iteration=2, origin_iter=2, region=np.ones((2 * H, 2 * W), dtype=bool))
+    too_small = RemovedRegion(iteration=3, origin_iter=3, region=np.ones((10, 10), dtype=bool))
+    assert point_in_removed_regions((70, 60), [banana, too_big], (H, W)) is banana
+    assert point_in_removed_regions((70, 60), [banana, too_small], (H, W)) is banana
+
+
+def test_the_latest_removal_holding_the_point_is_returned():
+    first = _removed(1, _box(40, 80, 30, 110))
+    second = _removed(2, _box(50, 70, 40, 100))  # inside the first, and also holds (70, 60)
+    assert point_in_removed_regions((70, 60), [first, second], (H, W)) is second
+    assert point_in_removed_regions((70, 60), [second, first], (H, W)) is first
+
+
+def test_removals_before_the_point_was_made_do_not_make_it_stale():
+    pot = _box(40, 80, 30, 110)
+    erased_earlier = _removed(4, pot)
+    # A point given at iteration 5 saw the image after iteration 4's removal, so that removal is not news to it.
+    assert point_in_removed_regions((70, 60), [erased_earlier], (H, W), since_iter=5) is None
+    # A removal in the iteration that gave the point counts: the boundary is included.
+    assert point_in_removed_regions((70, 60), [erased_earlier], (H, W), since_iter=4) is erased_earlier
+    erased_later = _removed(6, pot)
+    assert point_in_removed_regions((70, 60), [erased_earlier, erased_later], (H, W), since_iter=5) is erased_later
+
+
+def test_a_point_a_few_pixels_outside_the_mask_is_inside_the_grown_region():
+    mask = _box(40, 80, 30, 110)
+    removal = _removed(0, mask)
+    assert not mask[60, 112]  # 3 pixels past the mask's last column, 109
+    assert point_in_removed_regions((112, 60), [removal], (H, W)) is removal
+    assert point_in_removed_regions((115, 60), [removal], (H, W)) is None  # 6 pixels past: beyond the growth
+
+
+def test_fractional_points_round_to_the_nearest_pixel():
+    region = np.zeros((H, W), dtype=bool)
+    region[21, 10] = True  # row 21, column 10
+    removal = RemovedRegion(iteration=0, origin_iter=0, region=region)
+    assert point_in_removed_regions((10.4, 20.6), [removal], (H, W)) is removal  # rounds to (10, 21)
+    assert point_in_removed_regions((10.4, 20.4), [removal], (H, W)) is None  # rounds to (10, 20)
+
+
+def test_x_is_the_column_and_y_the_row():
+    wide = _removed(0, _box(50, 60, 10, 150))  # 10 rows by 140 columns
+    assert point_in_removed_regions((100, 55), [wide], (H, W)) is wide
+    assert point_in_removed_regions((55, 100), [wide], (H, W)) is None  # the same numbers, transposed
+
+
+def test_points_outside_the_frame_are_none_and_do_not_wrap_around():
+    # A region covering the whole frame: a negative index would wrap to the far edge and match.
+    everything = RemovedRegion(iteration=0, origin_iter=0, region=np.ones((H, W), dtype=bool))
+    for point in [(-1, 5), (5, -1), (W, 5), (5, H), (-1, -1)]:
+        assert point_in_removed_regions(point, [everything], (H, W)) is None, point
+    assert point_in_removed_regions((W - 1, H - 1), [everything], (H, W)) is everything
+
+
+def test_the_cooktop_case_is_stale_only_inside_removals_from_the_point_on():
+    # Iteration 2 removed the pot. Iteration 6 removed the ghost of the pot: a box inside its region.
+    pot_region = _removed(2, _box(30, 90, 40, 120))
+    ghost_region = _removed(6, _box(45, 75, 50, 110), origin_iter=2)
+    regions = [pot_region, ghost_region]
+
+    # The VLM gave this point on the iteration-6 image, and iteration 6 removed the region under it.
+    assert point_in_removed_regions((80, 60), regions, (H, W), since_iter=6) is ghost_region
+
+    # Same pot area, but outside the ghost's region. Iteration 2 is older than the point, so not stale.
+    assert point_in_removed_regions((45, 35), regions, (H, W), since_iter=6) is None
+    assert point_in_removed_regions((45, 35), regions, (H, W), since_iter=2) is pot_region
+
+    # Known limit, not a bug to patch here: a point inside no removed region is never stale. The knife's
+    # point in the real run lay outside every region, so this rule does not catch it.
+    assert point_in_removed_regions((10, 100), regions, (H, W), since_iter=6) is None
