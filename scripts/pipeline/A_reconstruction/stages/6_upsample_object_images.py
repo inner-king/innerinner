@@ -14,6 +14,7 @@ import cv2
 import logging
 
 from simfoundry.models.vlm import GPT, FLUX1, Gemini
+from simfoundry.models.local_backends import served_model_name
 from simfoundry.utils.prompt_utils import prompt_upsample_image, prompt_upsample_image_rotate, \
     prompt_flux_object_completion_and_upsample_preserve, prompt_upsample_image_gemini, prompt_infill_image, prompt_infill_image_no_conditioning, \
     prompt_check_object_validity, parse_json_response
@@ -137,6 +138,14 @@ def main(cfg):
     else:
         raise NotImplementedError
 
+    # stage_info.json echoes the stage config, which names a Gemini model even when
+    # SIMFOUNDRY_LOCAL_BACKEND=1 routed the call to a local backend. Record what answers, and keep the
+    # configured name beside it.
+    served_models = {
+        "model": served_model_name(model.model) if isinstance(model, Gemini) else model_name,
+        "model_configured": model_name,
+    }
+
     try:
         from rembg import new_session
 
@@ -157,6 +166,10 @@ def main(cfg):
             )
         else:
             raise NotImplementedError
+        served_models.update(
+            validity_model=served_model_name(validity_model.model),
+            validity_model_configured=validity_model_name,
+        )
     else:
         logger.info("Skipping validity check (check_valid=false)")
 
@@ -435,7 +448,7 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s6_upsample,
         out_dir=cfg.s6_upsample.out_dir,
-        result=StageResult(success=True, additional_info={"invalid_objects": invalid_objects}),
+        result=StageResult(success=True, additional_info={"invalid_objects": invalid_objects, **served_models}),
     )
 
 if __name__ == "__main__":
