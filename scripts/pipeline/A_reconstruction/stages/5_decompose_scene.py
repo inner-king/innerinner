@@ -22,6 +22,7 @@ from supervision import draw_rectangle
 import shutil
 
 from simfoundry.models.vlm import Gemini, Imagen3, FLUX1
+from simfoundry.models.local_backends import served_model_name
 from simfoundry.models.sam_v3_gmask import SAM3
 from simfoundry.models.clip import CLIPEncoder
 from simfoundry.models.sbert import SBERTEncoder
@@ -934,6 +935,17 @@ def main(cfg):
     else:
         raise NotImplementedError
 
+    # stage_info.json echoes the stage config, which names a Gemini model even when
+    # SIMFOUNDRY_LOCAL_BACKEND=1 routed every such call to a local backend. Record what was called and
+    # keep the configured name beside it. (A cache hit never reaches the backend, so this is the backend
+    # a cache miss uses.)
+    served_models = {
+        "detection_model": served_model_name(vlm_pro.model),
+        "detection_model_configured": detection_model_name,
+        "removal_model": served_model_name(removal_model.model) if isinstance(removal_model, Gemini) else removal_model_name,
+        "removal_model_configured": removal_model_name,
+    }
+
     # Create text encoder
     text_encoder = SBERTEncoder()
 
@@ -1219,7 +1231,7 @@ def main(cfg):
                 finalize_stage(
                     stage_cfg=cfg.s5_scene,
                     out_dir=cfg.s5_scene.out_dir,
-                    result=StageResult(success=True),
+                    result=StageResult(success=True, additional_info=served_models),
                 )
                 return
 
@@ -1263,6 +1275,7 @@ def main(cfg):
                         result=StageResult(
                             success=False,
                             additional_info={
+                                **served_models,
                                 "resume_iteration": current_iteration,
                                 "failure_reason": "vlm_detection_no_response",
                             },
@@ -2003,6 +2016,7 @@ def main(cfg):
                 result=StageResult(
                     success=False,
                     additional_info={
+                        **served_models,
                         "resume_iteration": current_iteration,
                         "failure_reason": "object_removal_generation_failed",
                     },
@@ -2208,7 +2222,7 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s5_scene,
         out_dir=cfg.s5_scene.out_dir,
-        result=StageResult(success=True),
+        result=StageResult(success=True, additional_info=served_models),
     )
 
 if __name__ == "__main__":

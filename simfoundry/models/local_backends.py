@@ -99,6 +99,24 @@ def _is_image_model(model):
     return "image" in model.lower()
 
 
+def image_backend_name():
+    """Name of the ComfyUI image model serving the Gemini image calls; the name the call log prints."""
+    return "Qwen-Image-2.1-Turbo" if IMAGE_BACKEND == "qwen21" else "Qwen-Image-Edit-2511"
+
+
+def served_model_name(model):
+    """What actually answers a call made with the Gemini model id `model` in this process.
+
+    The pipeline still builds a Gemini client for `model` when SIMFOUNDRY_LOCAL_BACKEND is on; only the
+    client is swapped. A configured name therefore names a model that was never called, so records
+    that say which model answered need this instead. With local serving off the real Gemini API
+    answers, and `model` is returned unchanged.
+    """
+    if not is_enabled():
+        return model
+    return image_backend_name() if _is_image_model(model) else OLLAMA_MODEL
+
+
 # ----------------------------------------------------------------------------------------------
 # Request decoding
 # ----------------------------------------------------------------------------------------------
@@ -429,7 +447,7 @@ def comfy_image_edit(prompt, images, seed=0, verbose=False):
         if COMFY_FREE_AFTER:
             comfy_free()
     if verbose:
-        print(f"[local-image] {'Qwen-Image-2.1-Turbo' if IMAGE_BACKEND == 'qwen21' else 'Qwen-Image-Edit-2511'}: {len(images)} ref image(s) -> {len(out_images)} image(s) "
+        print(f"[local-image] {image_backend_name()}: {len(images)} ref image(s) -> {len(out_images)} image(s) "
               f"in {time.time() - t0:.1f}s", flush=True)
     return out_images
 
