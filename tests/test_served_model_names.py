@@ -302,3 +302,110 @@ def test_stage6_records_the_models_that_answered(monkeypatch, enabled, expected)
     }
 
     assert _evaluate_recorded("6_upsample_object_images.py", namespace) == expected
+
+
+# ---------------------------------------------------------------------------
+# Stages 3, 9 and 11 record the same way
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("stage_name, expected_calls", [
+    ("3_segment_ground_plane.py", 1),
+    ("9_articulate_objects.py", 1),  # the call sits in the record_stage_result closure
+    ("11_make_objects_sim_ready.py", 1),
+])
+def test_b4_finalize_calls_record_served_models(stage_name, expected_calls):
+    _, calls, definitions = _main_and_finalize_calls(stage_name)
+
+    assert len(calls) == expected_calls
+    assert definitions, "served_models is never assigned in main()"
+    for call in calls:
+        assert any(isinstance(n, ast.Name) and n.id == "served_models" for n in ast.walk(call))
+        # A use before the definition would only surface as a NameError on the GPU host.
+        assert definitions[0] < call.lineno
+
+
+@pytest.mark.parametrize("stage_name", [
+    "3_segment_ground_plane.py",
+    "9_articulate_objects.py",
+    "11_make_objects_sim_ready.py",
+])
+def test_b4_stage_imports_served_model_name_at_module_level(stage_name):
+    tree = ast.parse((STAGES / stage_name).read_text())
+    imports = [
+        node for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "simfoundry.models.local_backends"
+        and any(alias.name == "served_model_name" for alias in node.names)
+    ]
+
+    assert imports
+
+
+def _stage_result_additional_info(stage_name):
+    """The additional_info expression of the stage's single StageResult(...) call."""
+    main, _, _ = _main_and_finalize_calls(stage_name)
+    results = [
+        n for n in ast.walk(main)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "StageResult"
+    ]
+    assert len(results) == 1
+    keyword = next(k for k in results[0].keywords if k.arg == "additional_info")
+    return keyword.value
+
+
+@pytest.mark.parametrize("enabled, expected_name", [(False, "gemini-3.1-pro-preview"), (True, "qwen3.5:9b")])
+def test_stage3_records_the_detection_model_that_answers(monkeypatch, enabled, expected_name):
+    _set_local(monkeypatch, enabled=enabled)
+    namespace = {
+        "served_model_name": served_model_name,
+        "cfg": SimpleNamespace(s3_ground=SimpleNamespace(detection_model="gemini-3.1-pro-preview")),
+    }
+
+    recorded = _evaluate_recorded("3_segment_ground_plane.py", namespace)
+
+    assert recorded == {
+        "detection_model": expected_name,
+        "detection_model_configured": "gemini-3.1-pro-preview",
+    }
+
+
+@pytest.mark.parametrize("enabled, expected_name", [(False, "gemini-3-pro-preview"), (True, "qwen3.5:9b")])
+def test_stage9_records_the_classifier_that_answers(monkeypatch, enabled, expected_name):
+    _set_local(monkeypatch, enabled=enabled)
+    namespace = {
+        "served_model_name": served_model_name,
+        "vlm": _FakeGemini("gemini-3-pro-preview"),
+        "cfg": SimpleNamespace(s9_articulate_objects=SimpleNamespace(vlm_model="gemini-3-pro-preview")),
+    }
+
+    recorded = _evaluate_recorded("9_articulate_objects.py", namespace)
+
+    assert recorded == {"vlm_model": expected_name, "vlm_model_configured": "gemini-3-pro-preview"}
+
+
+def test_stage9_record_stage_result_merges_served_models_first(monkeypatch):
+    # record_stage_result writes {**served_models, **additional_info}: the call's own keys are added
+    # after the served names, so a key the call sets wins over a recorded one.
+    node = _stage_result_additional_info("9_articulate_objects.py")
+    assert isinstance(node, ast.Dict)
+    assert node.keys[0] is None and isinstance(node.values[0], ast.Name) and node.values[0].id == "served_models"
+
+    recorded = {"vlm_model": "qwen3.5:9b", "vlm_model_configured": "gemini-3-pro-preview"}
+    merged = eval(compile(ast.Expression(body=node), "9_articulate_objects.py", "eval"),
+                  {"served_models": recorded, "additional_info": {"articulated_objects": ["cup"], "vlm_model": "x"}})
+
+    assert merged == {"vlm_model": "x", "vlm_model_configured": "gemini-3-pro-preview", "articulated_objects": ["cup"]}
+
+
+@pytest.mark.parametrize("enabled, expected_name", [(False, "gemini-3-pro-preview"), (True, "qwen3.5:9b")])
+def test_stage11_records_the_vlm_that_answers(monkeypatch, enabled, expected_name):
+    _set_local(monkeypatch, enabled=enabled)
+    namespace = {
+        "served_model_name": served_model_name,
+        "vlm": _FakeGemini("gemini-3-pro-preview"),
+        "vlm_model": "gemini-3-pro-preview",
+    }
+
+    recorded = _evaluate_recorded("11_make_objects_sim_ready.py", namespace)
+
+    assert recorded == {"vlm_model": expected_name, "vlm_model_configured": "gemini-3-pro-preview"}
