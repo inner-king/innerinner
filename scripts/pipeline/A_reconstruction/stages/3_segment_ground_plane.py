@@ -21,6 +21,7 @@ from copy import deepcopy
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 from simfoundry.pipeline.frame_selection import (
     is_auto_img_idx,
+    pinned_selection,
     select_canonical_frame,
     write_selection,
 )
@@ -203,6 +204,7 @@ def main(cfg):
     else:
         img_idx = int(cfg.s3_ground.img_idx)
         logger.info("Using the frame pinned by s3_ground.img_idx: %s", img_idx)
+        logger.info("Wrote frame selection to %s", write_selection(cfg, pinned_selection(img_idx)))
 
     # Check if we should use FoundationStereo or Depth Anything output
     use_fs = cfg.s3_ground.get("use_fs", False)
