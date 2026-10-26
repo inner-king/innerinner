@@ -120,7 +120,7 @@ s3_ground:    # env: simfoundry
     max_tilt: null                # null -> inherit floor_tilt_threshold; reject rolled frames
     min_plane_inlier_ratio: 0.6   # reject frames whose support surface does not fit a plane
     min_support_coverage: 0.05    # reject frames where the support surface barely appears
-    max_clipped_frac: 0.5         # reject frames with more than this share of object area cut off
+    max_clipped_frac: 0.5         # reject frames with more than this share of object area cut off (a lone candidate is kept with a warning)
     clipped_penalty: 0.35         # score penalty per unit fraction of object area cut off
     vlm_top_k: 4                  # frames sent to the VLM in hybrid mode
     vlm_max_side: 1024            # candidate images are downscaled to this before upload

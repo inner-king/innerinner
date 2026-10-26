@@ -29,7 +29,10 @@ then measure:
 
 Frames that fail a hard gate (no support mask, camera rolled past `floor_tilt_threshold`, bad
 plane fit, no objects found) are dropped before ranking, which also stops stage 3 from
-asserting its way out of a run that a different frame would have handled fine.
+asserting its way out of a run that a different frame would have handled fine. If only one
+candidate is scored, the clipping gate alone is waived for it, with a warning, since there is no
+other frame to prefer. A frame pinned with an integer `img_idx` is written to the same file, so
+stages that read `auto` follow it too.
 
 With `mode: hybrid` (the default) the heuristic short-lists the top few frames and a VLM makes
 the final call, since "is this object occluded" reads much better to a VLM than to a blob
@@ -199,6 +202,18 @@ def write_selection(cfg, selection: FrameSelection) -> str:
     with open(fpath, "w") as f:
         json.dump(selection.to_payload(), f, indent=4)
     return fpath
+
+
+def pinned_selection(img_idx: int) -> FrameSelection:
+    """The record for a frame named by `s3_ground.img_idx` rather than chosen by scoring.
+
+    It is written even though nothing was scored. A stage that reads `img_idx: auto` after a
+    pinned run then follows the pinned frame, not a selection left on disk by an earlier
+    automatic run.
+    """
+    return FrameSelection(
+        selected_idx=int(img_idx), mode="pinned", decided_by="pinned", n_candidates=0, scores=[],
+    )
 
 
 def resolve_img_idx(cfg, stage_key: str = "s3_ground") -> int:
@@ -388,6 +403,27 @@ def _sharpness(source_fpath: str | None, rgb: np.ndarray, object_mask: np.ndarra
     return float(laplacian[region].var())
 
 
+def _failed_gate(score: FrameScore, sel_cfg: dict[str, Any]) -> tuple[str, str] | None:
+    """The first hard gate `score` fails, as (gate name, reason), or None if it passes them all.
+
+    A frame that fails several gates is reported under the first one listed here. The names are
+    what `sole_candidate_fallback` matches on. The reasons are what users read in a stage-3 failure,
+    and the roll check in `select_canonical_frame` matches on the start of one, so their wording
+    stays fixed.
+    """
+    if score.tilt > sel_cfg["max_tilt"]:
+        return "tilt", f"roll {score.tilt:.3f} > max_tilt {sel_cfg['max_tilt']:.3f}"
+    if score.plane_inlier_ratio < sel_cfg["min_plane_inlier_ratio"]:
+        return "plane", f"plane inliers {score.plane_inlier_ratio:.2f} too low"
+    if score.support_coverage < sel_cfg["min_support_coverage"]:
+        return "support", f"support fills only {score.support_coverage:.1%} of frame"
+    if score.n_objects == 0:
+        return "no_objects", "no objects on the support surface"
+    if score.clipped_frac > sel_cfg["max_clipped_frac"]:
+        return "clipped", f"{score.clipped_frac:.0%} of object area runs off the frame"
+    return None
+
+
 def score_frame(
     position: int,
     bundle: FrameBundle,
@@ -472,21 +508,10 @@ def score_frame(
 
     score.sharpness = _sharpness(bundle.source_fpaths[position], rgb, object_u8.astype(bool))
 
-    if score.tilt > sel_cfg["max_tilt"]:
+    gate = _failed_gate(score, sel_cfg)
+    if gate is not None:
         score.eligible = False
-        score.reject_reason = f"roll {score.tilt:.3f} > max_tilt {sel_cfg['max_tilt']:.3f}"
-    elif score.plane_inlier_ratio < sel_cfg["min_plane_inlier_ratio"]:
-        score.eligible = False
-        score.reject_reason = f"plane inliers {score.plane_inlier_ratio:.2f} too low"
-    elif score.support_coverage < sel_cfg["min_support_coverage"]:
-        score.eligible = False
-        score.reject_reason = f"support fills only {score.support_coverage:.1%} of frame"
-    elif score.n_objects == 0:
-        score.eligible = False
-        score.reject_reason = "no objects on the support surface"
-    elif score.clipped_frac > sel_cfg["max_clipped_frac"]:
-        score.eligible = False
-        score.reject_reason = f"{score.clipped_frac:.0%} of object area runs off the frame"
+        score.reject_reason = gate[1]
     return score
 
 
@@ -523,6 +548,34 @@ def rank_frames(scores: Sequence[FrameScore], sel_cfg: dict[str, Any]) -> list[F
         total -= sel_cfg["clipped_penalty"] * s.clipped_frac
         s.score = float(total)
     return sorted(eligible, key=lambda s: s.score, reverse=True)
+
+
+def sole_candidate_fallback(scores: Sequence[FrameScore], sel_cfg: dict[str, Any]) -> FrameScore | None:
+    """The lone candidate to keep when its only failing gate is the clipping one, else None.
+
+    The clipping gate chooses between frames: with several to choose from, a frame cut off by the
+    edge loses to one that is not. With a single frame there is nothing to lose to, so refusing it
+    stops stage 3 without making the reconstruction any better. The other gates stay in force, since
+    a frame failing them cannot be reconstructed anyway (no support plane, camera rolled past the
+    threshold, no objects). A frame that was never measured fails the plane gate first, so it is not
+    waived either.
+
+    Args:
+        scores: Every candidate that was scored, rejected ones included.
+        sel_cfg: The merged selection config from `selection_cfg`.
+
+    Returns:
+        The FrameScore to keep, or None when the normal rejection stands.
+    """
+    if len(scores) != 1:
+        return None
+    score = scores[0]
+    if score.eligible:
+        return None
+    gate = _failed_gate(score, sel_cfg)
+    if gate is None or gate[0] != "clipped":
+        return None
+    return score
 
 
 # --------------------------------------------------------------------------------------
@@ -639,6 +692,35 @@ def write_debug_sheet(bundle: FrameBundle, scores: Sequence[FrameScore], selecte
 # Entry point
 # --------------------------------------------------------------------------------------
 
+def _finish_selection(
+    cfg,
+    bundle: FrameBundle,
+    sel_cfg: dict[str, Any],
+    scores: list[FrameScore],
+    selected_idx: int,
+    decided_by: str,
+    shortlist: list[int],
+    note: str | None,
+    n_candidates: int,
+) -> FrameSelection:
+    """Record the decision, log it, and write the debug sheet. Shared by both selection paths."""
+    mode = sel_cfg["mode"]
+    logger.info("Selected canonical frame %s (mode=%s, decided_by=%s)", selected_idx, mode, decided_by)
+    selection = FrameSelection(
+        selected_idx=selected_idx,
+        mode=mode,
+        decided_by=decided_by,
+        n_candidates=n_candidates,
+        scores=scores,
+        vlm_shortlist=shortlist,
+        vlm_note=note,
+    )
+    if sel_cfg["write_debug_sheet"]:
+        Path(cfg.s3_ground.out_dir).mkdir(parents=True, exist_ok=True)
+        write_debug_sheet(bundle, scores, selected_idx, cfg.s3_ground.out_dir)
+    return selection
+
+
 def select_canonical_frame(
     cfg,
     sam3,
@@ -683,10 +765,24 @@ def select_canonical_frame(
 
     ranked = rank_frames(scores, sel_cfg)
     if not ranked:
-        reasons = ", ".join(f"{s.idx}: {s.reject_reason}" for s in scores)
-        raise FrameSelectionError(
-            "No frame passed the selection gates. Loosen s3_ground.frame_selection (e.g. raise "
-            f"floor_tilt_threshold) or pin s3_ground.img_idx to an integer. Reasons -- {reasons}"
+        sole = sole_candidate_fallback(scores, sel_cfg)
+        if sole is None:
+            reasons = ", ".join(f"{s.idx}: {s.reject_reason}" for s in scores)
+            raise FrameSelectionError(
+                "No frame passed the selection gates. Loosen s3_ground.frame_selection (e.g. raise "
+                f"floor_tilt_threshold) or pin s3_ground.img_idx to an integer. Reasons -- {reasons}"
+            )
+        # Nothing to choose between, so the clipping gate would only stop the run. Keep the frame,
+        # but say so: the reconstruction may be cut off at the edge.
+        logger.warning(
+            "Only one candidate frame (idx %s) was scored, and it was rejected: %s. Keeping it, since "
+            "there is no other frame to choose from. To silence this, raise "
+            "s3_ground.frame_selection.max_clipped_frac or pin s3_ground.img_idx.",
+            sole.idx, sole.reject_reason,
+        )
+        return _finish_selection(
+            cfg, bundle, sel_cfg, scores, sole.idx,
+            decided_by="sole_candidate", shortlist=[], note=None, n_candidates=len(candidates),
         )
 
     for s in ranked:
@@ -724,17 +820,7 @@ def select_canonical_frame(
             selected_idx = vlm_idx
             decided_by = "vlm"
 
-    logger.info("Selected canonical frame %s (mode=%s, decided_by=%s)", selected_idx, mode, decided_by)
-    selection = FrameSelection(
-        selected_idx=selected_idx,
-        mode=mode,
-        decided_by=decided_by,
-        n_candidates=len(candidates),
-        scores=scores,
-        vlm_shortlist=shortlist,
-        vlm_note=note,
+    return _finish_selection(
+        cfg, bundle, sel_cfg, scores, selected_idx,
+        decided_by=decided_by, shortlist=shortlist, note=note, n_candidates=len(candidates),
     )
-    if sel_cfg["write_debug_sheet"]:
-        Path(cfg.s3_ground.out_dir).mkdir(parents=True, exist_ok=True)
-        write_debug_sheet(bundle, scores, selected_idx, cfg.s3_ground.out_dir)
-    return selection
