@@ -3,6 +3,7 @@
 
 import trimesh
 import shutil
+import sys
 from simfoundry.utils.python_utils import atomic_copyfile, atomic_output_path
 import imageio
 import inspect
@@ -254,6 +255,33 @@ class MeshGenerator(ShapeGenerator, TextureGenerator):
         )
 
 
+def clear_blender_images():
+    """Remove every image Blender has loaded, and return how many there were.
+
+    The paint pipeline writes each object's textures under the same file names, and Blender's OBJ
+    importer reuses an image it has already loaded from a path instead of reading the file again.
+    Clearing the objects between conversions does not drop those images, so from the second object
+    on the GLB carried the first object's metallic-roughness map, while the albedo still updated and
+    nothing looked wrong. Dropping the materials or purging orphans does not help either: the images
+    stay linked to whatever still uses them, so the images themselves have to go.
+
+    Blender is looked up in sys.modules rather than imported. If it was never loaded, no image can be
+    stale; importing it here would change when, and in what order relative to torch, it loads.
+
+    Returns:
+        int: The number of images removed.
+    """
+    bpy = sys.modules.get("bpy")
+    if bpy is None:
+        return 0
+    images = bpy.data.images
+    count = len(images)
+    # Iterate over a copy: removing from the list being iterated skips every other image.
+    for image in list(images):
+        images.remove(image)
+    return count
+
+
 class Hunyuan(MeshGenerator):
 
     REPO_PATH = None
@@ -423,11 +451,14 @@ class Hunyuan(MeshGenerator):
 
             view_processor.bake_from_multiview = bake_with_models_parked
         try:
+            # The paint pipeline's OBJ import would reuse the previous object's images (see clear_blender_images).
+            clear_blender_images()
             textured_mesh_path = self.texture_pipeline(shape_fpath, image_path=image_path, use_remesh=use_remesh)
         finally:
             if self.low_vram:
                 view_processor.bake_from_multiview = bake
                 self._move_texture_models("cpu")
+            clear_blender_images()
         textured_mesh_path_glb = textured_mesh_path.replace(".obj", ".glb")
         # Published atomically: the streaming watcher keys on this filename, and a
         # multi-tens-of-MB copy is long enough for a consumer to open it half-written.
