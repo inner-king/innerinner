@@ -209,11 +209,12 @@ def test_filter_generation_kwargs_passes_everything_to_var_keyword_backends():
 
 def test_filter_generation_kwargs_drops_names_fixed_signature_backends_reject():
     # Hunyuan.generate_shape enumerates its parameters and has no **kwargs, so forwarding a
-    # config dict unfiltered raises TypeError -- which would break the *default* backend the
-    # moment any generation option (or the inherited global seed) is set.
+    # config dict unfiltered raises TypeError on any name it lacks (e.g. `resolution`), which
+    # would break the *default* backend the moment that option is set. `seed` is one of its
+    # parameters now, so the inherited global seed reaches the shape pipeline instead of being dropped.
     kwargs = {"seed": 0, "resolution": 1536, "octree_resolution": 512}
     filtered = filter_generation_kwargs(Hunyuan.generate_shape, kwargs)
-    assert filtered == {"octree_resolution": 512}
+    assert filtered == {"seed": 0, "octree_resolution": 512}
 
     with pytest.raises(TypeError):
         inspect.signature(Hunyuan.generate_shape).bind(None, out_fpath="x.glb", **kwargs)
