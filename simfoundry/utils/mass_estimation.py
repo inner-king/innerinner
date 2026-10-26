@@ -43,6 +43,33 @@ log = logging.getLogger(__name__)
 #: mass_prompt_volumes uses for a compact solid.
 THIN_FILL = 0.4
 
+#: Bulk density ranges (kg/m^3) by material family. They are a common-sense check on a mass, not a material database:
+#: a value outside its range is worth a look, not a rejection, so the ranges are wide on purpose, and the values are
+#: provisional, rounded from standard handbook densities (the per-line notes are typical values, not table entries).
+#: The family is the first line with a keyword that names the material answer (lower-cased; see _density_family), so the
+#: order matters: stainless steel is steel, plastic-coated rubber is rubber, and foam rubber is foam.
+MATERIAL_DENSITY_FAMILIES = (
+    ("steel", ("steel", "iron", "stainless"), (7000, 8100)),  # steel ~7850, cast iron ~7200
+    ("aluminum", ("aluminum", "aluminium"), (2500, 2900)),  # ~2700
+    ("copper", ("copper", "brass", "bronze"), (7400, 9000)),  # copper ~8960, brass ~8500
+    ("glass", ("glass",), (2200, 2800)),  # soda-lime ~2500
+    ("ceramic", ("ceramic", "porcelain", "stoneware", "clay"), (1800, 2900)),  # fired clay and porcelain ~2300-2500
+    # Before rubber, so "foam rubber" and "plastic foam" are foam.
+    ("foam", ("foam", "sponge"), (10, 400)),  # polystyrene and polyurethane foam, tens of kg/m^3
+    ("rubber", ("rubber", "silicone"), (900, 1600)),  # natural rubber ~920, silicone ~1100
+    ("plastic", ("plastic", "polymer", "acrylic", "nylon", "abs", "polypropylene", "polyethylene", "pvc", "pet"),
+     (850, 2300)),  # PE ~950, PP ~900, PET ~1350, nylon ~1140, acrylic ~1180
+    ("wood", ("wood", "bamboo"), (150, 1300)),  # dense hardwoods ~700-900, balsa ~150
+    ("paper", ("paper", "cardboard"), (200, 1300)),  # paper ~800, cardboard ~650
+    ("stone", ("stone", "concrete", "marble", "granite"), (1800, 3100)),  # granite and marble ~2700, concrete ~2300
+    ("fabric", ("fabric", "cloth", "textile", "leather"), (100, 1600)),  # loose and fibrous; cotton fibre ~1500
+    ("food", ("fruit", "vegetable", "tofu", "meat", "fish", "cheese", "bread", "dough", "food"), (250, 1300)),
+    ("liquid", ("water", "juice", "oil", "liquid"), (700, 1450)),  # water 1000, oils ~900
+)
+#: Any solid whose family the material answer does not name: below 50 kg/m^3 or above 12000 (heavier than lead) is
+#: doubtful for an ordinary object.
+GLOBAL_DENSITY_RANGE = (50, 12000)
+
 
 def prompt_typical_mass(obj_phrase, bounding_box_cm):
     box = " x ".join(f"{v:.1f}cm" for v in bounding_box_cm)
@@ -168,6 +195,83 @@ def combine_masses(typical_g, material_g):
     if typical_g and material_g:
         return min(max(material_g, typical_g / 2), typical_g * 2)
     return material_g or typical_g
+
+
+def _names_material(keyword, text):
+    """Whether a keyword names the material: it starts a word, and three letters or fewer make a whole word."""
+    pattern = r"\b" + re.escape(keyword) + (r"\b" if len(keyword) <= 3 else "")
+    return re.search(pattern, text) is not None
+
+
+def _density_family(material):
+    """
+    The first family in MATERIAL_DENSITY_FAMILIES that the material answer names.
+
+    The answer is lower-cased, and a keyword must start a word, so "wooden" is wood and "steelwork" is steel. A keyword
+    of three letters or fewer must be a whole word, so "absorbent" is not abs and "PET bottle" is pet. A bare substring
+    would misfire: "carpet" would be plastic through "pet", "foil" liquid through "oil".
+
+    Args:
+        material (dict or None): the material answer (prompt_material_mass)
+
+    Returns:
+        2-tuple: (family name or None, (lo, hi) range in kg/m^3); the global range when no family matches
+    """
+    text = str((material or {}).get("material") or "").lower()
+    for family, keywords, bounds in MATERIAL_DENSITY_FAMILIES:
+        if any(_names_material(keyword, text) for keyword in keywords):
+            return family, bounds
+    return None, GLOBAL_DENSITY_RANGE
+
+
+def mass_flags(mass_kg, typical_g, material_g, material, geometry):
+    """
+    Flags on the mass stage 11 writes, for review. The mass itself is never changed.
+
+    Two checks. The clamp: combine_masses holds the material mass within a factor 2 of the typical one, so a mass
+    pinned at that edge means the two questions disagreed by more than that: "low" when the material mass was under
+    half the typical one (the mass was raised), "high" when it was over twice (the mass was lowered). The density: the
+    mass over the mesh's enclosed volume should fall in the bulk density range of the material's family. That range is
+    provisional and deliberately wide (MATERIAL_DENSITY_FAMILIES). A shell's mass over its enclosed volume is not a
+    material density, since most of that volume is empty, and an open mesh has no enclosed volume: neither is checked
+    (density_checked False, density_outside_range None). A zero volume counts as no volume, so a degenerate mesh cannot
+    divide by zero. An unknown material is checked against GLOBAL_DENSITY_RANGE.
+
+    Args:
+        mass_kg (float): the mass written to the scene (kg)
+        typical_g (float or None): the typical-mass answer (g)
+        material_g (float or None): the material mass (g)
+        material (dict or None): the material answer (prompt_material_mass)
+        geometry (dict): mesh_geometry's output
+
+    Returns:
+        dict: clamped ("low", "high" or None); density_kg_m3 (the mass over the enclosed volume, or None without one);
+        density_family (the family name or None); density_range_kg_m3 ([lo, hi], the range applied); density_checked
+        (bool); density_outside_range (bool, or None when not checked); flags (a list of "clamped_low", "clamped_high",
+        "density_low", "density_high", in that order). The values are plain Python types, so json.dumps accepts them.
+    """
+    clamped = None
+    if typical_g and material_g:  # combine_masses clamps only when both exist, so a flag means the mass was held
+        if material_g < typical_g / 2:
+            clamped = "low"
+        elif material_g > typical_g * 2:
+            clamped = "high"
+    family, (lo, hi) = _density_family(material)
+    shell = str((material or {}).get("form", "solid")).lower().startswith("shell")
+    volume_cm3 = geometry["volume_cm3"]
+    density = None if not volume_cm3 else float(mass_kg) * 1e6 / float(volume_cm3)  # kg/cm^3 times cm^3 per m^3
+    checked = not shell and bool(volume_cm3)
+    flags = [f"clamped_{clamped}"] if clamped else []
+    outside = None
+    if checked:
+        outside = density < lo or density > hi
+        if density < lo:
+            flags.append("density_low")
+        elif density > hi:
+            flags.append("density_high")
+    return {"clamped": clamped, "density_kg_m3": density, "density_family": family,
+            "density_range_kg_m3": [lo, hi], "density_checked": checked, "density_outside_range": outside,
+            "flags": flags}
 
 
 def ask_json(vlm, prompt, image_path, print_results=False):
