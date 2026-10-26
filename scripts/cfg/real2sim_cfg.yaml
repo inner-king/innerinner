@@ -181,6 +181,9 @@ s6_upsample:      # env: simfoundry
   model: gemini-3-pro-image     # options: gemini, gemini-2.5-flash-image, gemini-3-pro-image, gpt, flux
   validity_model: gemini
   infill: false    # If true, infill the object before upsampling
+  infill_mode: full          # full: the infill output is the upsampler's input (as before). occluded_only: keep the crop's visible pixels, take the infill only where the object was hidden (upsample_color.py)
+  infill_feather_px: 3       # occluded_only: seam width in pixels of the infill resolution (provisional: no evidence yet)
+  infill_rim_trim_px: 0      # occluded_only: take this many infill-resolution pixels off the infill's outer rim (0 = off; upsample_color.py)
   check_valid: false  # If true, run validity check on each upsampled object
   object_indices: null  # null = all, or [1,2] for selective streaming/reruns
   remove_bg_max_side: 1024  # Downscale before rembg inference to reduce ONNX memory use; null disables
@@ -193,6 +196,12 @@ s6_upsample:      # env: simfoundry
     min_iou: 0.90
     max_hole_change: 0.05
     area_ratio_range: [0.80, 1.25]
+  color_match:              # moves the upsampled object's colour statistics onto the stage-5 crop's visible surface (upsample_color.py)
+    enabled: false          # off by default; the default is set after the trial
+    strength: 1.0           # 0 = no change, 1 = full transfer
+    match_std: true         # also match each Lab channel's spread (false: shift the mean only)
+    std_ratio_range: [0.5, 2.0]   # clip on the spread ratio (provisional: no evidence yet)
+    max_filled_fraction: null     # null = no limit; else skip the match when more than this fraction of the object was painted
 s7_mesh:          # env: mesh
   rerun: true
   out_dirname: s7_mesh
