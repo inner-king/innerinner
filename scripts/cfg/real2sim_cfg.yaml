@@ -327,6 +327,18 @@ s8_pose:          # env: simfoundry
   min_tilt_deg: 10.0        # below this the mesh already counts as upright — no bake, no churn
   max_tilt_deg: 80.0        # an implied tilt above this is treated as a failed fit — no bake
   tilt_consensus_deg: 20.0  # top fits must agree on the up axis within this angle to be trusted
+  # Size check: the placed mesh's footprint and height against the depth. Warn only; values are not changed
+  # unless height_fit is enabled. null disables the check: no calls, and no size_check keys in the outputs.
+  size_warn_ratio: 0.15      # provisional, from one scene (pot +14%/+9%, onion +16%/+24% against the depth footprint); not tuned on any object
+  size_check_visible_only: true   # compare only the mesh faces that face the camera, as the depth does
+  height_percentile: 95       # the depth's height is this percentile of its points above the surface
+  height_ring_px: 6           # the floor is read from the band of pixels at least height_ring_gap_px from every object's removal mask and within this many pixels of the object's own mask (band width ring_px - gap)
+  height_ring_gap_px: 3       # provisional: from one scene, tofu's depth height is 15.2 mm with neighbouring masks in the ring and 26.9 mm without them
+  height_fit:
+    enabled: false            # stretch the mesh along the vertical to the depth's height when they differ by more than threshold; off until a table of measured heights sets the numbers
+    threshold: 0.25
+    min_scale: 0.5
+    max_scale: 2.0
   # use_any6d: true
   # resume_idx: Controls the interactive pose editing workflow (8b_match_object_poses_interactive.py)
   #   null  -> Normal mode: run pose fitting from scratch, auto-generate suffix for output

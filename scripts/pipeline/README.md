@@ -239,6 +239,20 @@ file. Nobody attaches it by hand in the light editor. It has no collision: the o
 which is hidden while the mesh is shown. It is not combined with `include_gs`; with both on, the mesh is skipped
 with a warning. Without the GLB, stage 14 warns and goes on without it. The saved JSON keeps the relative path, so a consumer resolves it with `simfoundry.utils.scene_utils.load_json_with_absolute_usd_paths` before handing the file to OmniGibson, since restoring the JSON as it is fails (OmniGibson resolves a relative path against a temporary scene USD).
 
+### Size Check
+
+Stage 8 fits one scale per object, so a placed mesh can disagree with the depth and nothing says so. Stage 8 now
+compares each placed mesh with its depth: the two sides of the minimum-area rectangle of the footprint on the plane
+perpendicular to gravity, and the height against the depth's height above the surface the object stands on. A
+difference above `s8_pose.size_warn_ratio` (0.15, provisional) is logged and recorded in `info/<img>.json` under
+`size_check`, and listed in `stage_info.json` under `size_warnings`. The mesh is not changed by this. With
+`s8_pose.height_fit.enabled: true` (off by default) a height that differs by more than its threshold is stretched
+to the depth's height, provided the factor is within its limits; the decision, and any refusal, is recorded under
+`height_fit`. `size_warn_ratio: null` turns the check off entirely. If fewer than 50 points
+(`size_check.DEFAULT_MIN_RING_POINTS`) fall in the floor band, the height is not compared and `size_check.height`
+holds a `skipped` reason in `info/<img>.json`; a skip means the height was not checked, not that it passed. For
+example, tofu in the lidar scene can leave too few floor points once the neighbouring objects' masks are removed.
+
 ### Inputs And Outputs
 
 Inputs:
