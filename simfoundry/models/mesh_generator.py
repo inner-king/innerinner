@@ -393,9 +393,16 @@ class Hunyuan(MeshGenerator):
         output_type="trimesh",
         enable_pbar=True,
         mask=None,
+        seed=None,
     ):
         assert self.shape_pipeline is not None, f"shape pipeline was not created for {self.__class__.__name__}!"
         assert prompt is None, f"Cannot use prompt when generating shape for {self.__class__.__name__}!"
+        # An explicit generator takes precedence over seed. Compare with None, not truthiness: the
+        # configured default seed is 0. The generator is CPU-side on purpose: randn_tensor draws the
+        # initial latents on the generator's device and then moves them, so a CPU generator gives the
+        # same latents whatever device the pipeline runs on.
+        if generator is None and seed is not None:
+            generator = torch.Generator().manual_seed(int(seed))
         # Forward the parameters rather than re-stating their defaults as literals: the previous
         # form accepted every argument above and then ignored all of them, so callers (and now
         # s7_mesh.generation_kwargs) could not change anything. The values below are identical to
@@ -422,6 +429,10 @@ class Hunyuan(MeshGenerator):
         with atomic_output_path(out_fpath) as _tmp_out:
             mesh_untextured.export(_tmp_out)
 
+    # No seed parameter, and none would help: the paint pipeline seeds itself on every call.
+    # multiviewDiffusionNet.forward_one (hy3dpaint/utils/multiview_utils.py in the Hunyuan checkout)
+    # runs seed_everything(0) and builds a torch.Generator seeded with 0, so texture diffusion is
+    # fixed whatever global seed was set before it.
     def generate_texture(
         self,
         shape_fpath,
