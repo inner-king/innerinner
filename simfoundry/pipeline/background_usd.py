@@ -26,6 +26,8 @@ BACKGROUND_NAME = "mesh_background_0"
 BACKGROUND_CATEGORY = "mesh_background"
 # The USD prim path of the background inside its own file.
 USD_ROOT = "/mesh_background"
+# OmniGibson wants exactly one rigid-body root link per object, fixed and visual-only or not, so the mesh hangs off a body.
+USD_BASE_LINK = f"{USD_ROOT}/base_link"
 
 #: Stage-4 world -> glTF is WORLD_TO_GLTF; the editor's import undoes it, so this is the rotation the USD needs.
 GLTF_TO_WORLD = np.linalg.inv(WORLD_TO_GLTF)
@@ -75,7 +77,7 @@ def write_background_usd(glb_path, usd_path) -> dict:
         dict: `usd_path` (absolute), `texture` (the texture's path relative to the USD, or None),
         `vertices`, `faces`, and `bounds` ([min, max] corners in metres, world frame).
     """
-    from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, Vt
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
     usd_path = Path(usd_path)
     usd_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,8 +112,11 @@ def write_background_usd(glb_path, usd_path) -> dict:
         UsdGeom.SetStageMetersPerUnit(stage, 1.0)
         root = UsdGeom.Xform.Define(stage, USD_ROOT)
         stage.SetDefaultPrim(root.GetPrim())
+        # The one rigid body: no collision and no mass on it, the object is fixed and visual-only.
+        base_link = UsdGeom.Xform.Define(stage, USD_BASE_LINK)
+        UsdPhysics.RigidBodyAPI.Apply(base_link.GetPrim())
 
-        mesh_prim = UsdGeom.Mesh.Define(stage, f"{USD_ROOT}/mesh")
+        mesh_prim = UsdGeom.Mesh.Define(stage, f"{USD_BASE_LINK}/mesh")
         mesh_prim.CreatePointsAttr(Vt.Vec3fArray([Gf.Vec3f(*map(float, p)) for p in points]))
         mesh_prim.CreateFaceVertexCountsAttr(Vt.IntArray([3] * len(faces)))
         mesh_prim.CreateFaceVertexIndicesAttr(Vt.IntArray(faces.reshape(-1).tolist()))

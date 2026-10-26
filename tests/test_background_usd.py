@@ -476,7 +476,7 @@ def test_points_faces_and_bounds_match_the_world_mesh(tmp_path):
 
     _, world, _, info = _write(tmp_path)
     stage = _stage(info)
-    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/mesh"))
+    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/base_link/mesh"))
     points = np.asarray(mesh.GetPointsAttr().Get(), dtype=np.float64)
     assert len(points) == len(world.vertices)
     assert len(mesh.GetFaceVertexCountsAttr().Get()) == len(world.faces)
@@ -492,7 +492,7 @@ def test_the_floor_is_at_z_zero_and_the_block_top_at_its_height(tmp_path):
 
     glb, _, _, info = _write(tmp_path)
     stage = _stage(info)
-    points = np.asarray(UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/mesh")).GetPointsAttr().Get())
+    points = np.asarray(UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/base_link/mesh")).GetPointsAttr().Get())
     assert points[:, 2].max() == pytest.approx(1.0, abs=1e-5)  # the block's top, 1 m above the floor
     assert points[:, 2].min() == pytest.approx(-0.1, abs=1e-5)  # the slab's underside, below it
     # The GLB is Y-up as glTF requires, so the same top is at y = 1 there: the writer rotated, not copied.
@@ -505,7 +505,7 @@ def test_uv_is_per_vertex_in_the_usd_convention_and_matches_the_glb(tmp_path):
 
     glb, _, _, info = _write(tmp_path)
     stage = _stage(info)
-    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/mesh"))
+    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/base_link/mesh"))
     primvar = UsdGeom.PrimvarsAPI(mesh).GetPrimvar("st")
     assert primvar.IsDefined() and primvar.GetInterpolation() == UsdGeom.Tokens.vertex
     st = np.asarray(primvar.Get(), dtype=np.float64)
@@ -541,7 +541,7 @@ def test_the_mesh_is_bound_to_a_preview_surface_whose_colour_comes_from_the_text
 
     _, _, _, info = _write(tmp_path)
     stage = _stage(info)
-    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/mesh"))
+    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/base_link/mesh"))
     bound = UsdShade.MaterialBindingAPI(mesh.GetPrim()).ComputeBoundMaterial()[0]
     assert bound and bound.GetPath() == "/mesh_background/material"
     surface = UsdShade.Shader(stage.GetPrimAtPath("/mesh_background/material/surface"))
@@ -550,14 +550,76 @@ def test_the_mesh_is_bound_to_a_preview_surface_whose_colour_comes_from_the_text
     assert source and source[0].GetPrim().GetPath().name == "basecolor"
 
 
-def test_no_physics_schema_is_applied_anywhere(tmp_path):
+def test_one_rigid_body_at_the_base_link_and_no_collision_or_mass(tmp_path):
+    # OmniGibson needs exactly one rigid-body root link; nothing may make the background collide or weigh anything.
     pytest.importorskip("pxr")
+    from pxr import UsdPhysics
 
     _, _, _, info = _write(tmp_path)
     stage = _stage(info)
-    for prim in stage.Traverse():
-        physics = [s for s in prim.GetAppliedSchemas() if "Physics" in s]
-        assert physics == [], f"{prim.GetPath()} has {physics}"
+    bodies = [p.GetPath().pathString for p in stage.Traverse() if p.HasAPI(UsdPhysics.RigidBodyAPI)]
+    assert bodies == ["/mesh_background/base_link"]
+    assert [p for p in stage.Traverse() if p.HasAPI(UsdPhysics.CollisionAPI)] == []
+    assert [p for p in stage.Traverse() if p.HasAPI(UsdPhysics.MeshCollisionAPI)] == []
+    assert [p for p in stage.Traverse() if p.HasAPI(UsdPhysics.MassAPI)] == []
+
+
+def test_the_prim_hierarchy_is_the_one_omnigibson_loads(tmp_path):
+    pytest.importorskip("pxr")
+    from pxr import UsdGeom
+
+    _, _, _, info = _write(tmp_path)
+    stage = _stage(info)
+    paths = {p.GetPath().pathString for p in stage.Traverse()}
+    assert paths == {
+        "/mesh_background",
+        "/mesh_background/base_link",
+        "/mesh_background/base_link/mesh",
+        "/mesh_background/material",
+        "/mesh_background/material/surface",
+        "/mesh_background/material/st",
+        "/mesh_background/material/basecolor",
+    }
+    mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/mesh_background/base_link/mesh"))
+    assert mesh.GetPrim().GetParent().GetPath().pathString == "/mesh_background/base_link"
+
+
+def _scene_utils_loader():
+    """The module's own loader, compiled from its source: importing scene_utils needs torch, which the editor env lacks.
+
+    The module defines the name twice; the later definition is the one an import binds, so that is the one used.
+    """
+    tree = ast.parse((REPO / "simfoundry/utils/scene_utils.py").read_text())
+    definitions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "load_json_with_absolute_usd_paths"]
+    namespace = {"REPO_DIR": str(REPO)}
+    exec(compile(ast.Module(body=[definitions[-1]], type_ignores=[]), "scene_utils.py", "exec"), namespace)
+    return namespace["load_json_with_absolute_usd_paths"]
+
+
+def test_a_loaded_scene_resolves_the_relative_path_whatever_the_working_directory(tmp_path, monkeypatch):
+    # The consumer resolves the saved relative path against the JSON's own folder (load_json_with_absolute_usd_paths),
+    # so the result is the USD the writer made, and it does not depend on where the process runs.
+    pytest.importorskip("pxr")
+    load_json_with_absolute_usd_paths = _scene_utils_loader()
+
+    _, _, _, info = _write(tmp_path)
+    json_path = tmp_path / "scene" / "reconstructed_og_scene.json"
+    json_path.parent.mkdir()
+    usd_abs = info["usd_path"]
+    text = _write_scene(json_path, usd_abs)
+    bu.relativize_background_path(json_path)
+
+    monkeypatch.chdir(tmp_path / "scene")
+    scene = load_json_with_absolute_usd_paths(str(json_path))
+    resolved = scene["objects_info"]["init_info"][bu.BACKGROUND_NAME]["args"]["usd_path"]
+    assert os.path.isabs(resolved)
+    assert os.path.normpath(resolved) == os.path.normpath(usd_abs)
+    assert pathlib.Path(resolved).is_file()
+    assert scene["objects_info"]["init_info"]["table_0"]["args"]["usd_path"] == "/data/table/model.usd"
+
+    monkeypatch.chdir(tmp_path)
+    assert load_json_with_absolute_usd_paths(str(json_path)) == scene
+    assert text != json_path.read_text()  # the file itself keeps the relative path
 
 
 def test_the_editor_entry_has_the_shape_the_editor_writes_for_a_room(tmp_path, monkeypatch):

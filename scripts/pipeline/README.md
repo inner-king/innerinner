@@ -212,7 +212,7 @@ world (`s14_og/background/mesh_background_0.usd`, with its texture beside it), a
 visual-only object `mesh_background_0`, and records it in `reconstructed_og_scene.json` by a path relative to that
 file. Nobody attaches it by hand in the light editor. It has no collision: the objects rest on the floor plane,
 which is hidden while the mesh is shown. It is not combined with `include_gs`; with both on, the mesh is skipped
-with a warning. Without the GLB, stage 14 warns and goes on without it.
+with a warning. Without the GLB, stage 14 warns and goes on without it. The saved JSON keeps the relative path, so a consumer resolves it with `simfoundry.utils.scene_utils.load_json_with_absolute_usd_paths` before handing the file to OmniGibson, since restoring the JSON as it is fails (OmniGibson resolves a relative path against a temporary scene USD).
 
 ### Inputs And Outputs
 
