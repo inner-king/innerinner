@@ -322,7 +322,8 @@ def test_the_size_check_is_imported_at_module_level():
     tree, _ = _stage8_main()
     imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.module == "simfoundry.pipeline.size_check"]
     assert len(imports) == 1
-    assert {a.name for a in imports[0].names} == {"decide_height_fit", "fit_height", "ring_mask", "size_report"}
+    assert {a.name for a in imports[0].names} == {"decide_height_fit", "final_scale_record", "fit_height", "ring_mask",
+                                                  "size_report"}
 
 
 def test_the_switch_is_defined_before_the_object_loop_and_guards_every_size_output():
@@ -703,3 +704,134 @@ def test_the_defaults_of_the_noise_and_the_fallback_are_in_the_config():
     s8 = yaml.safe_load(CFG.read_text())["s8_pose"]
     assert s8["height_noise_sigmas"] == 2.0
     assert s8["height_floor_fallback"] is True
+
+
+# --- the floor's median and bin width, the fallback's boundary, the sign of the height deviation, and the defaults ---
+
+def test_dominant_floor_is_the_median_of_its_bin_not_the_mean():
+    # One 5 mm bin holds three values at 0.1 mm and one at 4.9 mm: the median (0.1 mm) is not the mean (1.3 mm).
+    assert sc.dominant_floor([0.0001, 0.0001, 0.0001, 0.0049]) == pytest.approx(0.0001)
+
+
+def test_the_dominant_bin_is_five_millimetres_wide():
+    # Five millimetre bins: three values in the first and four in the second, so the second wins, with median 7.5 mm.
+    # Ten millimetre bins would put all seven in one bin, whose median is 6 mm.
+    assert sc.dominant_floor([0.001, 0.002, 0.003, 0.006, 0.007, 0.008, 0.009]) == pytest.approx(0.0075)
+
+
+def test_the_fallback_is_used_with_exactly_the_minimum_number_of_points_and_not_with_one_fewer():
+    # The ring minimum is also the fallback's minimum: 50 points are enough, 49 are not.
+    ring = _ring_with_spread(0.0, 0.001, n=10)  # too thin, so the fallback decides
+    exactly = _height_case(0.02, 0.02, ring, fallback=_box_points(n=(5, 10)))["height"]  # 50 points
+    assert exactly["floor_source"] == "neighbour_masks"
+    one_fewer = _height_case(0.02, 0.02, ring, fallback=_box_points(n=(7, 7)))["height"]  # 49 points
+    assert one_fewer["skipped"] == "only 10 points around the object to read the surface from, need 50"
+
+
+def test_a_mesh_shorter_than_the_depth_is_judged_by_its_size_against_the_noise_too():
+    # The mesh is 8 mm shorter than the depth: 40 % off. The floor's noise is about 1.5 mm, so 2 sigmas is about 3 mm,
+    # and 8 mm is beyond that.
+    assert _height_case(0.012, 0.02, _ring_with_spread(0.0, 0.001))["warnings"] == ["height"]
+    # The same shortfall inside a floor noise of about 15 mm (2 sigmas about 30 mm) is not reported.
+    assert _height_case(0.012, 0.02, _ring_with_spread(0.0, 0.01))["warnings"] == []
+
+
+def test_the_size_report_does_not_read_the_fallback_when_the_setting_is_missing():
+    # The function's own default is off, so a caller that leaves the key out keeps the old behaviour.
+    no_key = {k: v for k, v in NOISE_SETTINGS.items() if k != "floor_fallback"}
+    ring = _ring_with_spread(0.0, 0.001, n=10)  # too thin
+    reason = _height_case(0.02, 0.02, ring, fallback=_box_points(), settings=no_key)["height"]["skipped"]
+    assert reason == "only 10 points around the object to read the surface from, need 50"
+
+
+def test_the_stage_defaults_for_the_noise_and_the_fallback_are_the_config_values():
+    yaml = pytest.importorskip("yaml")
+    s8 = yaml.safe_load(CFG.read_text())["s8_pose"]
+    _, main = _stage8_main()
+    defaults = {}
+    for call in ast.walk(main):
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "get"
+                and len(call.args) == 2 and isinstance(call.args[0], ast.Constant)
+                and isinstance(call.args[1], ast.Constant)):
+            defaults.setdefault(call.args[0].value, call.args[1].value)
+
+    assert defaults["height_noise_sigmas"] == s8["height_noise_sigmas"] == 2.0
+    assert defaults["height_floor_fallback"] is True and s8["height_floor_fallback"] is True
+
+
+# --- the total scale stage 8 placed the object at, recorded before FoundationPose resets the pose's scale ---------------
+
+def test_the_final_scale_is_the_pre_scale_times_the_cpd_scale_for_a_scalar():
+    assert sc.final_scale_record(0.5, 2.0) == {"cpd_scale": 2.0, "final_scale": 1.0}
+
+
+def test_the_final_scale_is_the_pre_scale_times_each_axis_of_the_cpd_scale():
+    assert sc.final_scale_record(0.5, np.array([1.0, 2.0, 4.0])) == {"cpd_scale": [1.0, 2.0, 4.0],
+                                                                     "final_scale": [0.5, 1.0, 2.0]}
+
+
+def test_a_unit_cpd_scale_leaves_the_final_scale_at_the_pre_scale():
+    assert sc.final_scale_record(0.8, np.ones(3))["final_scale"] == pytest.approx([0.8, 0.8, 0.8])
+
+
+def test_the_scale_record_is_plain_numbers_and_lists_so_it_serialises_to_json():
+    record = sc.final_scale_record(np.float64(0.5), np.array([1.0, 2.0, 4.0]))
+    assert json.loads(json.dumps(record)) == record
+    assert all(type(v) is float for v in record["final_scale"])
+    assert type(sc.final_scale_record(0.5, 2.0)["final_scale"]) is float
+
+
+def test_the_scale_record_is_made_from_the_final_pre_scale_and_the_cpd_scale_before_foundationpose_resets_it():
+    _, main = _stage8_main()
+    records = _calls(main, "final_scale_record")
+    assert len(records) == 1
+    args = [ast.unparse(a) for a in records[0].args]
+    assert args == ["final_pre_scale_factor", "top_info['tf_z_up'].scale"]
+    # The same expression FoundationPose's export applies to the mesh, so the record and the mesh read one factor.
+    applied = [c for c in _calls(main, "apply_scale") if isinstance(c.func, ast.Attribute)
+               and ast.unparse(c.func.value) == "fp_scaled_mesh"]
+    assert [ast.unparse(a) for a in applied[0].args] == [args[1]]
+    # Recorded before the FoundationPose block, and so before the pose is overwritten with a unit scale.
+    fp_block = [n.lineno for n in ast.walk(main) if isinstance(n, ast.If) and ast.unparse(n.test) == "use_foundationpose"]
+    overwrite = [n.lineno for n in ast.walk(main) if isinstance(n, ast.Assign)
+                 and ast.unparse(n.targets[0]) == "top_info['tf_z_up']" and ast.unparse(n.value) == "foundationpose_tf_rt"]
+    assert len(fp_block) == 1 and len(overwrite) == 1
+    assert records[0].lineno < fp_block[0] < overwrite[0]
+
+
+def test_the_info_file_records_the_cpd_and_final_scales_beside_the_pre_scale_factor():
+    _, main = _stage8_main()
+    out = [n.value for n in ast.walk(main) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict)
+           and any(isinstance(t, ast.Name) and t.id == "out_info" for t in n.targets)]
+    assert len(out) == 1
+    entries = {k.value: ast.unparse(v) for k, v in zip(out[0].keys, out[0].values)}
+    assert entries["pre_scale_factor"] == "float(pre_scale_factor)"
+    assert entries["cpd_scale"] == "scale_record['cpd_scale']"
+    assert entries["final_scale"] == "scale_record['final_scale']"
+
+
+def test_the_height_fit_factor_is_recorded_apart_and_is_one_unless_a_stretch_was_applied():
+    _, main = _stage8_main()
+    recorded = {}
+    for guard in _ifs_on(main, "size_check_on"):
+        for n in ast.walk(guard):
+            if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Subscript) \
+                    and isinstance(n.targets[0].slice, ast.Constant):
+                recorded[n.targets[0].slice.value] = n.value
+    value = recorded["height_fit_scale"]
+    assert isinstance(value, ast.IfExp)
+    assert ast.unparse(value.test) == "height_fit_record['applied']"
+    assert ast.unparse(value.body) == "height_fit_record['scale']" and ast.unparse(value.orelse) == "1.0"
+
+
+def test_no_log_says_a_scale_grid_search_runs_while_its_loop_is_commented_out():
+    _, main = _stage8_main()
+    text = ast.unparse(main)
+    assert "Running scale grid search" not in text
+    assert "scale_multiplier=" not in text
+    assert "Scale grid search is off" in text
+
+
+def test_the_readme_names_the_scale_keys_the_info_file_records():
+    readme = (REPO / "scripts/pipeline/README.md").read_text()
+    assert "`cpd_scale`" in readme and "`final_scale`" in readme and "`height_fit_scale`" in readme

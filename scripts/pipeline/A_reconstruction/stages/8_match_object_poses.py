@@ -36,7 +36,7 @@ from simfoundry.pipeline.front_canonicalization import canonicalize_front, yaw_s
 from simfoundry.pipeline.upright_from_fit import decide_tilt, resolve_bake_fitted_tilt, tilt_from_fit
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.utils.python_utils import atomic_output_path
-from simfoundry.pipeline.size_check import decide_height_fit, fit_height, ring_mask, size_report
+from simfoundry.pipeline.size_check import decide_height_fit, final_scale_record, fit_height, ring_mask, size_report
 import multiprocessing
 from tqdm import trange
 import logging
@@ -587,7 +587,7 @@ def main(cfg):
         scale_multipliers = np.arange(0.8, 1.25, 0.05)
         scale_multipliers = scale_multipliers[np.abs(scale_multipliers - 1.0) > 0.01]  # Exclude 1.0 (already computed)
         
-        logger.info(f"Running scale grid search with multipliers: {scale_multipliers}")
+        logger.info("Scale grid search is off; fitting at the base pre_scale_factor only")
         
         # for scale_mult in scale_multipliers:
         #     # Compute the new pre_scale_factor for this multiplier
@@ -620,9 +620,7 @@ def main(cfg):
         
         # Extract the final pre_scale_factor from the best result
         final_pre_scale_factor = top_info["pre_scale_factor"]
-        final_scale_multiplier = top_info["scale_multiplier"]
-        logger.info(f"Best fit found at scale_multiplier={final_scale_multiplier:.2f} "
-                   f"(final_pre_scale_factor={final_pre_scale_factor:.4f}, dist={top_info['dist']:.6f})")
+        logger.info(f"Best fit found (final_pre_scale_factor={final_pre_scale_factor:.4f}, dist={top_info['dist']:.6f})")
 
         # Tilt canonicalization: the direction the best fit sends onto the scene's gravity
         # axis is the object's true up in mesh coordinates. When the fit is trusted, the
@@ -763,6 +761,12 @@ def main(cfg):
                 o3d.visualization.draw_geometries([source, target, result_check])
         
                 # from IPython import embed; embed()
+
+        # The total is recorded before FoundationPose, which resets the pose's scale to one below; after that the
+        # info file's z_up.scale no longer says how big the object was placed.
+        scale_record = final_scale_record(final_pre_scale_factor, top_info["tf_z_up"].scale)
+        logger.info(f"final scale = pre {final_pre_scale_factor:.4f} x cpd {np.round(scale_record['cpd_scale'], 4).tolist()}"
+                    f" = {np.round(scale_record['final_scale'], 4).tolist()}")
 
         # Potentially load FoundationPose if requested
         use_foundationpose = cfg.s8_pose.use_foundationpose
@@ -1002,8 +1006,11 @@ def main(cfg):
                 "rot": top_info["tf_y_up"].rot.tolist(),
                 "scale": np.asarray(top_info["tf_y_up"].scale).tolist(),
             },
-            # Total scale = pre_scale_factor * tf_scale
+            # z_up.scale is cpd_scale alone (FoundationPose resets it to one); final_scale is the total,
+            # pre_scale_factor x cpd_scale.
             "pre_scale_factor": float(pre_scale_factor),
+            "cpd_scale": scale_record["cpd_scale"],
+            "final_scale": scale_record["final_scale"],
             "front_canonicalization": front_info,
             "front_canonicalization_post_tilt": front_info_post_tilt,
             "tilt_canonicalization": tilt_info,
@@ -1011,6 +1018,8 @@ def main(cfg):
         if size_check_on:
             out_info["size_check"] = size_check_record
             out_info["height_fit"] = height_fit_record
+            # The stretch is along up only, so it is kept apart from final_scale rather than multiplied into it.
+            out_info["height_fit_scale"] = height_fit_record["scale"] if height_fit_record["applied"] else 1.0
 
         with atomic_output_path(f"{out_dir}/info/{img_name}.json") as _tmp_info, open(_tmp_info, "w") as f:
             json.dump(out_info, f, indent=4)

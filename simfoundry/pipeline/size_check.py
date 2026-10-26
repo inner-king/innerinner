@@ -273,6 +273,30 @@ def fit_height(vertices, up, scale: float) -> np.ndarray:
     return vertices + (scale - 1.0) * (along - base)[:, None] * direction[None, :]
 
 
+def _as_json(value) -> float | list[float]:
+    value = np.asarray(value, dtype=np.float64)
+    return float(value) if value.ndim == 0 else [float(v) for v in value]
+
+
+def final_scale_record(pre_scale_factor, cpd_scale) -> dict[str, Any]:
+    """The scale stage 8 placed the object at: the CPD scale, and its product with the pre-scale factor.
+
+    FoundationPose's path bakes the CPD scale into the exported mesh and then resets the pose's scale to one, so the
+    pose no longer says how big the object was placed. On both paths the placed mesh is the original scaled by the
+    product (the pre-scale is in the canonical mesh; the CPD scale is in the pose, or in the mesh on that path), so the
+    product is recorded on both. The height fit is not in it: it stretches along up only, and is recorded apart.
+
+    Args:
+        pre_scale_factor: the scalar stage 8 applied to the canonical mesh before the match.
+        cpd_scale: the CPD transform's scale, a scalar or three numbers.
+
+    Returns:
+        dict: `cpd_scale` and `final_scale`, each a float or a list of three floats, so the record serialises to JSON.
+    """
+    cpd = np.asarray(cpd_scale, dtype=np.float64)
+    return {"cpd_scale": _as_json(cpd), "final_scale": _as_json(float(pre_scale_factor) * cpd)}
+
+
 _GROW_KERNEL = np.ones((3, 3), dtype=np.uint8)
 
 

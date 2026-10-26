@@ -194,6 +194,9 @@ threshold, and more than the floor's noise, is stretched to the depth's height, 
 limits; the decision, and any refusal, is recorded under `height_fit`. The stretch works on a canonical GLB that
 carries a node transform: the transform is baked into the vertices, the stretch is made there, and the node is reset,
 so the file reads back in the frame the check measured. `size_warn_ratio: null` turns the check off entirely.
+`info/<img>.json` records `cpd_scale` and `final_scale` (`pre_scale_factor` times `cpd_scale`, the placed size) on every
+run; with the check on it also records `height_fit_scale`, the stretch along up (1.0 when none was applied), which is
+not in `final_scale`.
 
 Known false warnings, from the lidar run (`b2_check`), that the check does not detect yet:
 
