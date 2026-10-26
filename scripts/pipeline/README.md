@@ -101,6 +101,15 @@ frame throughout.*
 | `13` | `A_reconstruction/stages/13_import_usd.py` | `simfoundry` | Import assets into USD datasets. | dataset USD assets |
 | `14` | `A_reconstruction/stages/14_create_og_scene.py` | `simfoundry` | Create the final OG scene JSON and preview. | `s14_og/reconstructed_og_scene.json`, `reconstructed_scene.png` |
 
+Stage 6 checks each upsampled silhouette against the stage-5 crop it was made from (`s6_upsample.reference_check`,
+`simfoundry/pipeline/upsample_check.py`). An image model that cuts a corner, fills a hole or redraws the object at
+another size changes the silhouette, and the check records the IoU, the area ratio and the change in hole fraction
+in `stage_info.json` under `reference_checks`, warning when a threshold is crossed. With `action: revert` a flagged
+object keeps its stage-5 crop instead. The thresholds are provisional: one scene and 15 objects, with evidence only
+for `min_iou`. With `infill: true` the model paints the hidden part of the object too, so the silhouette can change
+for a good reason; then a flag means the picture differs from the crop, not that it is wrong. With the check disabled,
+stage 6 writes nothing extra.
+
 ### Mesh Generators
 
 Stage 7 supports three image-to-3D backends, selected with `s7_mesh.shape_model` and

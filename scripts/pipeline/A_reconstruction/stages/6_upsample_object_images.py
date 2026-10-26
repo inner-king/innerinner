@@ -21,6 +21,7 @@ from simfoundry.utils.prompt_utils import prompt_upsample_image, prompt_upsample
 from simfoundry.utils.processing_utils import pad_image_to_ratio, remove_background
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 from simfoundry.utils.python_utils import assert_valid_key
+from simfoundry.pipeline.upsample_check import resolve_thresholds, run_reference_check
 import torch
 from pathlib import Path
 from PIL import Image
@@ -84,6 +85,12 @@ def main(cfg):
     assert_valid_key(key=model_name, valid_keys=UPSAMPLE_MODELS, name="upsample model")
     ratios = dict()
     invalid_objects = []
+    # Reference check (upsample_check.py). Off unless s6_upsample.reference_check.enabled: then no check runs and
+    # no key is written, so the stage behaves as it did before.
+    reference_check_cfg = cfg.s6_upsample.get("reference_check", None)
+    reference_check_enabled = bool(reference_check_cfg is not None and reference_check_cfg.get("enabled", False))
+    reference_thresholds = resolve_thresholds(reference_check_cfg) if reference_check_enabled else None
+    reference_checks = {}
     if model_name == "gemini":
         model = Gemini(
             project=cfg.gcloud_project,
@@ -410,6 +417,25 @@ def main(cfg):
 
         
         #########################################################################################################
+        ########### REFERENCE CHECK STEP: does the upsampled silhouette still match the stage-5 crop?
+        ###########
+        #########################################################################################################
+        if reference_check_enabled:
+            transparent_fpath = f"{out_dir}/upsampled/{img_name}_transparent.png"
+            reference_checks[img_name] = run_reference_check(
+                input_img_padded, upsampled_img_fpath, transparent_fpath, reference_thresholds,
+            )
+            check = reference_checks[img_name]
+            if check["flags"]:
+                logger.warning(
+                    f"Object [{obj_phrase}] differs from its stage-5 crop ({', '.join(check['flags'])}): "
+                    f"iou {check['iou']:.3f}, area ratio {check['area_ratio']}, "
+                    f"hole change {check['hole_change']:+.3f} (thresholds {reference_thresholds})"
+                )
+            if check["reverted"]:
+                logger.warning(f"Object [{obj_phrase}] reverted to its stage-5 crop")
+
+        #########################################################################################################
         ########### CHECK OBJECTS STEP: check if the objects are valid
         ###########
         #########################################################################################################
@@ -448,7 +474,11 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s6_upsample,
         out_dir=cfg.s6_upsample.out_dir,
-        result=StageResult(success=True, additional_info={"invalid_objects": invalid_objects, **served_models}),
+        result=StageResult(success=True, additional_info={
+            "invalid_objects": invalid_objects,
+            **served_models,
+            **({"reference_checks": reference_checks} if reference_check_enabled else {}),
+        }),
     )
 
 if __name__ == "__main__":

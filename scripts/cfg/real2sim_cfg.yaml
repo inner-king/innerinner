@@ -205,6 +205,14 @@ s6_upsample:      # env: simfoundry
   object_indices: null  # null = all, or [1,2] for selective streaming/reruns
   remove_bg_max_side: 1024  # Downscale before rembg inference to reduce ONNX memory use; null disables
   include_invalid: true  # If true, process objects that s5 marked as invalid (is_valid_removed_obj=false)
+  reference_check:          # compares each upsampled silhouette with the stage-5 crop it was made from (simfoundry/pipeline/upsample_check.py)
+    enabled: true           # warns and records stage_info.json["reference_checks"]; changes an output only if action is revert
+    action: warn            # warn | revert (revert: a flagged object keeps the stage-5 crop instead of the upsampled image)
+    # Provisional thresholds. min_iou 0.90 is the one value with evidence (one scene, 15 objects: below it every harmful result
+    # and some faithful ones, e.g. 0.928 for a board with infill off). The other two have none.
+    min_iou: 0.90
+    max_hole_change: 0.05
+    area_ratio_range: [0.80, 1.25]
 s7_mesh:          # env: mesh
   rerun: true
   out_dirname: s7_mesh
