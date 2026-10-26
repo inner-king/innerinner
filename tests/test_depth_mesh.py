@@ -27,6 +27,7 @@ from simfoundry.pipeline.depth_mesh import (
     DEFAULT_PARAMS,
     WORLD_TO_GLTF,
     build_background_mesh,
+    drop_small_components,
     export_glb,
     find_stage5_inputs,
     frame_mask_to_grid,
@@ -138,7 +139,9 @@ def test_the_texture_drops_the_padding_columns():
 # --------------------------------------------------------------------------------------
 
 def test_plane_pixels_become_vertices_on_the_support_plane():
-    mesh, _, stats = build_background_mesh(scene_depth(False), K, CAM2WORLD, pattern_plate())
+    # The border trim has its own test; here every pixel must stay, so the plane's geometry is what is checked.
+    mesh, _, stats = build_background_mesh(
+        scene_depth(False), K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 0})
 
     assert stats["vertices"] == H * W
     assert np.allclose(mesh.vertices[:, 2], 0.0, atol=1e-9)
@@ -200,7 +203,7 @@ def test_grid_triangles_edge_ratio_is_one_for_a_face_on_surface_and_grows_with_s
 def test_zero_depth_leaves_no_vertex_and_is_dropped_as_invalid():
     depth = scene_depth(False)
     depth[10:14, 10:14] = 0.0
-    mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate())
+    mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 0})
 
     assert stats["vertices"] == H * W - 16
     assert np.isfinite(mesh.vertices).all()
@@ -212,7 +215,7 @@ def test_zero_depth_leaves_no_vertex_and_is_dropped_as_invalid():
 def test_a_nan_depth_leaves_no_vertex():
     depth = scene_depth(False)
     depth[20, 20] = np.nan
-    mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate())
+    mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 0})
 
     assert stats["vertices"] == H * W - 1
     assert np.isfinite(mesh.vertices).all()
@@ -583,3 +586,338 @@ def test_the_stage_script_reads_every_setting_and_writes_through_the_module():
 
     assert {"DEFAULT_PARAMS", "build_background_mesh", "export_glb", "find_stage5_inputs"} <= imported
     assert {"build_background_mesh", "export_glb", "find_stage5_inputs", "finalize_stage"} <= calls
+
+
+# --------------------------------------------------------------------------------------
+# Surfaces under objects, the two layers, the border and the crumbs
+# --------------------------------------------------------------------------------------
+
+GRID = 40
+RING_BOX = (9, 31)  # a 22 x 22 mask at rows and columns 9..30 of a 40 x 40 grid
+
+
+def tilted_camera(theta_deg):
+    """A camera theta degrees from straight down, a grazing view of the support plane."""
+    t = np.radians(theta_deg)
+    cam = np.eye(4)
+    cam[:3, :3] = [[1.0, 0.0, 0.0], [0.0, -np.cos(t), np.sin(t)], [0.0, -np.sin(t), -np.cos(t)]]
+    cam[:3, 3] = [0.0, 0.0, CAM_HEIGHT]
+    return cam
+
+
+def depth_of_surface(cam2world, z_level):
+    """The depth map of a horizontal surface at world height z_level, as seen from cam2world."""
+    rays = depth_mesh.pixel_rays((H, W), K)
+    rays_world = rays @ cam2world[:3, :3].T
+    return (z_level - cam2world[2, 3]) / rays_world[..., 2]
+
+
+def ring_case(ring_heights_of, ring_px=1, box=RING_BOX):
+    """A square mask on a flat grid at 12.5 mm, and the heights of its ring as ring_heights_of(ring_index, row, col)."""
+    from scipy.ndimage import binary_dilation
+
+    mask = np.zeros((GRID, GRID), dtype=bool)
+    mask[box[0]:box[1], box[0]:box[1]] = True
+    ring = binary_dilation(mask, structure=np.ones((3, 3), dtype=bool), iterations=ring_px) & ~mask
+    rows, cols = np.nonzero(ring)
+    z = np.full((GRID, GRID), 0.0125)
+    z[rows, cols] = [ring_heights_of(i, r, c) for i, (r, c) in enumerate(zip(rows, cols))]
+    grid_rows, grid_cols = np.meshgrid(np.arange(GRID), np.arange(GRID), indexing="ij")
+    points = np.stack([grid_cols.astype(float), grid_rows.astype(float), z], axis=-1)
+    return mask, points, ~mask
+
+
+def test_a_ring_with_two_surfaces_is_filled_at_the_wider_one_not_at_the_median():
+    # Interleaved, as a real ring is: laid out in order, each surface would be a band a tilted plane fits.
+    heights = np.array([-0.0325] * 25 + [-0.0075] * 25 + [0.0125] * 42)
+    heights = heights[np.random.default_rng(0).permutation(len(heights))]
+    mask, points, usable = ring_case(lambda i, r, c: heights[i])
+    _, _, c, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "ring_px": 1})
+
+    assert set(np.unique(kind[mask]).tolist()) == {2}
+    assert np.allclose(c[mask], 0.0125)
+    # The median of this ring is -7.5 mm, a height neither surface has, so a median rule would fail here.
+    assert np.median(heights) == -0.0075
+
+
+def test_a_tilted_ring_is_filled_horizontally_at_its_dominant_height():
+    mask, points, usable = ring_case(lambda i, r, c: 0.1 * c)
+    a, b, _, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "ring_px": 1})
+
+    assert set(np.unique(kind[mask]).tolist()) == {2}
+    assert np.allclose(a[mask], 0.0) and np.allclose(b[mask], 0.0)
+
+
+def test_a_flat_ring_gives_the_fitted_local_plane():
+    rng = np.random.default_rng(3)
+    mask, points, usable = ring_case(lambda i, r, c: rng.uniform(-0.001, 0.001))
+    a, b, c, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "ring_px": 1})
+
+    assert set(np.unique(kind[mask]).tolist()) == {1}
+    assert np.allclose(c[mask], 0.0, atol=2e-3)
+
+
+def test_a_ring_too_small_to_read_stays_on_the_support_plane():
+    mask, points, usable = ring_case(lambda i, r, c: 0.02, ring_px=1, box=(19, 21))  # a 2 x 2 mask: 12 ring pixels
+    _, _, c, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "ring_px": 1})
+
+    assert set(np.unique(kind[mask]).tolist()) == {0}
+    assert np.allclose(c[mask], 0.0)
+
+
+def test_mask_surface_plane_keeps_every_object_on_the_support_plane():
+    heights = [-0.0325] * 25 + [-0.0075] * 25 + [0.0125] * 42
+    mask, points, usable = ring_case(lambda i, r, c: heights[i])
+    _, _, c, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "mask_surface": "plane"})
+
+    assert set(np.unique(kind).tolist()) == {0}
+    assert np.allclose(c, 0.0)
+
+
+def test_mask_surface_other_than_local_or_plane_is_an_error():
+    with pytest.raises(ValueError):
+        build_background_mesh(scene_depth(False), K, CAM2WORLD, pattern_plate(), params={"mask_surface": "fitted"})
+
+
+def test_the_ring_fit_ignores_points_that_belong_to_a_neighbour():
+    x, y = np.meshgrid(np.arange(20.0), np.arange(20.0))
+    z = 0.001 * x + 0.002 * y + 0.01
+    points = np.stack([x.ravel(), y.ravel(), z.ravel()], axis=1)
+    points[:15, 2] += 0.2  # a neighbouring object's pixels in the ring
+
+    a, b, c, _ = depth_mesh.fit_plane_robust(points)
+
+    assert abs(a - 0.001) < 1e-6 and abs(b - 0.002) < 1e-6 and abs(c - 0.01) < 1e-6
+    assert depth_mesh.fit_plane_robust(points[:2]) is None
+
+
+def test_a_ring_point_of_a_neighbouring_object_does_not_change_the_ring():
+    # Two objects one pixel apart. The object at the top is 10 cm high; the other's ring must not include it.
+    mask = np.zeros((GRID, GRID), dtype=bool)
+    mask[5:15, 5:15] = True
+    mask[17:27, 5:15] = True
+    tops = np.zeros((GRID, GRID))
+    tops[mask] = 0.1
+    grid_rows, grid_cols = np.meshgrid(np.arange(GRID), np.arange(GRID), indexing="ij")
+    points = np.stack([grid_cols.astype(float), grid_rows.astype(float), np.where(mask, tops, 0.0)], axis=-1)
+    _, _, c, kind = depth_mesh.local_support_planes(mask, points, ~mask, {**DEFAULT_PARAMS, "ring_px": 6})
+
+    assert set(np.unique(kind[mask]).tolist()) == {1}
+    assert np.allclose(c[mask], 0.0, atol=1e-9)
+
+
+def test_each_ring_gets_its_own_plane():
+    mask = np.zeros((GRID, GRID), dtype=bool)
+    mask[4:12, 4:12] = True
+    mask[4:12, 26:34] = True
+    z = np.zeros((GRID, GRID))
+    z[:, :20] = 0.01
+    z[:, 20:] = -0.02
+    grid_rows, grid_cols = np.meshgrid(np.arange(GRID), np.arange(GRID), indexing="ij")
+    points = np.stack([grid_cols.astype(float), grid_rows.astype(float), z], axis=-1)
+    _, _, c, kind = depth_mesh.local_support_planes(mask, points, ~mask, {**DEFAULT_PARAMS, "ring_px": 3})
+
+    assert np.allclose(c[4:12, 4:12], 0.01)
+    assert np.allclose(c[4:12, 26:34], -0.02)
+    assert set(np.unique(kind[mask]).tolist()) == {1}
+
+
+def test_the_three_surface_counts_add_up_to_the_object_pixels():
+    depth = scene_depth(False)
+    depth[:BOX_ROWS[0] - 2] -= 0.02  # a step in the surround, so the ring can hold two heights
+    _, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate(), box_mask_frame(), params={"mask_dilate_px": 0})
+
+    assert stats["object_pixels_ring_level"] > 0  # the scene must exercise the ring-level term
+    split = (stats["object_pixels_local_surface"] + stats["object_pixels_ring_level"]
+             + stats["object_pixels_support_plane"])
+    assert split == stats["object_pixels_replaced_by_plane"]
+    assert stats["object_pixels_replaced_by_plane"] + stats["object_pixels_without_plane_hit"] == (
+        (BOX_ROWS[1] - BOX_ROWS[0]) * (BOX_COLS[1] - BOX_COLS[0]))
+    assert stats["triangles_plane_layer"] + stats["triangles_relief"] == stats["triangles"]
+
+
+def test_the_plane_layer_is_not_judged_by_the_relief_limit():
+    # Edges about six pixel footprints long: over the relief limit of 4, under the plane limit of 8.
+    h, w = 4, 6
+    cols, rows = np.meshgrid(np.arange(w), np.arange(h))
+    points = np.stack([cols * 0.06, rows * 0.01, np.ones((h, w))], axis=-1)
+    z_cam = np.ones((h, w))
+    valid = np.ones((h, w), dtype=bool)
+
+    _, relief = grid_triangles(valid, points, z_cam, 100.0, max_edge_ratio=4.0)
+    _, plane = grid_triangles(valid, points, z_cam, 100.0, max_edge_ratio=4.0,
+                              plane_mask=np.ones((h, w), dtype=bool), plane_max_edge_ratio=8.0)
+
+    assert relief["triangles_dropped_stretched"] == relief["triangles_total"]
+    assert plane["triangles_dropped_stretched"] == 0
+
+
+def test_a_relief_triangle_is_judged_by_the_relief_limit_even_when_a_plane_limit_is_given():
+    h, w = 4, 6
+    cols, rows = np.meshgrid(np.arange(w), np.arange(h))
+    points = np.stack([cols * 0.06, rows * 0.01, np.ones((h, w))], axis=-1)
+    _, counts = grid_triangles(np.ones((h, w), dtype=bool), points, np.ones((h, w)), 100.0, max_edge_ratio=4.0,
+                               plane_mask=np.zeros((h, w), dtype=bool), plane_max_edge_ratio=8.0)
+
+    assert counts["triangles_dropped_stretched"] == counts["triangles_total"]
+
+
+def test_a_mask_edge_on_the_counter_does_not_crack_the_plane_layer():
+    # A grazing view (60 degrees) of the counter, 8 mm above the support plane, with an object patch moved onto
+    # z = 0 at the mask edge. Both sides are plane pixels, but the 894363c limit of 4 cuts their edges: a crack.
+    depth = depth_of_surface(tilted_camera(60), 0.008)
+    depth[BOX_ROWS[0]:BOX_ROWS[1], BOX_COLS[0]:BOX_COLS[1]] -= 0.1 / np.cos(np.radians(60))
+    shared = {"mask_dilate_px": 0, "mask_surface": "plane", "border_trim_px": 0, "min_component_triangles": 0,
+              "relief_max_edge_ratio": 4.0}
+    _, _, as_894363c = build_background_mesh(depth, K, tilted_camera(60), pattern_plate(), box_mask_frame(),
+                                             {**shared, "plane_max_edge_ratio": 4.0})
+    _, _, now = build_background_mesh(depth, K, tilted_camera(60), pattern_plate(), box_mask_frame(),
+                                      {**shared, "plane_max_edge_ratio": 8.0})
+
+    assert as_894363c["triangles_dropped_stretched_plane"] > 0
+    assert now["triangles_dropped_stretched_plane"] == 0
+
+
+def test_a_surface_below_the_support_plane_is_not_snapped_onto_it():
+    depth = depth_of_surface(CAM2WORLD, -0.2)
+    mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 0})
+
+    assert np.allclose(mesh.vertices[:, 2], -0.2)
+    assert stats["vertices_snapped_to_plane"] == 0
+
+
+def test_the_border_pixels_are_trimmed_with_their_triangles():
+    _, _, stats = build_background_mesh(scene_depth(False), K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 4})
+
+    assert stats["vertices"] == (H - 8) * (W - 8)
+    assert stats["vertices_trimmed_border"] == H * W - (H - 8) * (W - 8)
+
+
+def test_small_pieces_of_the_triangulation_are_dropped_and_large_ones_kept():
+    strip = np.array([[i, i + 1, i + 2] for i in range(5)])
+    big = np.array([[100 + i, 101 + i, 102 + i] for i in range(300)])
+    triangles = np.concatenate([strip, big])
+
+    kept, dropped = drop_small_components(triangles, 500, 200)
+
+    assert dropped == 5
+    assert len(kept) == 300 and kept.min() >= 100
+    assert len(drop_small_components(triangles, 500, 0)[0]) == len(triangles)
+
+
+def test_no_triangle_is_emitted_twice():
+    mesh, _, _ = build_background_mesh(scene_depth(), K, CAM2WORLD, pattern_plate(), box_mask_frame())
+    keys = np.sort(mesh.faces, axis=1)
+
+    assert len({tuple(k) for k in keys.tolist()}) == len(keys)
+
+
+def test_the_synthetic_scenes_reproduce_894363c_with_the_regression_settings():
+    # Recorded by running 894363c's depth_mesh on the same scenes: counts only, the settings that match it.
+    regression = {"mask_surface": "plane", "border_trim_px": 0, "min_component_triangles": 0,
+                  "relief_max_edge_ratio": 4.0, "plane_max_edge_ratio": 4.0}
+    _, _, masked = build_background_mesh(scene_depth(), K, CAM2WORLD, pattern_plate(), box_mask_frame(), regression)
+    _, _, measured = build_background_mesh(scene_depth(), K, CAM2WORLD, pattern_plate(), None, regression)
+
+    assert (masked["vertices"], masked["triangles"]) == (3072, 5922)
+    assert (measured["vertices"], measured["triangles"]) == (3072, 5804)
+
+
+def test_missing_depth_next_to_an_object_stays_out_of_its_ring():
+    # Depth 0 and NaN just outside the mask: a zero depth maps to the camera's own position and a NaN to
+    # nothing. Either must not pull the surface an object is filled with off the counter's plane.
+    for missing in (0.0, np.nan):
+        depth = scene_depth(False)
+        depth[BOX_ROWS[0] - 6:BOX_ROWS[0], BOX_COLS[0] - 6:BOX_COLS[1] + 6] = missing
+        depth[BOX_ROWS[1]:BOX_ROWS[1] + 6, BOX_COLS[0] - 6:BOX_COLS[1] + 6] = missing
+        mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate(), box_mask_frame(),
+                                               params={"mask_dilate_px": 0, "border_trim_px": 0})
+
+        assert np.isfinite(mesh.vertices).all()
+        assert stats["object_pixels_local_surface"] + stats["object_pixels_ring_level"] + stats["object_pixels_support_plane"] \
+            == stats["object_pixels_replaced_by_plane"]
+        # The object is on the counter, so its pixels land at z = 0 whichever surface the ring gives.
+        assert np.allclose(mesh.vertices[:, 2], 0.0, atol=1e-6)
+
+
+def test_a_noise_free_plane_ring_gives_the_local_plane():
+    mask, points, usable = ring_case(lambda i, r, c: 0.02 * c)
+    a, _, c, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "ring_px": 1})
+
+    assert set(np.unique(kind[mask]).tolist()) == {1}
+    assert np.allclose(a[mask], 0.02)
+
+
+def test_one_ring_point_three_millimetres_off_still_gives_the_local_plane():
+    def heights(i, r, c):
+        return 0.02 * c + (0.003 if i == 0 else 0.0)
+
+    mask, points, usable = ring_case(heights)
+    a, _, _, kind = depth_mesh.local_support_planes(mask, points, usable, {**DEFAULT_PARAMS, "ring_px": 1})
+
+    assert set(np.unique(kind[mask]).tolist()) == {1}
+    assert np.allclose(a[mask], 0.02, atol=1e-3)
+
+
+def test_a_mask_is_classed_as_plane_layer_by_where_it_lands_not_by_where_it_was_measured():
+    # The box top is measured 10 cm up; the mask moves it onto the plane, so its triangles are plane layer.
+    _, _, masked = build_background_mesh(scene_depth(), K, CAM2WORLD, pattern_plate(), box_mask_frame(),
+                                         params={"mask_dilate_px": 0, "border_trim_px": 0})
+    _, _, unmasked = build_background_mesh(scene_depth(), K, CAM2WORLD, pattern_plate(), None,
+                                           params={"border_trim_px": 0})
+
+    assert masked["triangles_relief"] == 0
+    assert masked["triangles_plane_layer"] == masked["triangles"]
+    assert unmasked["triangles_relief"] > 0
+
+
+def test_plane_intersections_at_a_height_above_zero_hit_that_height():
+    point, valid = plane_intersections(np.array([[1.0, 0.0, -1.0]]), np.array([0.0, 0.0, 2.0]), height=0.5)
+
+    assert valid.tolist() == [True]
+    assert np.allclose(point[0], [1.5, 0.0, 0.5])
+
+
+def test_a_tie_between_two_height_bands_goes_to_the_lower_one():
+    z = np.array([0.0125] * 10 + [0.0275] * 10)
+
+    assert depth_mesh.dominant_height(z) == 0.0125
+
+
+def test_vertices_snapped_counts_only_the_vertices_the_mesh_uses():
+    _, _, stats = build_background_mesh(scene_depth(False), K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 4})
+
+    assert stats["vertices_snapped_to_plane"] == stats["vertices"]
+    assert stats["vertices_snapped_to_plane"] < H * W
+
+
+def test_the_two_millimetre_floor_keeps_a_point_that_is_nearly_on_a_flat_ring():
+    # A flat ring with one point 1.9 mm off: within the 2 mm floor, so the fit keeps it. Without the floor the
+    # spread of this noise-free ring is zero and the point is dropped.
+    x, y = np.meshgrid(np.arange(8.0), np.arange(8.0))
+    x, y = x.ravel(), y.ravel()
+    z = 0.02 * x
+    z[5] += 0.0019
+    design = np.column_stack([x, y, np.ones_like(x)])
+    c_all = np.linalg.lstsq(design, z, rcond=None)[0][2]
+    keep = np.ones(len(z), dtype=bool)
+    keep[5] = False
+    c_clean = np.linalg.lstsq(design[keep], z[keep], rcond=None)[0][2]
+
+    _, _, c, _ = depth_mesh.fit_plane_robust(np.stack([x, y, z], axis=1))
+
+    assert np.isclose(c, c_all, atol=1e-9) and not np.isclose(c_all, c_clean, atol=1e-9)
+
+
+def test_the_snapped_count_is_the_plane_vertices_the_mesh_uses():
+    # A 3 x 3 island of counter cut off by a 50 cm trench: its pixels are plane pixels, but no triangle uses them.
+    depth = scene_depth(False)
+    trench = np.zeros(depth.shape, dtype=bool)
+    trench[18:25, 28:35] = True
+    island = np.zeros(depth.shape, dtype=bool)
+    island[20:23, 30:33] = True
+    depth[trench & ~island] = CAM_HEIGHT + 0.5
+    mesh, _, stats = build_background_mesh(depth, K, CAM2WORLD, pattern_plate(), params={"border_trim_px": 0})
+
+    assert stats["vertices_snapped_to_plane"] == int((np.abs(mesh.vertices[:, 2]) < 0.01).sum())
+    assert stats["vertices_snapped_to_plane"] < int((np.abs(depth - CAM_HEIGHT) < 0.01).sum())
