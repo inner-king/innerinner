@@ -289,6 +289,20 @@ Stage 8 seeds Python's `random`, numpy and Open3D from the global `seed` once pe
 
 Stage 8 scales the mesh by `pre_scale_factor` and then lets CPD choose a further scale m (`tf_z_up.scale`). With `s8_pose.cpd_scale_limit` set to r, where 0 < r < 1, each scaled CPD fit whose m lies outside [1 - r, 1 + r] is moved to the nearest bound and refitted there by a fixed-scale rigid CPD; the fits inside the bounds are unchanged, and the fit with the lowest `dist` is chosen as before. The default is `null`, which keeps the current code path. The setting is off because its only evidence is one scene (research 2's B9 study, where onion and pot came out at m 1.27 and 1.29); it is provisional and not tuned on any object. With a limit set the info file also records `cpd_scale_limit`, `cpd_scale_clamped` and `cpd_scale_unclamped`, and the log says when the chosen fit was clamped. Known and not fixed: `dist` is measured after the source is scaled by 1/m, so the `dist` values of fits with different m are not in one unit; a unit correction (dist * m^2) was tried and withdrawn (`b9_scale/report_pre_ko.md`, research 2).
 
+### Reproducibility of stages 3 and 5
+
+Open3D's RANSAC (`segment_plane`) runs in parallel and stops early with `probability` (Open3D 0.20 defaults to 0.99999999), so
+with the default the same seed could give different planes at different thread counts. Measured on one lidar scene
+(research 2, `stage3_repro/report_ko.md`): the same seed gave 16 different frame-scoring planes in 200 repeats, the object
+count came out 6, 7 or 8 (30, 77 and 93 repeats), and the two real runs' floor tilts differed by 0.112 degrees and their
+origins by about 2.5 mm. The frame-scoring fit and the floor fit now pass `probability=1.0`, which switches the early stop off: the
+same seed gives the same plane at 1 to 24 threads. The cost is time: on this machine the frame-scoring fit (2,000 iterations) takes about 27 ms at 24 threads and 0.47 s on
+one thread, and the floor fit (1,000 iterations) about 14 ms and 0.23 s. Stage 3 also seeds the floor fit on every path (a pinned `img_idx` used to skip the seeding). Stage 5 draws the
+interior sample points of the removal order and the tie-breaking noise of its scale-shift fit from generators seeded by
+`seed` in the config, where it used the unseeded numpy and torch generators before. This is not bit-identical to earlier
+runs: the planes, the object count, the floor and the removal order's samples can change (they now repeat for a seed,
+which they did not before), and everything downstream of them follows.
+
 ### Inputs And Outputs
 
 Inputs:

@@ -53,6 +53,7 @@ from simfoundry.pipeline.removal_ghosts import GHOST_SKIP_REASON, RemovedRegion,
     load_removed_regions, point_in_removed_regions
 from simfoundry.utils.python_utils import atomic_output_path
 import hydra
+from omegaconf import OmegaConf
 import logging
 import os
 import glob
@@ -335,9 +336,45 @@ def choose_prompt_point_from_bbox(
     return (cx, cy), {"fallback_to_center": True}
 
 
+def sample_interior_points(intersector, bounds, n_ray_samples, rng):
+    """Random points inside a convex hull: the samples drawn in its bounding box that the hull contains.
+
+    The removal order measures occlusion, support and containment with these points, so they are drawn from `rng`, the
+    seeded generator of the call, and from nothing else.
+
+    Args:
+        intersector: a trimesh RayMeshIntersector of the convex hull.
+        bounds: the hull's (2, 3) bounds.
+        n_ray_samples: how many points to draw in the bounding box before keeping the ones inside.
+        rng: a numpy Generator, np.random.default_rng(seed).
+
+    Returns:
+        (K, 3) the points inside the hull.
+    """
+    candidates = rng.uniform(low=bounds[0], high=bounds[1], size=(n_ray_samples, 3))
+    return candidates[intersector.contains_points(candidates)]
+
+
+def tie_break_noise(like, generator):
+    """Uniform noise in [0, 1e-5), with the shape, device and dtype of `like`, drawn from a seeded torch generator.
+
+    It only breaks ties between equal predictions before the scale-shift least squares. torch.rand_like drew it from the
+    unseeded global generator, so the fit, and the scale and shift it gives, varied from run to run.
+
+    Args:
+        like: the tensor the noise is added to.
+        generator: a torch.Generator on the CPU, seeded once per run.
+
+    Returns:
+        A tensor shaped like `like`.
+    """
+    return (torch.rand(like.shape, generator=generator) * 1e-5).to(device=like.device, dtype=like.dtype)
+
+
 def compute_object_removal_order(
     obj_chs,
     cam2world_tf,
+    seed,
     n_ray_samples=1000,
     occlusion_ray_fraction_threshold=0.05,
     support_ray_fraction_threshold=0.20,
@@ -357,6 +394,8 @@ def compute_object_removal_order(
     Args:
         obj_chs: dict mapping phrase_unique_id -> trimesh convex hull mesh
         cam2world_tf: 4x4 camera-to-world transformation matrix
+        seed: seed of the generator the interior sample points are drawn from. Required: the caller passes the run's
+            seed, so the same seed gives the same removal order.
         n_ray_samples: number of ray samples for each test
         occlusion_ray_fraction_threshold: fraction of camera-directed rays that must be
             blocked for an object to be considered occluded
@@ -376,16 +415,14 @@ def compute_object_removal_order(
 
     cam_pos = cam2world_tf[:3, 3]
 
-    # Pre-compute intersectors and interior sample points for each object
+    # Pre-compute intersectors and interior sample points for each object. The samples come from one generator
+    # seeded by the caller and drawn in the order the objects are visited, so the same seed gives the same samples.
+    rng = np.random.default_rng(seed)
     intersectors = {}
     interior_points = {}
     for phrase, ch in obj_chs.items():
         intersectors[phrase] = trimesh.ray.ray_pyembree.RayMeshIntersector(ch)
-        min_coords = ch.bounds[0]
-        max_coords = ch.bounds[1]
-        candidates = np.random.uniform(low=min_coords, high=max_coords, size=(n_ray_samples, 3))
-        inside = intersectors[phrase].contains_points(candidates)
-        interior_points[phrase] = candidates[inside]
+        interior_points[phrase] = sample_interior_points(intersectors[phrase], ch.bounds, n_ray_samples, rng)
 
     # --- Heuristic 2 (computed first): Support relationship detection ---
     # Build a directed graph: on_top_of[B] contains A means B is on top of A
@@ -862,6 +899,8 @@ def main(cfg):
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     # Other hyperparams we need
+    # The run's seed: it seeds the removal order's sample points and the tie-breaking noise of the scale-shift fit.
+    run_seed = int(OmegaConf.select(cfg, "seed") or 0)
     scene_img_idx = resolve_img_idx(cfg, stage_key="s5_scene")
     ground_img_idx = resolve_img_idx(cfg)
     if scene_img_idx != ground_img_idx:
@@ -982,6 +1021,8 @@ def main(cfg):
         version="1.0",
         args=args,
     )
+    # One generator per run for the tie-breaking noise of the scale-shift fit, seeded like the rest of the run.
+    noise_generator = torch.Generator().manual_seed(run_seed)
     def _calc_scale_shift_fp32(k_sparse_targets, k_pred_targets, currk_dists=None, knn=False):
         # Prior-Depth-Anything can run under autocast (fp16/bf16), but lstsq only
         # supports float/double. Recompute in fp32 with autocast disabled.
@@ -991,7 +1032,7 @@ def main(cfg):
             if currk_dists is not None:
                 currk_dists = currk_dists.to(torch.float32)
 
-            k_pred_targets = k_pred_targets + torch.rand_like(k_pred_targets) * 1e-5
+            k_pred_targets = k_pred_targets + tie_break_noise(k_pred_targets, noise_generator)
             X = torch.stack(
                 [
                     k_pred_targets,
@@ -1817,6 +1858,7 @@ def main(cfg):
             obj_phrase_unique_id_to_remove = compute_object_removal_order(
                 obj_chs=obj_chs,
                 cam2world_tf=cam2world_tf,
+                seed=run_seed,
             )
             obj_idx_to_remove = pruned_phrases_unique_ids.index(obj_phrase_unique_id_to_remove)
         obj_phrase_to_remove = pruned_phrases[obj_idx_to_remove]

@@ -17,10 +17,12 @@ from pathlib import Path
 from PIL import Image
 import json
 import hydra
+from omegaconf import OmegaConf
 import os
 from copy import deepcopy
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 from simfoundry.pipeline.frame_selection import (
+    fit_ground_plane,
     is_auto_img_idx,
     pinned_selection,
     select_canonical_frame,
@@ -278,7 +280,10 @@ def main(cfg):
     rgbs = rgb.reshape(-1, 3)[floor_mask.flatten()] / 255.0
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pts)
-    plane_model, inliers = pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=1000)
+    # The floor fit is the second RANSAC of this stage, and the floor it gives sets the camera frame of every later stage.
+    # fit_ground_plane seeds Open3D's random engine right before the fit, on every path (a pinned img_idx never reached a
+    # seeding call before), and turns off the early stop, so the same seed gives the same floor at any thread count.
+    plane_model, inliers = fit_ground_plane(pts, int(OmegaConf.select(cfg, "seed") or 0))
     rgbs[inliers] = np.array([1.0, 0, 0]).reshape(1, 3)
     pcd.colors = o3d.utility.Vector3dVector(rgbs)
     [a, b, c, d] = plane_model

@@ -77,7 +77,11 @@ def _load_ordering_function():
         "defaultdict": defaultdict,
         "support_levels": support_levels,
     }
-    exec(func_source, namespace)
+    # The function draws its interior sample points with the helper defined just above it in the stage file
+    helper_rest = source[source.index("def sample_interior_points("):]
+    helper_match = re.search(r"\n(?:def |class |[A-Z][A-Z_]+ *=)", helper_rest[1:])
+    helper_source = helper_rest[:helper_match.start() + 1] if helper_match else helper_rest
+    exec(helper_source.rstrip() + "\n\n" + func_source, namespace)
     return namespace["compute_object_removal_order"]
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -185,7 +189,7 @@ def test_toast_on_plate():
 
     obj_chs = {"green plate_0": plate, "sliced toast_1": toast}
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world, seed=0)
 
     assert selected == "sliced toast_1", f"FAIL: Expected 'sliced toast_1' but got '{selected}'"
     logger.info("PASS: Toast correctly selected before plate\n")
@@ -213,7 +217,7 @@ def test_cup_in_bowl():
 
     obj_chs = {"deep bowl_0": bowl, "small cup_1": cup}
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world, seed=0)
 
     assert selected == "small cup_1", f"FAIL: Expected 'small cup_1' but got '{selected}'"
     logger.info("PASS: Cup correctly selected before bowl\n")
@@ -245,7 +249,7 @@ def test_occluded_on_top_vs_non_occluded():
 
     obj_chs = {"obj_A_0": obj_a, "obj_B_1": obj_b, "obj_C_2": obj_c}
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world, seed=0)
 
     # B should be selected: it's non-occluded (highest priority)
     assert selected == "obj_B_1", f"FAIL: Expected 'obj_B_1' but got '{selected}'"
@@ -275,7 +279,7 @@ def test_foreground_tiebreaker():
 
     obj_chs = {"near_obj_0": obj_near, "far_obj_1": obj_far}
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world, seed=0)
 
     assert selected == "near_obj_0", f"FAIL: Expected 'near_obj_0' but got '{selected}'"
     logger.info("PASS: Closer object correctly selected as tiebreaker\n")
@@ -302,7 +306,7 @@ def test_stacked_three_objects():
 
     obj_chs = {"top_A_0": obj_a, "mid_B_1": obj_b, "base_C_2": obj_c}
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world, seed=0)
 
     assert selected == "top_A_0", f"FAIL: Expected 'top_A_0' but got '{selected}'"
     logger.info("PASS: Topmost object A correctly selected in 3-level stack\n")
@@ -334,7 +338,7 @@ def test_object_in_open_container():
 
     obj_chs = {"open cardboard box_0": box, "golden-brown croissant_1": croissant}
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world, seed=0)
 
     assert selected == "golden-brown croissant_1", \
         f"FAIL: Expected 'golden-brown croissant_1' but got '{selected}'"
@@ -486,7 +490,7 @@ def test_real_droid_desk_1():
         return False
 
     # Run the new ordering
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world_tf)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world_tf, seed=0)
 
     expected = "sliced toast_0"
     if selected == expected:
@@ -625,7 +629,7 @@ def test_real_droid_desk_2():
         logger.error("Could not segment both croissant and box. Test inconclusive.")
         return False
 
-    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world_tf)
+    selected = compute_object_removal_order(obj_chs=obj_chs, cam2world_tf=cam2world_tf, seed=0)
 
     expected = "golden-brown croissant_0"
     if selected == expected:
