@@ -342,14 +342,38 @@ def _fit_support_plane(points: np.ndarray):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
     # More iterations than stage 3 uses for its single fit: here the fits are compared against
-    # each other, so RANSAC scatter shows up directly as noise in the ranking.
-    (a, b, c, d), inliers = pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=2000)
+    # each other, so RANSAC scatter shows up directly as noise in the ranking. probability=1.0 switches off Open3D's
+    # early stop, which ends the parallel search at a point that depends on the thread count and the timing; with it
+    # the same seed gives the same plane at any thread count.
+    (a, b, c, d), inliers = pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=2000, probability=1.0)
     normal = np.array([a, b, c], dtype=np.float64)
     # Camera Z points into the scene and towards the surface, so an upward normal has a
     # negative dot product with it (same convention as stage 3).
     if float(normal @ np.array([0.0, 0.0, 1.0])) > 0.0:
         normal, d = -normal, -d
     return normal, float(d), np.asarray(inliers, dtype=int)
+
+
+def fit_ground_plane(points: np.ndarray, seed: int):
+    """Stage 3's floor fit as a function of its seed: seed Open3D's random engine, then fit one RANSAC plane.
+
+    Stage 3 runs these lines inline, right before its floor fit (the tests check them there); this is the same pair for
+    the tests and the replays. probability=1.0 makes the fit the same for the same seed at any thread count.
+
+    Args:
+        points: (N, 3) points of the floor mask, camera frame.
+        seed: the run's seed (`seed` in the config).
+
+    Returns:
+        (plane, inliers): the plane (a, b, c, d) as float64, and the inlier indices.
+    """
+    import open3d as o3d
+
+    o3d.utility.random.seed(int(seed))
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    plane_model, inliers = pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=1000, probability=1.0)
+    return np.asarray(plane_model, dtype=np.float64), np.asarray(inliers, dtype=int)
 
 
 def _object_mask_above_plane(points_flat, normal, d, shape, valid, sel_cfg, plane_points):
@@ -734,8 +758,9 @@ def select_canonical_frame(
     bundle = bundle if bundle is not None else load_frame_bundle(cfg)
 
     # The plane fits are RANSAC, so without seeding the same capture can pick different frames
-    # on different runs -- and the whole reconstruction hangs off that choice. Open3D fits in
-    # parallel, so this narrows the run-to-run scatter rather than eliminating it.
+    # on different runs -- and the whole reconstruction hangs off that choice. With probability=1.0
+    # in _fit_support_plane the same seed gives the same planes at any thread count, and the candidates
+    # are scored one after another, so the seeded engine is drawn from in the same order on every run.
     o3d.utility.random.seed(int(OmegaConf.select(cfg, "seed") or 0))
 
     n_frames = len(bundle)
