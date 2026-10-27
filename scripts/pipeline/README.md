@@ -305,9 +305,8 @@ the final triangulation has 5 connected pieces with the current setting, with th
 triangulation has 7 pieces with the current and one-sided settings and 5 with symmetric 3 cm and 2 cm. The plane layer
 alone splits into 20 pieces with the current setting (17 under 200 triangles), 4 one-sided (2 under 200), 7 symmetric
 3 cm (5 under 200) and 5 symmetric 2 cm (2 under 200). Plane-layer triangles dropped for stretched edges rise from 1
-(current) to 503 (one-sided) and 956 (symmetric 3 cm). The 25 cracked plane-layer pieces that a comment in the config
-attributes to 2 cm symmetric do not come out of these counts, and the count behind that comment is not recorded in the
-repository.
+(current) to 503 (one-sided) and 956 (symmetric 3 cm). An earlier run reported 25 cracked pieces with a 2 cm symmetric snap;
+the counts above did not reproduce it, and how the 25 were counted is not recorded.
 
 Generalisation: 3 cm and 1 cm come from one capture of one sensor. Real terrain rarely lies 3 cm under the support
 plane (a sink lies deeper), and the sensor error is what reads in that range here, but that is an observation from one

@@ -179,7 +179,9 @@ s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mes
   out_dir: "${root_dir}/${scene_name}/${s_bg_mesh.out_dirname}"
   # Every value below is provisional, from one scene (the rerun copy); none is fitted to more than one scene.
   # In that scene the counter's measured height is +1.2 cm at the median, 5-95% -1.9..+2.0 cm, so plane_snap_tol_m
-  # (1 cm) keeps only part of it on the plane. 2 cm was tried: it brings back 25 cracked pieces in the plane layer.
+  # (1 cm) keeps only part of it on the plane. An earlier run reported 25 cracked pieces with a 2 cm symmetric snap;
+  # the measurement in the README section "One-sided plane snap" did not reproduce it, and how the 25 were counted is not
+  # recorded.
   # simfoundry/pipeline/depth_mesh.py says what each one does.
   mask_dilate_px: 3         # pixels (depth grid) the object masks grow by before their pixels are moved onto their surface
   mask_surface: local       # local: each object's pixels move onto the plane read from the ring around it (fitted if flat, else the ring's dominant height; z = 0 only if the ring is too small); plane: z = 0 for every object
