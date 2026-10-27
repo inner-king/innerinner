@@ -343,6 +343,16 @@ def main(cfg):
             print(f"Friction of {obj_name}: static {obj_mat.get_static_friction():.3f}, "
                   f"dynamic {obj_mat.get_dynamic_friction():.3f}")
 
+        # --bg-mesh: the stage-5c mesh goes in as a visual-only USD in the stage-4 world (not the Y-up glTF it was
+        # written as). It goes in while the simulator is stopped, like the objects: added during play, OmniGibson
+        # warns that an articulation root API changed (object_base.py). It has no collision and is fixed, so the
+        # settle does not see it, and it is in the scene before the robot and the save.
+        if attach_bg_mesh:
+            bg_usd = write_background_usd(bg_mesh_glb, f"{out_dir}/background/{BACKGROUND_NAME}.usd")
+            add_background_object(env, bg_usd["usd_path"])
+            bg_mesh_record = {"attached": True, "usd": f"background/{BACKGROUND_NAME}.usd", **bg_usd}
+            print(f"Attached background mesh {BACKGROUND_NAME}: {bg_usd['vertices']} vertices, {bg_usd['faces']} faces")
+
     # Let simulation settle before capturing final poses
     print("\nLetting simulation settle...")
     settle_steps = cfg.s14_og.get("settle_steps", 100)
@@ -422,14 +432,6 @@ def main(cfg):
             og.sim.render()
 
         # TODO: Get camK2cam0 tf as well, since 3DGS is taken wrt first cam frame
-
-    # --bg-mesh: the stage-5c mesh goes in as a visual-only USD in the stage-4 world (not the Y-up glTF it was
-    # written as). It is added before the robot and the save, so the saved scene has it.
-    if attach_bg_mesh:
-        bg_usd = write_background_usd(bg_mesh_glb, f"{out_dir}/background/{BACKGROUND_NAME}.usd")
-        add_background_object(env, bg_usd["usd_path"])
-        bg_mesh_record = {"attached": True, "usd": f"background/{BACKGROUND_NAME}.usd", **bg_usd}
-        print(f"Attached background mesh {BACKGROUND_NAME}: {bg_usd['vertices']} vertices, {bg_usd['faces']} faces")
 
    
 

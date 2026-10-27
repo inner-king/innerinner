@@ -262,13 +262,11 @@ def _og_save(main):
     return saves[0]
 
 
-def test_the_attach_block_comes_after_the_3dgs_block_and_before_the_save():
+def test_the_attach_block_comes_before_the_save():
+    # The block now sits in the stopped block, ahead of the settle and of the 3DGS block. Their order does not matter:
+    # `include_gs` clears the flag (test above), so the two never both run.
     _, main = _stage14()
-    # `if include_gs:` by itself is the 3DGS block; `if not include_gs:` is a different one.
-    gs_block = [i for i in ast.walk(main) if isinstance(i, ast.If) and isinstance(i.test, ast.Name)
-                and i.test.id == "include_gs"]
-    assert len(gs_block) == 1
-    assert gs_block[0].lineno < _attach_block(main).lineno < _og_save(main).lineno
+    assert _attach_block(main).lineno < _og_save(main).lineno
 
 
 def test_the_saved_path_is_made_relative_after_the_save_and_only_when_attached():
@@ -297,6 +295,35 @@ def test_the_aabb_calls_all_run_before_the_background_is_added():
     added = min(c.lineno for c in _calls(main, "add_background_object"))
     aabb_lines = [n.lineno for n in ast.walk(main) if isinstance(n, ast.Attribute) and n.attr in {"aabb", "get_aabb"}]
     assert aabb_lines and max(aabb_lines) < added
+
+
+def _stopped_blocks(main):
+    """The `with og.sim.stopped():` blocks of stage 14."""
+    return [n for n in ast.walk(main) if isinstance(n, ast.With)
+            and any(_calls(item.context_expr, "stopped") for item in n.items)]
+
+
+def test_the_background_is_added_inside_the_stopped_block():
+    # Added while the simulator plays, OmniGibson warns that an object's articulation root API changed (object_base.py).
+    _, main = _stage14()
+    added = _calls(main, "add_background_object")[0]
+    assert len([b for b in _stopped_blocks(main) if b.lineno <= added.lineno <= b.end_lineno]) == 1
+
+
+def test_the_background_is_added_after_the_last_aabb_read_and_before_the_settle():
+    _, main = _stage14()
+    added = _calls(main, "add_background_object")[0].lineno
+    aabb_lines = [n.lineno for n in ast.walk(main) if isinstance(n, ast.Attribute) and n.attr in {"aabb", "get_aabb"}]
+    settle = [n.lineno for n in ast.walk(main) if isinstance(n, ast.For) and "settle_steps" in _names(n.iter)]
+    assert len(settle) == 1
+    assert max(aabb_lines) < added < settle[0]
+
+
+def test_the_background_is_added_once_and_only_under_the_flag():
+    _, main = _stage14()
+    calls = _calls(main, "add_background_object")
+    assert len(calls) == 1
+    assert calls[0] in list(ast.walk(_attach_block(main)))
 
 
 # --------------------------------------------------------------------------------------
