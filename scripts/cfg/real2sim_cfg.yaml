@@ -432,6 +432,11 @@ s11_sim:          # env: simfoundry
   # an object typically weighs (simfoundry/utils/mass_estimation.py; scored with Qwen3.5-9B, Pipeline A's VLM).
   # direct: the single mass question asked before. Another VLM: score it first with repro/mass_friction/bench_mass.py.
   mass_method: material_typical
+  # Name each object's model by its content: the name's seed carries an eight-digit hash of the stage-8 mesh (or of the
+  # articulated parts and URDF) and the scale it is written at (asset_naming.content_hash8). Two inputs under one scene
+  # name then get two names, and the shared dataset keeps both. false: the old name, from the scene, the category and
+  # the index only.
+  model_name_content_hash: true
 s12_physics:      # env: simfoundry
   rerun: true
   out_dirname: s12_physics
@@ -448,6 +453,13 @@ s13_usd: #env b1k
   # stage 11 writes (map_Pm/map_Pr) reach the USD. Objects whose base color carries real
   # alpha keep the URDF importer's OmniPBR_Opacity materials for the opacity pass above.
   asset_pipeline_materials: true
+  # What a re-import does when it would replace an asset that an earlier scene uses: warn (log it and import), fail (stop
+  # before the import), or overwrite (log at INFO and import). Only a geometry change is subject to it; see
+  # simfoundry/pipeline/asset_manifest.py (decide_import, apply_conflict_policy).
+  on_conflict: warn
+  # Skip the import when the asset's manifest says its geometry, import settings, import code and physics are unchanged.
+  # Off: the decision is still logged and written to the manifest, and the import runs as before.
+  skip_unchanged: false
 s14_og:
   rerun: true
   out_dirname: s14_og

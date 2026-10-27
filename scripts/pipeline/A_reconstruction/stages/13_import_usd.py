@@ -14,13 +14,27 @@ import sys
 os.environ["OMNIGIBSON_HEADLESS"] = "1"
 
 import omnigibson as og
-from omnigibson.utils.asset_utils import get_dataset_path
+from omnigibson.utils.asset_utils import get_dataset_path, get_omnigibson_git_hash
+from functools import partial
+from importlib.util import find_spec
 from pathlib import Path
 import json
 import shutil
 import subprocess
 import hydra
 from simfoundry import CFG_DIR
+from simfoundry.pipeline.asset_manifest import (
+    apply_conflict_policy,
+    decide_import,
+    describe_decision,
+    directory_hashes,
+    import_code_hash,
+    import_settings_hash,
+    read_manifest,
+    remove_manifest,
+    urdf_mass_kg,
+    write_manifest,
+)
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
 import logging
 
@@ -55,6 +69,15 @@ def imported_usd_path(dataset_name: str, obj_category: str, obj_model: str) -> s
     return os.path.join(dataset_path, "objects", obj_category, obj_model, "usd", f"{obj_model}.usd")
 
 
+def import_code_versions() -> dict:
+    """The OmniGibson version and checkout the import runs under; a missing git checkout records "unknown"."""
+    try:
+        git_hash = get_omnigibson_git_hash()
+    except Exception:  # a checkout without git must not stop the stage; the version still counts
+        git_hash = "unknown"
+    return {"omnigibson": og.__version__, "omnigibson_git": git_hash}
+
+
 @hydra.main(config_name="real2sim_cfg", config_path=CFG_DIR, version_base="1.3")
 def main(cfg):
     sim_dir = cfg.s11_sim.out_dir
@@ -63,6 +86,28 @@ def main(cfg):
 
     # null disables the pass, leaving whatever the importer authored.
     opacity_threshold = cfg.s13_usd.get("opacity_threshold", 0.5)
+    asset_pipeline_materials = bool(cfg.s13_usd.get("asset_pipeline_materials", True))
+    # on_conflict: what a re-import does when it would replace an asset that an earlier scene uses (warn | fail |
+    # overwrite). skip_unchanged: skip the import when the asset's manifest says nothing changed. It is off by default:
+    # the decision is still logged and recorded in the manifest, the import just runs as it did before.
+    on_conflict = cfg.s13_usd.get("on_conflict", "warn")
+    skip_unchanged = bool(cfg.s13_usd.get("skip_unchanged", False))
+    settings_hash = import_settings_hash({
+        "opacity_threshold": opacity_threshold,
+        "asset_pipeline_materials": asset_pipeline_materials,
+        "collision_method": "none",
+    })
+    # The import code: a change to any of these files, or to the OmniGibson it runs under, makes an asset imported before
+    # it a settings conflict rather than a skip (asset_manifest.import_code_hash).
+    code_hash = import_code_hash(
+        [
+            ("13_import_usd.py", __file__),
+            ("og_asset_import.py", find_spec("simfoundry.utils.og_asset_import").origin),
+            ("set_usd_opacity_threshold.py", resolve_pipeline_script("set_usd_opacity_threshold.py")),
+            ("reparent_usd_joints.py", resolve_reparent_script()),
+        ],
+        import_code_versions(),
+    )
 
     # Load scene objects info
     scene_objects_info_fpath = f"{sim_dir}/scene_objects_info.json"
@@ -74,6 +119,7 @@ def main(cfg):
     logger.info(f"Output directory: {out_dir}")
     logger.info("="*60)
 
+    asset_imports = {}
     for idx, obj_info in reversed(scene_objects_info.items()):
         obj_category = obj_info["category"]
         obj_model = obj_info["model"]
@@ -87,7 +133,39 @@ def main(cfg):
 
         # Check if this is an articulated object
         is_articulated = obj_info.get("is_articulated", False)
-        
+
+        # The asset the import writes, and the manifest that says what it was made from. The decision is taken before the
+        # import: the hashes come from the stage-11 folder, the settings and the import code this run uses.
+        dataset_obj_dir = os.path.join(get_dataset_path(cfg.s13_usd.dataset_name), "objects", obj_category, obj_model)
+        stage_obj_dir = os.path.join(out_dir, "objects", obj_category, obj_model)
+        new_manifest = {
+            **directory_hashes(os.path.join(sim_dir, "objects", obj_category, obj_model)),
+            "import_settings_hash": settings_hash,
+            "import_code_hash": code_hash,
+            "scene_name": cfg.scene_name,
+            "category": obj_category,
+            "model": obj_model,
+            "mass_kg": urdf_mass_kg(obj_urdf_fpath),
+        }
+        existing = read_manifest(dataset_obj_dir)
+        decision = decide_import(os.path.isdir(dataset_obj_dir), existing, new_manifest)
+        apply_conflict_policy(
+            decision,
+            on_conflict,
+            describe=partial(describe_decision, asset_dir=dataset_obj_dir, existing=existing, new=new_manifest),
+        )
+        asset_imports[obj_name] = {
+            "action": decision["action"], "conflict": decision["conflict"], "reason": decision["reason"],
+        }
+        if skip_unchanged and decision["action"] == "skip":
+            shutil.copytree(dataset_obj_dir, stage_obj_dir, dirs_exist_ok=True)
+            logger.info(f"Skipped the import of {obj_name}: {decision['reason']}; copied the asset to {stage_obj_dir}")
+            continue
+
+        # The old manifest goes before the import overwrites the asset, so a failed import leaves none. The next run then
+        # reports unknown provenance rather than trusting a manifest that describes the asset it replaced.
+        remove_manifest(dataset_obj_dir)
+
         # Import
         # Uses simfoundry.utils.og_asset_import rather than OmniGibson's own
         # `examples.objects.import_custom_object`: that example passes `keep_instanceable=` to
@@ -107,10 +185,10 @@ def main(cfg):
             # --no_keep_instanceable), matching upstream's _ALLOW_INSTANCING = False.
             "--overwrite",
         ]
-        if cfg.s13_usd.get("asset_pipeline_materials", True):
+        if asset_pipeline_materials:
             import_cmd.append("--asset-pipeline-materials")
         subprocess.run(import_cmd, check=True)
-        
+
         # For articulated objects, reparent joints in the USD file
         # OmniGibson expects joints to be children of their parent link prims,
         # but Isaac Sim's URDF importer places them in a separate /joints scope
@@ -141,11 +219,13 @@ def main(cfg):
             else:
                 logger.warning(f"USD file not found for opacity threshold: {usd_path}")
 
+        # The manifest is written once the import and its post-processing are done, so a failed one leaves none
+        # (remove_manifest cleared the old one before the import). It is written before the copy below, so the
+        # scene's copy carries the same manifest as the dataset folder.
+        write_manifest(dataset_obj_dir, new_manifest)
+
         # The importer writes into the shared BEHAVIOR dataset folder; keep a copy of the
         # finished asset (post reparent/opacity) with the scene's own outputs as well.
-        dataset_obj_dir = os.path.join(
-            get_dataset_path(cfg.s13_usd.dataset_name), "objects", obj_category, obj_model)
-        stage_obj_dir = os.path.join(out_dir, "objects", obj_category, obj_model)
         shutil.copytree(dataset_obj_dir, stage_obj_dir, dirs_exist_ok=True)
         logger.info(f"Copied imported asset to stage output: {stage_obj_dir}")
 
@@ -156,7 +236,7 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s13_usd,
         out_dir=cfg.s13_usd.out_dir,
-        result=StageResult(success=True),
+        result=StageResult(success=True, additional_info={"asset_imports": asset_imports}),
     )
 
     # Bypass OmniGibson/Isaac Sim teardown — avoids SIGSEGV in libomni.syntheticdata.plugin.so
