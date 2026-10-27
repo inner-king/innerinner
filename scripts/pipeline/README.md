@@ -488,6 +488,18 @@ between them, and which side it is on is not known. The constant is not derived 
 
 Stage 8 scales the mesh by `pre_scale_factor` and then lets CPD choose a further scale m (`tf_z_up.scale`). With `s8_pose.cpd_scale_limit` set to r, where 0 < r < 1, each scaled CPD fit whose m lies outside [1 - r, 1 + r] is moved to the nearest bound and refitted there by a fixed-scale rigid CPD; the fits inside the bounds are unchanged, and the fit with the lowest `dist` is chosen as before. The default is `null`, which keeps the current code path. The setting is off because its only evidence is one scene (research 2's B9 study, where onion and pot came out at m 1.27 and 1.29); it is provisional and not tuned on any object. With a limit set the info file also records `cpd_scale_limit`, `cpd_scale_clamped` and `cpd_scale_unclamped`, and the log says when the chosen fit was clamped. Known and not fixed: `dist` is measured after the source is scaled by 1/m, so the `dist` values of fits with different m are not in one unit; a unit correction (dist * m^2) was tried and withdrawn (`b9_scale/report_pre_ko.md`, research 2).
 
+Stage 8 takes `pre_scale_factor` as the ratio of two oriented-box diagonals, the source's over the mesh's.
+`s8_pose.pre_scale_method` picks the boxes. `current` (the default) uses Open3D's PCA boxes exactly as before, so its
+output is unchanged. `obb_minimal` uses the minimal-volume boxes of the source and of the mesh's vertices, which do not
+turn with the Poisson sample: on the lidar run's flat objects the PCA diagonal moved by 17.8 % (tray) and 11.0 %
+(board) across samples, and the minimal diagonal by at most 0.4 % (research 2, B9). A minimal box is used only when its
+extent is finite and positive and its rotation is orthogonal to 1e-6. Otherwise that side takes the PCA diagonal that
+`current` would give it (for the mesh side, the Poisson sample's), the log warns, and the info file records the side and
+the reason in `pre_scale_fallback`. Under `obb_minimal` the info file also records `pre_scale_method`; under `current` it
+records nothing new. The voxel size stays on the source's PCA diagonal under both methods. The setting is off because its
+only evidence is one scene's eight objects; any value other than `current` or `obb_minimal` is an error at the start of
+the run.
+
 ### Reproducibility of stages 3 and 5
 
 Open3D's RANSAC (`segment_plane`) runs in parallel and stops early with `probability` (Open3D 0.20 defaults to 0.99999999), so

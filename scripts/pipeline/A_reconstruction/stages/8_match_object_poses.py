@@ -41,6 +41,7 @@ from simfoundry.pipeline.size_check import (
     decide_height_fit, final_scale_record, fit_height, ring_mask, size_report, validate_height_fit_safeguards,
 )
 from simfoundry.pipeline.cpd_scale import apply_cpd_scale_limit, cpd_scale_limit_record, cpd_scale_of, validate_cpd_scale_limit
+from simfoundry.pipeline.pre_scale import pre_scale_record, select_pre_scale, validate_pre_scale_method
 import multiprocessing
 from tqdm import trange
 import logging
@@ -388,6 +389,10 @@ def main(cfg):
     cpd_scale_limit = cfg.s8_pose.get("cpd_scale_limit", None)
     validate_cpd_scale_limit(cpd_scale_limit)
 
+    # pre_scale_method (pre_scale.py): the boxes the pre-scale factor is the ratio of. Checked here for the same reason.
+    pre_scale_method = cfg.s8_pose.get("pre_scale_method", "current")
+    validate_pre_scale_method(pre_scale_method)
+
     # Size check (simfoundry/pipeline/size_check.py). size_warn_ratio: null turns it off entirely: no calls, and no
     # size_check / height_fit / size_warnings keys, so the outputs stay as they were before it existed.
     size_warn_ratio = cfg.s8_pose.get("size_warn_ratio", None)
@@ -596,9 +601,15 @@ def main(cfg):
         target = target.remove_non_finite_points()
         # o3d.visualization.draw_geometries([target])
 
-        # Re-scale target mesh down to roughly the scale of the source based on ratio of diagonals
-        target_obb_diag = np.linalg.norm(target.get_oriented_bounding_box().extent)
-        pre_scale_factor = source_obb_diag / target_obb_diag
+        # Re-scale target mesh down to roughly the scale of the source based on ratio of diagonals. pre_scale_method picks
+        # the boxes (pre_scale.py): the PCA diagonals as before, or the minimal-volume boxes. The voxel size below stays on
+        # source_obb_diag under either method.
+        prescale = select_pre_scale(pre_scale_method, source, mesh, target)
+        pre_scale_factor = prescale.factor
+        logger.info(f"pre_scale_factor = {pre_scale_factor:.6f} (method {pre_scale_method}; "
+                    f"source diag {prescale.source_diag:.6f}, mesh diag {prescale.mesh_diag:.6f})")
+        if prescale.fallback:
+            logger.warning(f"pre_scale fallback for {img_name}: {prescale.fallback}")
         target = target.scale(pre_scale_factor, center=np.zeros(3))
 
         # Unify sampling
@@ -1072,6 +1083,8 @@ def main(cfg):
         }
         # The limit's own keys, present only when a limit is set (null leaves the file as it was).
         out_info.update(cpd_scale_limit_record(cpd_scale_limit, top_info))
+        # The pre-scale keys, present only under a method other than current (pre_scale_record).
+        out_info.update(pre_scale_record(pre_scale_method, prescale.fallback))
         if size_check_on:
             out_info["size_check"] = size_check_record
             out_info["height_fit"] = height_fit_record

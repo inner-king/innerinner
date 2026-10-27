@@ -279,8 +279,11 @@ def test_the_stage_pools_and_sorts_as_before_and_writes_the_keys_from_the_chosen
     assert "info_sorted[0]" in [ast.unparse(n.value) for n in _assignments_to(main, "top_info")]
     updates = [c for c in ast.walk(main) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
                and c.func.attr == "update" and ast.unparse(c.func.value) == "out_info"]
-    assert len(updates) == 1
-    assert [ast.unparse(a) for a in updates[0].args] == ["cpd_scale_limit_record(cpd_scale_limit, top_info)"]
+    # B12 adds the pre-scale keys with a second update (its own test checks it); the limit's keys still come from the chosen
+    # fit in exactly one update.
+    assert len(updates) == 2
+    limit_updates = [c for c in updates if [ast.unparse(a) for a in c.args] == ["cpd_scale_limit_record(cpd_scale_limit, top_info)"]]
+    assert len(limit_updates) == 1
 
 
 def test_the_chosen_fit_is_logged_when_the_limit_changed_it():
@@ -297,6 +300,23 @@ def test_the_config_default_is_null_and_is_the_stage_default():
     yaml = pytest.importorskip("yaml")
     assert omegaconf.OmegaConf.load(str(CFG)).s8_pose.get("cpd_scale_limit", None) is None
     assert yaml.safe_load(CFG.read_text())["s8_pose"]["cpd_scale_limit"] is None
+
+
+def test_stage_8_validates_the_cpd_limit_once_outside_every_loop_and_before_the_object_loop():
+    # A bad limit must stop the run before any object is fitted, so the call is not inside any loop and comes before the
+    # loop over the objects.
+    main = _stage_main()
+    calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "validate_cpd_scale_limit"]
+    assert len(calls) == 1
+    parents = {child: node for node in ast.walk(main) for child in ast.iter_child_nodes(node)}
+    node = calls[0]
+    while node is not main:
+        node = parents[node]
+        assert not isinstance(node, (ast.For, ast.While)), "validate_cpd_scale_limit sits inside a loop"
+    object_loop = next(n for n in ast.walk(main) if isinstance(n, ast.For)
+                       and ast.unparse(n.iter).startswith("sorted(os.listdir(mesh_dir)"))
+    assert calls[0].lineno < object_loop.lineno
 
 
 def test_the_readme_names_the_keys_and_the_withdrawn_correction():

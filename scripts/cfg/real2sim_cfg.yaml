@@ -317,6 +317,11 @@ s8_pose:          # env: simfoundry
   # bound and refitted there, for 0 < r < 1; null keeps the current code path. Provisional and not tuned: the only evidence
   # is one scene (research 2, B9), so it stays off until more scenes say what r should be.
   cpd_scale_limit: null
+  # pre_scale_method (B12, default current): the two boxes the pre-scale factor is the ratio of. current: Open3D's PCA boxes,
+  # as before (the output is unchanged). obb_minimal: the minimal-volume boxes of the source and of the mesh's vertices,
+  # which a flat object's PCA box does not hold still across Poisson samples (research 2, B9: a tray moved 17.8 %, a board
+  # 11.0 %). Off by default: its only evidence is one scene's eight objects. The voxel size stays on the PCA source diagonal.
+  pre_scale_method: current
   use_foundationpose: true
   est_refine_iter: 5  # Number of refinement iterations for FoundationPose
   object_indices: null  # null = all, or [1,2] for selective streaming/reruns
