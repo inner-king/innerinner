@@ -37,7 +37,9 @@ from simfoundry.pipeline.front_canonicalization import canonicalize_front, yaw_s
 from simfoundry.pipeline.upright_from_fit import decide_tilt, resolve_bake_fitted_tilt, tilt_from_fit
 from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.utils.python_utils import atomic_output_path
-from simfoundry.pipeline.size_check import decide_height_fit, final_scale_record, fit_height, ring_mask, size_report
+from simfoundry.pipeline.size_check import (
+    decide_height_fit, final_scale_record, fit_height, ring_mask, size_report, validate_height_fit_safeguards,
+)
 from simfoundry.pipeline.cpd_scale import apply_cpd_scale_limit, cpd_scale_limit_record, cpd_scale_of, validate_cpd_scale_limit
 import multiprocessing
 from tqdm import trange
@@ -402,7 +404,17 @@ def main(cfg):
         "min_scale": float(height_fit_cfg.get("min_scale", 0.5)),
         "max_scale": float(height_fit_cfg.get("max_scale", 2.0)),
         "height_noise_sigmas": height_noise_sigmas,
+        # Safeguards for thin round objects, off by default. The raw values go to the validator, so a value of the wrong
+        # type (1 for true, "3" for 3.0) is refused rather than coerced; only null for skip_rod_like means off.
+        "skip_rod_like": height_fit_cfg.get("skip_rod_like", False),
+        "rod_min_elongation": height_fit_cfg.get("rod_min_elongation", 3.0),
+        "rod_min_roundness": height_fit_cfg.get("rod_min_roundness", 0.6),
+        "min_axis_alignment": height_fit_cfg.get("min_axis_alignment", None),
+        "min_result_extent_m": height_fit_cfg.get("min_result_extent_m", None),
     }
+    if height_fit_settings["skip_rod_like"] is None:
+        height_fit_settings["skip_rod_like"] = False
+    validate_height_fit_safeguards(height_fit_settings)
     size_settings = {
         "size_warn_ratio": float(size_warn_ratio) if size_check_on else None,
         "visible_only": bool(cfg.s8_pose.get("size_check_visible_only", True)),
@@ -990,7 +1002,9 @@ def main(cfg):
                 size_depth_points, size_ring_points, up_cam, size_settings, size_fallback_points,
             )
             before_m = size_check_record["height"].get("mesh_m")
-            height_fit_record = decide_height_fit(size_check_record, height_fit_settings)
+            height_fit_record = decide_height_fit(
+                size_check_record, height_fit_settings,
+                vertices=np.asarray(mesh_updated.vertices), up=up_cam)
             if height_fit_record["applied"]:
                 reason = _stretch_canonical_height(
                     canonical_mesh_fpath, top_info["tf_z_up"].rot.T @ up_cam, height_fit_record["scale"])

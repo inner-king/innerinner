@@ -23,6 +23,7 @@ object's pixels, the spread is that of those pixels and the floor is their most 
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import cv2
@@ -33,6 +34,11 @@ DEFAULT_MIN_RING_POINTS = 50
 #: Width of the height bins `dominant_floor` counts in. Provisional: 5 mm, the order of the spreads (1 to 5 mm) that the
 #: lidar run's flat counter rings measured. Not tuned on any object.
 FLOOR_BIN_M = 0.005
+#: The shortest axis of a section is "not determinable" when the middle extent is this close to the shortest: the two
+#: shortest axes are then arbitrary, and the angle of the shortest one with `up` says nothing. Provisional, from the
+#: research 1 tables: the red marker (short/mid 0.94), the white cups (0.95 to 1.00) and the zucchini (0.96 to 1.00) lie
+#: above it, and the rows the rules leave to the stretch lie at or below 0.66 (the onion, 0.6601).
+AXIS_UNDEFINED_SHORT_OVER_MID = 0.9
 
 
 def _unit(vector) -> np.ndarray:
@@ -221,7 +227,123 @@ def size_report(mesh_vertices, mesh_faces, depth_points, ring_points, up, settin
     return {"footprint": footprint, "height": height, "warnings": warnings}
 
 
-def decide_height_fit(report: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+def mesh_axis_profile(vertices, up) -> dict[str, Any]:
+    """How a mesh's section stands: its extents along its principal axes, and the shortest axis against `up`.
+
+    The axes are the eigenvectors of the covariance of the vertices, ranked by the extent of the vertices along them,
+    shortest first. A tie goes to the lower eigenvector index (a stable sort), so the same vertices always give the same
+    result. Both ratios are unitless, and nothing changes when the mesh is moved, rotated, scaled or re-ordered;
+    `abs_cos` ignores the sign of `up`. The shortest axis is the thin direction of a flat or rod-like section, so its
+    angle with gravity says whether that thin side is vertical.
+
+    Args:
+        vertices: (N, 3) points, in metres.
+        up: the up direction in the same frame (need not be a unit vector).
+
+    Returns:
+        dict: `undefined` (None, or why the profile cannot be read, in which case every number is None), `extents`
+        (three floats, shortest first, in the units of `vertices`), `short_over_mid` (the roundness of the section: 1
+        for a circle), `long_over_mid` (the elongation) and `abs_cos` (|cos| of the shortest axis with `up`). Only
+        Python floats, so the record serialises to JSON.
+
+    Raises:
+        ValueError: when `vertices` is not shaped (N, 3). Fewer than four points is undefined, not an error.
+    """
+    points = np.asarray(vertices, dtype=np.float64)
+    if points.size == 0:
+        return _undefined("only 0 vertices, need 4")
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(f"vertices must be (N, 3), got shape {points.shape}")
+    if len(points) < 4:
+        return _undefined(f"only {len(points)} vertices, need 4")
+    if not np.all(np.isfinite(points)):
+        return _undefined("non-finite vertices")
+    direction = np.asarray(up, dtype=np.float64).reshape(-1)
+    if direction.shape != (3,) or not np.all(np.isfinite(direction)):
+        return _undefined("non-finite up direction")
+    norm = float(np.linalg.norm(direction))
+    if norm == 0.0:
+        return _undefined("zero up direction")
+    centred = points - points.mean(axis=0)
+    _, vectors = np.linalg.eigh(np.cov(centred.T))
+    extent = np.ptp(centred @ vectors, axis=0)
+    order = np.argsort(extent, kind="stable")
+    extents = [float(extent[i]) for i in order]
+    if extents[1] == 0.0:
+        return _undefined("middle extent is zero: the vertices lie on a line or a point")
+    shortest = vectors[:, order[0]]
+    return {
+        "undefined": None,
+        "extents": extents,
+        "short_over_mid": float(extents[0] / extents[1]),
+        "long_over_mid": float(extents[2] / extents[1]),
+        "abs_cos": float(abs(shortest @ direction) / norm),
+    }
+
+
+def _undefined(reason: str) -> dict[str, Any]:
+    return {"undefined": reason, "extents": None, "short_over_mid": None, "long_over_mid": None, "abs_cos": None}
+
+
+def _safeguards_on(settings: dict[str, Any]) -> tuple[bool, bool, bool]:
+    """Which safeguards are switched on: the rod rule, the alignment rule and the thickness rule."""
+    return (bool(settings.get("skip_rod_like")), settings.get("min_axis_alignment") is not None,
+            settings.get("min_result_extent_m") is not None)
+
+
+def _evaluate_safeguards(vertices: np.ndarray, up, scale: float, settings: dict[str, Any], rod_on: bool,
+                         alignment_on: bool, thickness_on: bool) -> tuple[str | None, dict[str, Any]]:
+    """The numbers of every safeguard that is on, and the reason the stretch is refused (None when it is not).
+
+    Every safeguard that is on records its numbers. The reason is the first failing check, in the order of the rules:
+    an undefined shape, the rod rule, the alignment rule, then the thickness of the stretched mesh. The rod and the
+    alignment rules read the placed mesh; the thickness rule reads the mesh after the stretch.
+
+    Returns:
+        (reason, record): `reason` says why the stretch is refused, or is None when it is applied; `record` holds
+        `axis_cos`, `short_over_mid` and `long_over_mid` (rod or alignment on) and `result_extent_m` (thickness on),
+        each a float or None.
+    """
+    record: dict[str, Any] = {}
+    profile = None
+    shape_reason = None
+    if rod_on or alignment_on:
+        profile = mesh_axis_profile(vertices, up)
+        record.update(axis_cos=profile["abs_cos"], short_over_mid=profile["short_over_mid"],
+                      long_over_mid=profile["long_over_mid"])
+        if profile["undefined"] is not None:
+            shape_reason = f"shape undefined ({profile['undefined']})"
+    stretched = None
+    if thickness_on:
+        stretched = mesh_axis_profile(fit_height(vertices, up, scale), up)
+        record["result_extent_m"] = None if stretched["undefined"] is not None else stretched["extents"][0]
+    if shape_reason is not None:
+        return shape_reason, record
+    if rod_on:
+        elongation_min = settings.get("rod_min_elongation", 3.0)
+        roundness_min = settings.get("rod_min_roundness", 0.6)
+        if profile["long_over_mid"] >= elongation_min and profile["short_over_mid"] >= roundness_min:
+            return (f"rod-like (long/mid {profile['long_over_mid']:.2f} >= {elongation_min:g}, "
+                    f"short/mid {profile['short_over_mid']:.2f} >= {roundness_min:g}): "
+                    "a vertical stretch would flatten its section"), record
+    if alignment_on:
+        if profile["short_over_mid"] > AXIS_UNDEFINED_SHORT_OVER_MID:
+            return f"shortest axis not determinable (short/mid {profile['short_over_mid']:.2f})", record
+        if profile["abs_cos"] < settings["min_axis_alignment"]:
+            return f"shortest axis not vertical (|cos| {profile['abs_cos']:.2f})", record
+    if thickness_on:
+        if stretched["undefined"] is not None:
+            return f"shape undefined ({stretched['undefined']})", record
+        minimum = settings["min_result_extent_m"]
+        thinnest = stretched["extents"][0]
+        if thinnest < minimum:
+            return (f"stretched mesh would be {thinnest * 1000:.1f} mm thick "
+                    f"(minimum {minimum * 1000:.1f} mm)"), record
+    return None, record
+
+
+def decide_height_fit(report: dict[str, Any], settings: dict[str, Any], *, vertices=None,
+                      up=None) -> dict[str, Any]:
     """Whether the mesh's height should be stretched to the depth's, and why not if it should not.
 
     Stretching only ever changes the height, so it can only fix a height mismatch; a footprint mismatch is left for a
@@ -230,11 +352,34 @@ def decide_height_fit(report: dict[str, Any], settings: dict[str, Any]) -> dict[
     [min_scale, max_scale]. Outside those limits the mismatch is more likely a wrong depth or a wrong mesh than a
     stretched mesh, so the height is left as it is.
 
+    Three safeguards, all off by default, are evaluated only for a stretch that the rules above would apply. The rod
+    rule (`skip_rod_like`) refuses an object whose long/mid and short/mid extents are above `rod_min_elongation` and
+    `rod_min_roundness`, because a vertical stretch flattens a round section. The alignment rule (`min_axis_alignment`)
+    needs the shortest axis of the section to be nearly vertical. The thickness rule (`min_result_extent_m`) refuses a
+    stretch that leaves the thinnest extent below the minimum. Each safeguard that is on records its numbers, and the
+    reason is the first one that fails. They need `vertices` and `up` (the placed mesh and the gravity direction, in
+    one frame) whenever one is on.
+
+    Args:
+        report: the output of `size_report`.
+        settings: the height_fit settings (the safeguard keys are described in `validate_height_fit_safeguards`).
+        vertices: (N, 3) vertices of the placed mesh; needed when a safeguard is on.
+        up: the up direction in the same frame as `vertices`; needed when a safeguard is on.
+
     Returns:
-        dict: `applied` (bool), `scale` (the factor, or None), `skipped` (the reason, or None when applied).
+        dict: `applied` (bool), `scale` (the factor, or None), `skipped` (the reason, or None when applied), and the
+        numbers of the safeguards that were evaluated (`axis_cos`, `short_over_mid`, `long_over_mid`,
+        `result_extent_m`, each a float or None). Those keys are absent when every safeguard is off.
+
+    Raises:
+        ValueError: when a safeguard is on and `vertices` or `up` is None.
     """
     if not settings["enabled"]:
         return {"applied": False, "scale": None, "skipped": "height_fit is disabled"}
+    rod_on, alignment_on, thickness_on = _safeguards_on(settings)
+    if (rod_on or alignment_on or thickness_on) and (vertices is None or up is None):
+        raise ValueError("a height_fit safeguard is on, so decide_height_fit needs the placed mesh's vertices and the "
+                         "up direction in the same frame")
     height = report["height"]
     if "skipped" in height:
         return {"applied": False, "scale": None, "skipped": f"height not comparable: {height['skipped']}"}
@@ -249,7 +394,47 @@ def decide_height_fit(report: dict[str, Any], settings: dict[str, Any]) -> dict[
     if not settings["min_scale"] <= scale <= settings["max_scale"]:
         return {"applied": False, "scale": None,
                 "skipped": f"scale {scale:.3f} outside [{settings['min_scale']}, {settings['max_scale']}]"}
-    return {"applied": True, "scale": float(scale), "skipped": None}
+    if not (rod_on or alignment_on or thickness_on):
+        return {"applied": True, "scale": float(scale), "skipped": None}
+    reason, record = _evaluate_safeguards(np.asarray(vertices, dtype=np.float64), up, scale, settings,
+                                          rod_on, alignment_on, thickness_on)
+    applied = reason is None
+    return {"applied": applied, "scale": float(scale) if applied else None, "skipped": reason, **record}
+
+
+def validate_height_fit_safeguards(settings: dict[str, Any]) -> None:
+    """Refuse a safeguard setting that cannot mean what it says, before any object is processed.
+
+    `skip_rod_like` is true, false or null. The numbers must be finite and inside their ranges: `rod_min_elongation`
+    above 1, `rod_min_roundness` in (0, 1], `min_axis_alignment` null or in (0, 1], `min_result_extent_m` null or above
+    0. The numbers are checked even when `skip_rod_like` is off, so a bad number shows at start-up and not later, when
+    the switch is turned on. A key that is absent is not checked: `decide_height_fit` reads it with its default.
+
+    Args:
+        settings: the height_fit settings, as stage 8 builds them.
+
+    Raises:
+        ValueError: naming the setting and the value, for any value the rules refuse.
+    """
+    skip_rod_like = settings.get("skip_rod_like", False)
+    if skip_rod_like is not None and not isinstance(skip_rod_like, bool):
+        raise ValueError(f"height_fit.skip_rod_like must be true, false or null, got {skip_rod_like!r}")
+    _check_number("rod_min_elongation", settings.get("rod_min_elongation", 3.0),
+                  lambda v: v > 1.0, "a finite number above 1.0", nullable=False)
+    _check_number("rod_min_roundness", settings.get("rod_min_roundness", 0.6),
+                  lambda v: 0.0 < v <= 1.0, "a finite number in (0, 1]", nullable=False)
+    _check_number("min_axis_alignment", settings.get("min_axis_alignment"),
+                  lambda v: 0.0 < v <= 1.0, "null or a finite number in (0, 1]", nullable=True)
+    _check_number("min_result_extent_m", settings.get("min_result_extent_m"),
+                  lambda v: v > 0.0, "null or a finite number above 0", nullable=True)
+
+
+def _check_number(name: str, value, ok, requirement: str, *, nullable: bool) -> None:
+    if value is None and nullable:
+        return
+    is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+    if not is_number or not math.isfinite(value) or not ok(float(value)):
+        raise ValueError(f"height_fit.{name} must be {requirement}, got {value!r}")
 
 
 def fit_height(vertices, up, scale: float) -> np.ndarray:

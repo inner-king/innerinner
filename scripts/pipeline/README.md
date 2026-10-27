@@ -285,6 +285,132 @@ These are not handled by any rule here, so a warning on such an object is a prom
 
 Stage 8 seeds Python's `random`, numpy and Open3D from the global `seed` once per object, offset by the object's index (`seed` + index), so the CPD pose search and the Poisson-disk target of an object do not depend on which other objects this run processed. The FoundationPose call, when enabled, is also seeded for each object, from the global `seed`; whether its GPU kernels are deterministic is not verified.
 
+#### Height fit safeguards
+
+Three settings under `s8_pose.height_fit` refuse some stretches that the height rule above would apply. All three are
+off by default, so the defaults change nothing. Their numbers are checked at start-up even while their switch is off
+(`validate_height_fit_safeguards`), so a bad value stops the run before any object is processed.
+
+- `skip_rod_like` (the main rule, default `false`): an object is not stretched when its long/mid extent is at least
+  `rod_min_elongation` (3.0) and its short/mid extent is at least `rod_min_roundness` (0.6).
+- `min_axis_alignment` (default `null`): the stretch is applied only when the shortest axis of the section is within
+  the given |cos| of vertical. A section whose short/mid is above 0.9 (`AXIS_UNDEFINED_SHORT_OVER_MID` in
+  `size_check.py`) has no determinable shortest axis, and its stretch is refused.
+- `min_result_extent_m` (default `null`): the stretch is refused when the thinnest extent of the stretched mesh would
+  be below this many metres.
+
+**Why the rod rule.** Most of the height of a thin, long object comes from the tilt of its long axis. Research 1's pen
+in the new run (`bowl new`) is 126.6 mm long and its long axis is 13.0° above horizontal, so 126.6 mm × sin 13.0° =
+28.5 mm of its 30.2 mm mesh height is tilt. Matching that height to the depth stretches the section, not the tilt, so
+a round section becomes an ellipse. The old pen (`bowl old`) is the same kind: 126.5 mm × sin 8.4° = 18.5 mm of its
+22.5 mm. A flat object (a knife blade, a cutting board, a tray) is the opposite case: its thickness is its height, and
+the same stretch is the right direction.
+
+**Why not the alignment rule alone.** The alignment rule separates the red marker (|cos| 0.66) and the new and nofit
+pens (|cos| 0.21), but not the old pen. Its shortest axis is nearly vertical (|cos| 0.98), and its round section is
+squashed all the same. In the table below the two auxiliary rules skip only rows that the rod rule also skips, so the
+table alone does not show that they are needed. They are separate settings for two other failures: a shortest axis
+that is not vertical, and a result that is too thin.
+
+**What is measured, and what is not.**
+- Measured: one harm. The stretched pen (`bowl new`) was physically unstable in research 1's settle run: `settle.py`
+  reported `ok = False` over 240 steps and the pen moved 0.509 m. Its final pose in stage 14 was about 0.34 m beside the
+  unstretched pose (y −0.431 m against −0.091 m), and its centre height in stage 12 was 12.9 mm against 4.8 mm. The old
+  and unstretched pens settled (`ok`). Its stage-11 mass estimate was 3.25 g against 7.18 g unstretched, with the VLM's
+  typical value clamped at the low end. The cause was not checked: the report lists the 2.6 mm thickness, the contact
+  offset and the collision hull as candidates
+  (`~/simfoundry_logs/second_scene_check/report_put_cup_in_bowl_ko.md`, outside this repository).
+- Not measured: whether any row is harmful in a photo or visual check. The red marker and the old pen are judged from
+  geometry alone; their photo columns in research 1's table are empty by design. Whether the twenty rows the rules
+  leave alone gain from the stretch is not measured either. No photo or visual check says whether stretching the
+  cutting boards and the tray helped.
+- Candidates: every number on this page is a candidate, not a tested default. They come from one table of 24 rows of
+  9 objects in 3 scenes. 19 of the 24 rows are one scene's four runs (the lidar kitchen), so the sample is small.
+
+**The 24 rows.** These are the objects whose height fit ran, or would run, at research 1's settings (threshold 0.25,
+`min_scale` 0.1, `max_scale` 2.0), out of the 45 rows of its table. The values were recomputed with `mesh_axis_profile`
+from the written stage-8 meshes and agree with research 1's table to the precision shown. "Needed scale" is the factor
+the stretch takes the height by (depth over mesh). "Actual" rows were stretched in their run; "offline" rows would be
+stretched at those settings. "–" means the rule does not skip the row.
+
+| scene / variant | object | actual or offline | needed scale | inside [0.5, 2.0] | abs cos | short/mid | long/mid | shortest extent, mm (before → after) | rod (3.0, 0.6) | alignment (0.9) | thickness (4 mm) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| lidar a | chef_knife | offline | ×0.614 | yes | 0.9990 | 0.3291 | 5.729 | 18.04 → 11.09 | – | – | – |
+| lidar a | cutting_board | offline | ×0.607 | yes | 0.9986 | 0.0457 | 1.201 | 11.04 → 6.71 | – | – | – |
+| lidar a | onion | offline | ×1.450 | yes | 0.9741 | 0.4317 | 1.041 | 44.33 → 64.06 | – | – | – |
+| lidar a | beige_tray | offline | ×0.345 | no | 0.9989 | 0.1409 | 1.175 | 39.45 → 13.60 | – | – | – |
+| lidar a | pot_with_liquid | offline | ×0.670 | yes | 0.9823 | 0.2797 | 1.335 | 93.42 → 62.63 | – | – | – |
+| lidar d | chef_knife | offline | ×0.561 | yes | 0.9984 | 0.3413 | 5.873 | 18.41 → 10.35 | – | – | – |
+| lidar d | cutting_board | offline | ×0.202 | no | 0.9987 | 0.1651 | 1.063 | 52.74 → 10.67 | – | – | – |
+| lidar d | onion | offline | ×1.446 | yes | 0.9818 | 0.6211 | 1.024 | 48.60 → 71.59 | – | – | – |
+| lidar d | beige_tray | offline | ×0.298 | no | 0.9997 | 0.1379 | 1.046 | 39.95 → 11.94 | – | – | – |
+| lidar d | pot_with_liquid | offline | ×0.680 | yes | 0.9855 | 0.3045 | 1.448 | 101.01 → 68.87 | – | – | – |
+| lidar d | blue_sink_stopper | offline | ×1.681 | yes | 0.9995 | 0.1538 | 1.085 | 10.03 → 16.81 | – | – | – |
+| lidar i v1 | chef_knife | actual | ×0.689 | yes | 0.9981 | 0.3367 | 5.816 | 18.26 → 12.59 | – | – | – |
+| lidar i v1 | cutting_board | actual | ×0.187 | no | 0.9984 | 0.1595 | 1.051 | 54.03 → 10.15 | – | – | – |
+| lidar i v1 | onion | actual | ×1.450 | yes | 0.9871 | 0.6601 | 1.042 | 51.08 → 74.46 | – | – | – |
+| lidar i v1 | beige_tray | actual | ×0.260 | no | 0.9997 | 0.1660 | 1.035 | 48.12 → 12.53 | – | – | – |
+| lidar v2 | chef_knife | actual | ×0.433 | no | 0.9933 | 0.3367 | 5.816 | 18.15 → 7.90 | – | – | – |
+| lidar v2 | cutting_board | actual | ×0.187 | no | 0.9984 | 0.1595 | 1.051 | 54.25 → 10.19 | – | – | – |
+| lidar v2 | onion | actual | ×1.449 | yes | 0.9933 | 0.6601 | 1.042 | 51.09 → 75.66 | – | – | – |
+| lidar v2 | beige_tray | actual | ×0.257 | no | 0.9997 | 0.1660 | 1.035 | 48.59 → 12.51 | – | – | – |
+| marker old | blue_scissors | offline | ×0.542 | yes | 0.9939 | 0.2233 | 2.243 | 20.10 → 11.12 | – | – | – |
+| marker old | red_marker | offline | ×0.789 | yes | 0.6646 | 0.9412 | 6.233 | 19.84 → 15.73 | skip | skip | – |
+| bowl old | black_pen | offline | ×0.469 | no | 0.9845 | 0.7708 | 14.905 | 6.54 → 3.12 | skip | – | skip |
+| bowl new | black_pen | actual | ×0.348 | no | 0.2128 | 0.7059 | 16.776 | 5.33 → 2.63 | skip | skip | skip |
+| bowl nofit | black_pen | offline | ×0.348 | no | 0.2128 | 0.7059 | 16.776 | 5.33 → 2.63 | skip | skip | skip |
+
+**The margins** (candidates; they hold for these 24 rows only):
+- Long/mid 3.0: the rows the rod rule must keep have long/mid at most 1.042 (onions, short/mid 0.62 to 0.66). The rows
+  it must skip have long/mid at least 6.233 (the red marker). Any limit in (1.042, 6.233] splits them the same way.
+- Short/mid 0.6 (with long/mid at least 3): the knives are at most 0.341 and the pens at least 0.706, so any limit in
+  (0.341, 0.706] splits them. The onions are not caught by roundness alone; their long/mid of 1.04 keeps them out.
+- |cos| 0.9 for alignment: the harmful rows have |cos| at most 0.665 (the red marker) and the benign rows at least
+  0.974 (an onion). Any limit in (0.665, 0.974] splits them. 0.9 is the angle of 25.8° from vertical.
+- Thickness 4 mm: after the stretch the benign rows are at least 6.71 mm thick (a cutting board, lidar a), and the
+  thinnest row the rule refuses is 3.12 mm (the old pen). 4 mm lies between them. It is not derived; see the physics
+  floor below.
+
+**`min_scale` and the wider range.** Research 1 ran with `min_scale` 0.1. This stage's default, in
+`real2sim_cfg.yaml`, is 0.5, and the default is unchanged here. The reason for 0.1 is the flat objects. The cutting
+boards need ×0.187 to ×0.202 in three runs (their mesh is 63.8 to 68.7 mm tall against a 12.9 mm depth), the trays need
+×0.257 to ×0.345, and the knife in the v2 run needs ×0.433. All of them are below 0.5. A range that reaches them also
+admits the pens (×0.348 and ×0.469). The three rules are meant to make that wider range usable: on these 24 rows,
+within [0.1, 2.0] they refuse the pens and the red marker and leave the flat objects to the stretch. Whether stretching the cutting boards and the tray
+helped in photo metrics was not measured. At the default 0.5, 11 of the 24 rows are outside the range and are not
+stretched. Of the 13 that reach the range, the rod rule refuses only the red marker (×0.789).
+
+**What the rules do not stop.**
+- A flat object with a wrong depth: the height rule cannot tell a wrong depth from a wrong mesh, and nothing here looks
+  at that.
+- A rod-like object with the wrong diameter: a vertical stretch changes only the height, so a wrong diameter stays
+  wrong. Fixing it would need a change of the cross-section, which is not done here.
+- A thin plate tilted in the scene: its tilt is not corrected.
+- The criterion is geometry, not names. A long object with a round section is caught because of its shape, and a flat
+  one is not. No object name or category is read.
+
+**The physics floor (`min_result_extent_m`).** The facts below come from reading the code, not from running it.
+- Stage 12 (PyBullet) sets `contactProcessingThreshold=0.0` and `collisionMargin=0.0` on each object's root link
+  (`12_stabilize_physics.py`, lines 205–209 and 291–295). The ground is `plane.urdf` (line 157). The repository does not
+  say what these two parameters do for a thin shape: not found.
+- Stage 14 (OmniGibson, in `deps/BEHAVIOR-1K`, which this repository does not track) sets the default contact offset to
+  0.001 m and the rest offset to 0.0 m (`OmniGibson/omnigibson/prims/rigid_prim.py`, lines 30–31). It applies both to
+  every rigid collision mesh at load (lines 232–233), with a comment that the engine's own offsets let light objects
+  miss contacts. No code in `scripts/pipeline` or `simfoundry` sets a contact or rest offset. The engine's own default
+  values are not in the repository: not found.
+- Stage 11 builds the collision shapes with `generate_collision_meshes` (`simfoundry/utils/asset_conversion_utils.py`,
+  line 640). It returns the convex hull when the mesh is convex, or when its volume is more than 90% of its convex
+  hull's. Otherwise CoACD runs with `max_convex_hull` set to the hull count, `decimate=True` and `max_ch_vertex=60`.
+  Hulls that are not volumes are dropped, and the convex hull is used again when the CoACD hulls' total volume is
+  within 5% of the convex hull's. Nothing in this path looks at thickness. The function has five call sites (lines
+  919, 1188, 1234, 1268 and 2080); which one stage 11 reaches was not traced.
+
+Not known: why the 2.6 mm pen was unstable (not confirmed; the report names candidates and did not check them);
+whether CoACD's decimation to 60 vertices per hull keeps a 2 to 5 mm section (not checked); and which setting would
+make a 2.6 mm pen stable (not known). So 0.004 m is a provisional constant taken from two points of one object: the
+pen as unstretched, 5.3 mm across, was stable, and the stretched pen at 2.6 mm was not. The old pen's 3.12 mm lies
+between them, and which side it is on is not known. The constant is not derived from any contact setting above.
+
 ### CPD scale limit
 
 Stage 8 scales the mesh by `pre_scale_factor` and then lets CPD choose a further scale m (`tf_z_up.scale`). With `s8_pose.cpd_scale_limit` set to r, where 0 < r < 1, each scaled CPD fit whose m lies outside [1 - r, 1 + r] is moved to the nearest bound and refitted there by a fixed-scale rigid CPD; the fits inside the bounds are unchanged, and the fit with the lowest `dist` is chosen as before. The default is `null`, which keeps the current code path. The setting is off because its only evidence is one scene (research 2's B9 study, where onion and pot came out at m 1.27 and 1.29); it is provisional and not tuned on any object. With a limit set the info file also records `cpd_scale_limit`, `cpd_scale_clamped` and `cpd_scale_unclamped`, and the log says when the chosen fit was clamped. Known and not fixed: `dist` is measured after the source is scaled by 1/m, so the `dist` values of fits with different m are not in one unit; a unit correction (dist * m^2) was tried and withdrawn (`b9_scale/report_pre_ko.md`, research 2).

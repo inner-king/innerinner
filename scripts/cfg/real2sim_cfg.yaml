@@ -358,6 +358,14 @@ s8_pose:          # env: simfoundry
     threshold: 0.25
     min_scale: 0.5
     max_scale: 2.0
+    # Safeguards for thin round objects (pens, markers); all off by default. Each value below is a candidate, not a
+    # default. The candidates come from one table of 24 rows of 9 objects in 3 scenes; 19 of the 24 rows are one
+    # scene's four runs. The evidence and its limits: scripts/pipeline/README.md, Size Check.
+    skip_rod_like: false          # candidate: true
+    rod_min_elongation: 3.0       # candidate: 3.0
+    rod_min_roundness: 0.6        # candidate: 0.6
+    min_axis_alignment: null      # candidate: 0.9; null: off
+    min_result_extent_m: null     # candidate: 0.004 m; null: off
   # use_any6d: true
   # resume_idx: Controls the interactive pose editing workflow (8b_match_object_poses_interactive.py)
   #   null  -> Normal mode: run pose fitting from scratch, auto-generate suffix for output

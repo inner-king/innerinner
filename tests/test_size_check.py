@@ -300,7 +300,11 @@ def test_the_defaults_are_the_ones_the_check_was_written_with():
     assert s8["height_percentile"] == 95
     assert s8["height_ring_px"] == 6
     assert s8["height_ring_gap_px"] == 3
-    assert s8["height_fit"] == {"enabled": False, "threshold": 0.25, "min_scale": 0.5, "max_scale": 2.0}
+    assert s8["height_fit"] == {
+        "enabled": False, "threshold": 0.25, "min_scale": 0.5, "max_scale": 2.0,
+        "skip_rod_like": False, "rod_min_elongation": 3.0, "rod_min_roundness": 0.6,
+        "min_axis_alignment": None, "min_result_extent_m": None,
+    }
 
 
 def _stage8_main():
@@ -323,7 +327,7 @@ def test_the_size_check_is_imported_at_module_level():
     imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.module == "simfoundry.pipeline.size_check"]
     assert len(imports) == 1
     assert {a.name for a in imports[0].names} == {"decide_height_fit", "final_scale_record", "fit_height", "ring_mask",
-                                                  "size_report"}
+                                                  "size_report", "validate_height_fit_safeguards"}
 
 
 def test_the_switch_is_defined_before_the_object_loop_and_guards_every_size_output():
