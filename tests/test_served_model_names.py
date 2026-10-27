@@ -9,6 +9,7 @@ the names the local backend logs, and that stages 5 and 6 record them.
 """
 
 import ast
+import importlib
 import io
 import pathlib
 import re
@@ -413,3 +414,71 @@ def test_stage11_records_the_vlm_that_answers(monkeypatch, enabled, expected_nam
     recorded = _evaluate_recorded("11_make_objects_sim_ready.py", namespace)
 
     assert recorded == {"vlm_model": expected_name, "vlm_model_configured": "gemini-3-pro-preview"}
+
+
+# ---------------------------------------------------------------------------
+# The qwen21 name follows the UNET file the workflow loads
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("unet, expected", [
+    ("qwen-image-2.1-turbo-Q8_0.gguf", "Qwen-Image-2.1-Turbo"),
+    ("Qwen-Image-2.1-TURBO-Q4.gguf", "Qwen-Image-2.1-Turbo"),
+    ("qwen-image-2.1-Q8_0.gguf", "Qwen-Image-2.1"),
+    ("sub/dir/qwen-image-2.1-Q8_0.gguf", "Qwen-Image-2.1"),
+    ("qwen-image-2.1", "Qwen-Image-2.1"),
+    ("my_finetune.gguf", "my_finetune"),
+    ("qwen-image-edit-2511-Q8_0.gguf", "qwen-image-edit-2511-Q8_0"),
+    ("my.model.v2", "my.model.v2"),
+    ("x.safetensors", "x"),
+])
+def test_the_qwen21_name_is_read_from_the_unet_file_name(unet, expected):
+    assert local_backends._qwen21_display_name(unet) == expected
+
+
+def test_the_name_follows_the_unet_the_workflow_loads_at_call_time(monkeypatch):
+    _set_local(monkeypatch, image_backend="qwen21")
+    monkeypatch.setattr(local_backends, "Q21_UNET", "qwen-image-2.1-turbo-Q8_0.gguf")
+    assert served_model_name("gemini-3-pro-image") == "Qwen-Image-2.1-Turbo"
+    monkeypatch.setattr(local_backends, "Q21_UNET", "qwen-image-2.1-Q8_0.gguf")
+    assert served_model_name("gemini-3-pro-image") == "Qwen-Image-2.1"
+    assert served_model_name("gemini-3-pro-preview") == "qwen3.5:9b"
+
+
+def test_the_unet_named_in_the_environment_is_the_one_the_name_follows(monkeypatch):
+    monkeypatch.setenv("SIMFOUNDRY_LOCAL_BACKEND", "1")
+    monkeypatch.setenv("SIMFOUNDRY_IMAGE_BACKEND", "qwen21")
+    monkeypatch.setenv("SIMFOUNDRY_Q21_UNET", "qwen-image-2.1-Q8_0.gguf")
+    try:
+        importlib.reload(local_backends)
+        assert local_backends.Q21_UNET == "qwen-image-2.1-Q8_0.gguf"
+        assert local_backends.image_backend_name() == "Qwen-Image-2.1"
+        assert local_backends.served_model_name("gemini-3-pro-image") == "Qwen-Image-2.1"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(local_backends)
+
+
+def test_edit2511_keeps_its_name_whatever_unet_is_set(monkeypatch):
+    _set_local(monkeypatch, image_backend="edit2511")
+    monkeypatch.setattr(local_backends, "Q21_UNET", "qwen-image-2.1-Q8_0.gguf")
+    assert served_model_name("gemini-3-pro-image") == "Qwen-Image-Edit-2511"
+
+
+def _default_argument(value):
+    """The default of an `os.environ.get(name, default)` read, also inside `int(...)`."""
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "int":
+        value = value.args[0]
+    return ast.literal_eval(value.args[1])
+
+
+def test_the_code_defaults_for_the_qwen21_unet_and_steps_are_the_ones_the_readme_states():
+    # The README names these defaults (repro/README.md, qwen21 paragraph and chapter 32). The module reads them from the
+    # environment at import, so the defaults are read from the source, whatever the environment says.
+    tree = ast.parse(pathlib.Path(local_backends.__file__).read_text())
+    defaults = {node.targets[0].id: _default_argument(node.value) for node in tree.body
+                if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id in ("Q21_UNET", "Q21_STEPS")}
+    assert defaults == {"Q21_UNET": "qwen-image-2.1-turbo-Q8_0.gguf", "Q21_STEPS": "8"}
+    readme = pathlib.Path("repro/README.md").read_text()
+    # The whole sentence fragment, with what is on either side of the step count: "8단계" alone occurs elsewhere in the README.
+    assert "`qwen-image-2.1-turbo-Q8_0.gguf`와 8단계입니다" in readme

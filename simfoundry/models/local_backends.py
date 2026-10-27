@@ -103,9 +103,45 @@ def _is_image_model(model):
     return "image" in model.lower()
 
 
+# The checkpoint suffixes a UNET file name may end in. Only these are taken off before the name is read, so the dots of
+# a version number ("2.1") are not mistaken for a suffix.
+_CHECKPOINT_SUFFIXES = (".gguf", ".safetensors", ".ckpt", ".pt", ".bin")
+
+
+def _qwen21_display_name(unet_filename):
+    """The name of the qwen21 image model that a UNET file runs, read from the file name.
+
+    "turbo" in the name makes it the Turbo model; a name that starts with "qwen-image-2.1" without it is the base model.
+    Any other name is returned as it is, so an unknown checkpoint is not logged as a known one. Folders in front of the
+    name are dropped.
+
+    Args:
+        unet_filename: the UNET file the workflow loads (`SIMFOUNDRY_Q21_UNET`), possibly with a folder in front.
+
+    Returns:
+        str: the display name.
+    """
+    name = str(unet_filename).replace("\\", "/").rsplit("/", 1)[-1]
+    stem, suffix = os.path.splitext(name)
+    if suffix.lower() in _CHECKPOINT_SUFFIXES:
+        name = stem
+    lowered = name.lower()
+    if "turbo" in lowered:
+        return "Qwen-Image-2.1-Turbo"
+    if lowered.startswith("qwen-image-2.1"):
+        return "Qwen-Image-2.1"
+    return name
+
+
 def image_backend_name():
-    """Name of the ComfyUI image model serving the Gemini image calls; the name the call log prints."""
-    return "Qwen-Image-2.1-Turbo" if IMAGE_BACKEND == "qwen21" else "Qwen-Image-Edit-2511"
+    """Name of the ComfyUI image model serving the Gemini image calls; the name the call log prints.
+
+    For qwen21 the name follows the UNET file the workflow loads at call time, so a base checkpoint is not logged as
+    Turbo. Edit-2511 has one fixed name.
+    """
+    if IMAGE_BACKEND == "qwen21":
+        return _qwen21_display_name(Q21_UNET)
+    return "Qwen-Image-Edit-2511"
 
 
 def served_model_name(model):
