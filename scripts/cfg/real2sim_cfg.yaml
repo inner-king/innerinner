@@ -192,6 +192,8 @@ s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mes
   plane_max_edge_ratio: 8.0     # plane-layer triangles: safety net against a far grazing edge only (provisional)
   min_component_triangles: 200  # connected pieces of fewer triangles are dropped; 0 keeps all (provisional, no measurement behind it)
   plane_snap_tol_m: 0.01    # metres; vertices this close to the support plane are set onto it (0 disables)
+  plane_snap_below_m: null  # candidate, not a default: metres under z = 0 that snap (null -> plane_snap_tol_m); see the README 5c section
+  plane_snap_above_m: null  # candidate, not a default: metres over z = 0 that snap (null -> plane_snap_tol_m; 1 cm keeps raised relief unflattened)
   z_far: null               # metres in the camera frame; null -> s4_frame.z_far
 s6_upsample:      # env: simfoundry
   rerun: true

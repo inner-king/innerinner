@@ -237,7 +237,9 @@ Limits, from the method rather than from a measurement:
   is not there. This stage takes (ii).
 - A glass cooktop lies lower than the counter, so the local surface fills it lower. Stage 14 places objects on
   z = 0, so a pot on that glass appears to float above the visible glass by about that height difference. This
-  is only what is seen: the physics uses the floor plane, which is not visible here.
+  is only what is seen: the physics uses the floor plane, which is not visible here. With the candidate
+  `s_bg_mesh.plane_snap_below_m: 0.03` (see *One-sided plane snap* below), the visible glass of the reference scene
+  reads +0.14 cm against the counter instead of -0.83 cm, and the pot's support reads 0 instead of -2.23 cm.
 - A ring that is not one surface is filled at its widest surface's height, so a ring that also holds a
   lower surface (a sink beside a counter) can leave a step on the other side of the mask edge.
 - The measured counter of the reference scene sits +1.2 cm above z = 0 at its median, with a 5-95% spread of
@@ -252,6 +254,74 @@ visual-only object `mesh_background_0`, and records it in `reconstructed_og_scen
 file. Nobody attaches it by hand in the light editor. It has no collision: the objects rest on the floor plane,
 which is hidden while the mesh is shown. It is not combined with `include_gs`; with both on, the mesh is skipped
 with a warning. Without the GLB, stage 14 warns and goes on without it. The saved JSON keeps the relative path, so a consumer resolves it with `simfoundry.utils.scene_utils.load_json_with_absolute_usd_paths` before handing the file to OmniGibson, since restoring the JSON as it is fails (OmniGibson resolves a relative path against a temporary scene USD).
+
+#### One-sided plane snap (candidate settings, off by default)
+
+`s_bg_mesh.plane_snap_below_m` and `s_bg_mesh.plane_snap_above_m` set the snap band below and above z = 0 separately.
+A pixel is a plane pixel when `-below < z < above`, strict at both ends, after its object pixels have moved onto their
+surface. A null side uses `plane_snap_tol_m`, so both null is the symmetric band of `plane_snap_tol_m` exactly (the
+test compares the masks for every input, NaN and infinities included). Zero switches that side off. Each value must be
+null or a finite number of metres, zero or more; anything else is an error that names the key. `stage_info.json` records
+the limits used (`plane_snap_below_m_used`, `plane_snap_above_m_used`) and how many snapped vertices came from below and
+from above (`vertices_snapped_from_below`, `vertices_snapped_from_above`). The defaults are null, so the output is the
+same as before. 0.03 below and the 1 cm above are candidates for the reference scene, not defaults.
+
+Evidence, all from one scene, one capture and one sensor. The table is from research 2's report
+(`lidar_rerun_2026-10-26/hob_depth/report_ko.md`, sections 5.1 and 5.2, outside this repository), which measured it on a
+mirror of the 5c height stage. The code below, run on the same inputs, gives the same region means as that mirror (the
+one-sided row agrees with the raw values to float precision).
+
+| Setting | Visible glass, mean (cm) | Glass within ±0.5 cm | Pot's support (cm) | Counter (cm) | Sink, as measured (cm) | New flat background pixels (cm²) / of which over +1 cm |
+|---|---|---|---|---|---|---|
+| symmetric ±1 cm (current) | -0.83 | 34% | -2.23 | -0.07 | -0.98 | 0 (0) / 0 (0) |
+| symmetric 2 cm | -0.41 | 82% | -2.23 | -0.00 | -0.66 | 14398 (611) / 5758 (244) |
+| symmetric 3 cm | -0.02 | 99% | 0.00 | -0.00 | -0.23 | 21471 (911) / 7731 (328) |
+| one-sided -3 cm < z < +1 cm | 0.14 | 87% | 0.00 | -0.00 | -0.23 | 13740 (583) / 0 (0) |
+| one-sided -4 cm < z < +1 cm | 0.16 | 88% | 0.00 | -0.00 | 0.00 | 14950 (635) / 0 (0) |
+| one-sided -5 cm < z < +1 cm | 0.16 | 88% | 0.00 | -0.00 | 0.00 | 15053 (639) / 0 (0) |
+| one-sided -3 cm / +2 cm | -0.02 | 99% | 0.00 | -0.00 | -0.23 | 19498 (828) / 5758 (244) |
+
+Depressions (research 2, section 5.3): a square depression of depth D, 8 cm wide, with the edge blurred as this sensor
+blurs it. The table gives the area in cm² of the depression's half-depth floor that survives each setting (nominal: the
+depression's own half-depth area, before any setting).
+
+| D (cm) | Nominal | Current | Symmetric 3 cm | One-sided -3 cm / +1 cm |
+|---|---|---|---|---|
+| 1 | 52.8 | 52.3 | 0.0 | 0.2 |
+| 2 | 52.8 | 92.8 | 0.1 | 0.8 |
+| 3 | 52.8 | 73.4 | 12.1 | 12.1 |
+| 4 | 52.8 | 67.5 | 37.8 | 37.8 |
+| 5 | 52.8 | 64.2 | 52.0 | 52.0 |
+| 6 | 52.8 | 61.8 | 62.1 | 62.1 |
+| 8 | 52.8 | 59.7 | 59.7 | 59.7 |
+| 10 | 52.8 | 58.2 | 58.2 | 58.2 |
+
+A depression keeps its half-depth floor from about D = 2T (T the band below, 6 cm for 3 cm); shallower ones are
+flattened, so a 3 cm band removes a 2 cm depression and keeps a 6 cm one.
+
+Cracks, measured with this code on the reference scene (the merge-preview depth, the same inputs as the rows above):
+the final triangulation has 5 connected pieces with the current setting, with the one-sided setting, and with symmetric
+3 cm and 2 cm; the largest detached piece has 14,443 triangles in each. Before the 200-triangle drop, the whole
+triangulation has 7 pieces with the current and one-sided settings and 5 with symmetric 3 cm and 2 cm. The plane layer
+alone splits into 20 pieces with the current setting (17 under 200 triangles), 4 one-sided (2 under 200), 7 symmetric
+3 cm (5 under 200) and 5 symmetric 2 cm (2 under 200). Plane-layer triangles dropped for stretched edges rise from 1
+(current) to 503 (one-sided) and 956 (symmetric 3 cm). The 25 cracked plane-layer pieces that a comment in the config
+attributes to 2 cm symmetric do not come out of these counts, and the count behind that comment is not recorded in the
+repository.
+
+Generalisation: 3 cm and 1 cm come from one capture of one sensor. Real terrain rarely lies 3 cm under the support
+plane (a sink lies deeper), and the sensor error is what reads in that range here, but that is an observation from one
+scene, so both values are candidates until a second scene shows the same. DA3 (monocular) scenes were not checked.
+
+Not known or not measured:
+
+- The glass's real height. The research assumed it lies within ±0.5 cm of the counter.
+- The front of the glass reads +1 to +1.8 cm above the counter (about 13% of the visible glass, 20 to 25% measured
+  against the counter). The 1 cm upper band keeps these, on purpose: a higher upper band flattens raised structures
+  (328 cm² at 3 cm), so this is a trade-off, not a fix.
+- The cause of the offset: a weak lidar return or the depth completion of ARKit are guesses. The camera was fixed in
+  the capture, so the dependence on viewpoint was not tested.
+- The sink's real depth: this depth map cannot give it.
 
 ### Size Check
 

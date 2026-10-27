@@ -18,7 +18,8 @@ Five decisions carry the result, each of which the tests pin:
   z = 0, so an object standing on something higher than the support plane (a pot on a cooktop) keeps the
   known limit that this module cannot see that surface.
 - **Plane pixels stay on the plane.** A pixel within `plane_snap_tol_m` of z = 0 becomes a vertex where its
-  ray meets z = 0, so depth noise does not move it. A triangle whose three vertices are all plane pixels (the
+  ray meets z = 0, so depth noise does not move it. `plane_snap_below_m` and `plane_snap_above_m` set the two
+  sides of that band apart (both null keeps the symmetric band). A triangle whose three vertices are all plane pixels (the
   plane layer) is judged only by the loose `plane_max_edge_ratio`; it is never judged by the relief limit,
   so a flat counter top cannot crack along a mask edge.
 - **Relief triangles are judged tightly.** Every other triangle must have edges not much longer than one
@@ -41,6 +42,8 @@ This module needs only numpy, PIL, scipy and trimesh, so it runs in the light ed
 
 from __future__ import annotations
 
+import math
+import numbers
 import os
 import re
 from pathlib import Path
@@ -85,6 +88,11 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "min_component_triangles": 200,
     # Metres. One rough measurement of +8 mm on one counter region is the whole basis for 1 cm.
     "plane_snap_tol_m": 0.01,
+    # Metres under and over z = 0 for the snap band (see plane_snap_mask). None takes plane_snap_tol_m on that side,
+    # so both None is the symmetric band above. The candidate values for these two come from one scene, one capture
+    # and one sensor, so they stay out of the defaults; the config and the README say what they do.
+    "plane_snap_below_m": None,
+    "plane_snap_above_m": None,
     # Metres in the camera frame; None keeps every pixel with a positive depth.
     "z_far": None,
 }
@@ -300,6 +308,25 @@ def snap_to_plane(points: np.ndarray, tol: float, height: float = 0.0) -> tuple[
     return out, snapped
 
 
+def plane_snap_mask(z: np.ndarray, below: float, above: float) -> np.ndarray:
+    """Which heights snap onto the support plane z = 0: those with `-below < z < above`, strict at both ends.
+
+    Both ends are strict on purpose: with `below == above == tol` the mask is `np.abs(z) < tol` for every input,
+    NaN and infinities included, so the symmetric band is the old one bit for bit. A zero side turns that side off,
+    and it leaves out z = 0 itself, as a zero symmetric tolerance does.
+
+    Args:
+        z: heights in metres, after the object pixels have moved.
+        below: how far under the plane a height may be and still snap, in metres.
+        above: how far over the plane a height may be and still snap, in metres.
+
+    Returns:
+        np.ndarray: a boolean mask shaped like `z`.
+    """
+    z = np.asarray(z, dtype=np.float64)
+    return (z > -below) & (z < above)
+
+
 def fit_plane_robust(points: np.ndarray, iterations: int = 4):
     """Least-squares plane z = a x + b y + c, with the points that do not fit dropped and refitted.
 
@@ -459,6 +486,12 @@ def build_background_mesh(
     p = {**DEFAULT_PARAMS, **(params or {})}
     if p["mask_surface"] not in ("local", "plane"):
         raise ValueError(f"s_bg_mesh.mask_surface must be 'local' or 'plane', got {p['mask_surface']!r}")
+    for key in ("plane_snap_below_m", "plane_snap_above_m"):
+        value = p[key]
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"s_bg_mesh.{key} must be null or a finite number of metres >= 0, got {value!r}")
     depth = np.asarray(depth, dtype=np.float64)
     K = np.asarray(K, dtype=np.float64)
     cam2world = np.asarray(cam2world, dtype=np.float64)
@@ -507,10 +540,13 @@ def build_background_mesh(
         in_range[:, -trim:] = False
     n_trimmed = n_before_trim - int(in_range.sum())
 
-    # A plane pixel is one within the snap tolerance of z = 0 after the object pixels have moved. Its triangles
-    # form the plane layer, judged by the loose plane limit; the rest are relief, judged by the tight one.
+    # A plane pixel is one within the snap band of z = 0 after the object pixels have moved. Its triangles
+    # form the plane layer, judged by the loose plane limit; the rest are relief, judged by the tight one. A side
+    # left null takes the symmetric tolerance, so the defaults keep the band they always had.
     tol = float(p["plane_snap_tol_m"])
-    plane_flag = in_range & (np.abs(points[..., 2]) < tol)
+    below = tol if p["plane_snap_below_m"] is None else float(p["plane_snap_below_m"])
+    above = tol if p["plane_snap_above_m"] is None else float(p["plane_snap_above_m"])
+    plane_flag = in_range & plane_snap_mask(points[..., 2], below, above)
     focal = 0.5 * (K[0, 0] + K[1, 1])
     triangles, counts = grid_triangles(
         in_range, points, depth_cam, focal, float(p["relief_max_edge_ratio"]),
@@ -519,6 +555,8 @@ def build_background_mesh(
     triangles, n_small = drop_small_components(triangles, h * w, int(p["min_component_triangles"]))
     on_plane_triangle = plane_flag.reshape(-1)[triangles].all(axis=1)
 
+    # The heights before the snap, so each snapped vertex is counted by the side it came from.
+    pre_snap_z = points[..., 2].copy()
     # A plane vertex is where its ray meets z = 0. That depends on the pixel and the pose, not on the depth
     # noise, so the plane does not wobble with the measurement. Vertices are shared by both layers, so each
     # is one point and no seam opens between them.
@@ -528,6 +566,9 @@ def build_background_mesh(
     points[..., 2] = np.where(plane_flag & ~hits_plane, 0.0, points[..., 2])
 
     used = np.unique(triangles)
+    plane_used = plane_flag.reshape(-1)[used]
+    snapped_from_below = int((plane_used & (pre_snap_z.reshape(-1)[used] < 0)).sum())
+    snapped_from_above = int((plane_used & (pre_snap_z.reshape(-1)[used] > 0)).sum())
     remap = np.full(h * w, -1, dtype=np.int64)
     remap[used] = np.arange(len(used))
     rows, cols = np.divmod(used, w)
@@ -562,6 +603,10 @@ def build_background_mesh(
         "object_pixels_ring_level": n_ring_level,
         "object_pixels_support_plane": n_replaced - n_fitted - n_ring_level,
         "vertices_snapped_to_plane": int(plane_flag.reshape(-1)[used].sum()),
+        "vertices_snapped_from_below": snapped_from_below,
+        "vertices_snapped_from_above": snapped_from_above,
+        "plane_snap_below_m_used": below,
+        "plane_snap_above_m_used": above,
         "bounds_min_m": [float(x) for x in bounds[0]],
         "bounds_max_m": [float(x) for x in bounds[1]],
         "texture_hw": [texture.height, texture.width],
