@@ -254,8 +254,9 @@ visual-only object `mesh_background_0`, and records it in `reconstructed_og_scen
 file. Nobody attaches it by hand in the light editor. It has no collision: the objects rest on the floor plane,
 which is hidden while the mesh is shown. It is added while the simulator is stopped, with the objects and before
 they settle, because adding it during play made OmniGibson warn that an articulation root API had changed
-(OmniGibson's `object_base.py`); this change is meant to stop that warning, and no actual stage-14 run has
-confirmed it yet. It is not combined with `include_gs`; with both on, the mesh is skipped
+(OmniGibson's `object_base.py`). On the LiDAR v2 scene, a stage-14 run before the change and one after it (research 1)
+showed that warning going from two log lines to none, with the settled poses bit-identical and the scene JSON and
+`stage_info.json` unchanged; one scene, one run each. It is not combined with `include_gs`; with both on, the mesh is skipped
 with a warning. Without the GLB, stage 14 warns and goes on without it. The saved JSON keeps the relative path, so a consumer resolves it with `simfoundry.utils.scene_utils.load_json_with_absolute_usd_paths` before handing the file to OmniGibson, since restoring the JSON as it is fails (OmniGibson resolves a relative path against a temporary scene USD).
 
 #### One-sided plane snap (candidate settings, off by default)
