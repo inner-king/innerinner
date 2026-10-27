@@ -28,7 +28,7 @@ statistics use the visible surface, so the mask they come from is not the mask t
 import cv2
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_erosion, gaussian_filter
+from scipy.ndimage import binary_dilation, binary_erosion, gaussian_filter
 
 from simfoundry.pipeline.upsample_check import ASPECT_TOLERANCE, DEFAULT_ALPHA_THRESHOLD, silhouette_metrics
 
@@ -96,19 +96,64 @@ def _nearest_mask(mask, size_wh):
 # Infill over the occluded part only
 # --------------------------------------------------------------------------------------
 
-def composite_visible_over_infill(crop_rgba, infill_rgba, feather_px):
-    """The crop's visible pixels over the infill output, with a feathered seam.
+# The seam can only sit where the infill paints something the crop does not show. The outline the model draws around the
+# object is a thin ring, a few pixels wide, and taken as seam it dims the crop's own edge. So the added region is opened
+# with a square of 2 * SEAM_OPEN_RADIUS + 1 pixels first: a ring narrower than that goes, a part the model filled in (a
+# hole, the back of a lid) is wider and stays. Fixed on purpose: a setting would invite tuning it per object.
+SEAM_OPEN_RADIUS = 2
 
-    Done at the infill's resolution: the crop's RGB is resized with Lanczos, its alpha with bilinear and then
-    binarised at the alpha threshold. The weight is the visible mask eroded by `feather_px` (so the blend stays
-    inside the object) and blurred with sigma = feather / 2. The result is `w * crop + (1 - w) * infill` for colour
-    and the maximum of the two alphas, so the visible surface is always part of the object.
+
+def opened_added_region(visible, infill_mask):
+    """The part of the infill the crop does not show, with the thin outline ring removed (see `SEAM_OPEN_RADIUS`).
+
+    Args:
+        visible: (H, W) bool, the crop's visible pixels at the infill's resolution.
+        infill_mask: (H, W) bool, the infill's object pixels.
+
+    Returns:
+        np.ndarray: (H, W) bool, the opened added region.
+    """
+    added = np.asarray(infill_mask, dtype=bool) & ~np.asarray(visible, dtype=bool)
+    square = np.ones((2 * SEAM_OPEN_RADIUS + 1,) * 2, dtype=bool)
+    return binary_dilation(binary_erosion(added, structure=square), structure=square)
+
+
+def seam_weight(visible, real_added, feather):
+    """The crop's share of each pixel, at the infill's resolution.
+
+    Outside the visible part the weight is 0: there the picture is the infill. Inside it, the weight is 1 - near, where
+    `near` is the opened added region grown by `feather` pixels and blurred with sigma = feather / 2. So the crop keeps
+    its own colour wherever nothing the infill added is close, and the two blend only where they meet. With feather 0 the
+    seam is hard: `near` is the added region itself.
+
+    Args:
+        visible: (H, W) bool, the crop's visible pixels.
+        real_added: (H, W) bool, the opened added region (see `opened_added_region`).
+        feather: seam width in pixels; 0 for a hard seam.
+
+    Returns:
+        np.ndarray: (H, W) float64 in [0, 1].
+    """
+    if feather == 0:
+        near = np.asarray(real_added, dtype=np.float64)
+    else:
+        grown = binary_dilation(real_added, iterations=feather)
+        near = gaussian_filter(grown.astype(np.float64), sigma=feather / 2.0)
+    return np.where(visible, np.clip(1.0 - near, 0.0, 1.0), 0.0)
+
+
+def composite_visible_over_infill(crop_rgba, infill_rgba, feather_px):
+    """The crop's visible pixels over the infill output, with a seam only where the infill filled something in.
+
+    Done at the infill's resolution: the crop's RGB is resized with Lanczos, its alpha with bilinear and then binarised
+    at the alpha threshold. The seam is where the infill paints what the crop does not show, opened to drop the outline
+    ring (`opened_added_region`); the crop keeps its own colour across the rest of its visible part, so an outline the
+    infill draws around the object cannot reach the crop's edge (the dark rim it would carry). The colour is
+    `w * crop + (1 - w) * infill` with `seam_weight` for `w`, and the alpha is the maximum of the two alphas, so the
+    visible surface is always part of the object.
 
     The two must have the same aspect ratio (`ASPECT_TOLERANCE`); otherwise the infill is returned unchanged and the
     reason is recorded.
-
-    The seam weight is exactly 1 only from `feather + ceil(4 sigma)`, which is 3 * feather pixels inside the visible
-    edge (9 at feather 3). Nearer the edge the crop is blended with the infill on purpose.
 
     Args:
         crop_rgba: (h, w, 4) uint8, the stage-5 crop as padded for the model.
@@ -117,8 +162,9 @@ def composite_visible_over_infill(crop_rgba, infill_rgba, feather_px):
 
     Returns:
         tuple: the (H, W, 4) uint8 picture and an info dict: `composited`, `reason` (None when composited),
-        `visible_fraction` (visible pixels over the composite's alpha; None when not composited) and
-        `alignment_iou` (the two silhouettes' IoU, computed whether or not the composition ran).
+        `visible_fraction` (visible pixels over the composite's alpha; None when not composited), `alignment_iou` (the
+        two silhouettes' IoU, computed whether or not the composition ran) and `seam_added_pixels` (the opened added
+        region's pixel count; None when not composited).
     """
     crop = np.asarray(crop_rgba, dtype=np.uint8)
     infill = np.asarray(infill_rgba, dtype=np.uint8)
@@ -134,15 +180,13 @@ def composite_visible_over_infill(crop_rgba, infill_rgba, feather_px):
             "reason": f"aspect ratio differs: crop {w_c}x{h_c}, infill {w_i}x{h_i}",
             "visible_fraction": None,
             "alignment_iou": float(alignment_iou),
+            "seam_added_pixels": None,
         }
     rgb_in = _lanczos(crop[..., :3], (w_i, h_i))
     alpha_in = np.asarray(Image.fromarray(crop[..., 3]).resize((w_i, h_i), Image.BILINEAR))
     visible = alpha_in > DEFAULT_ALPHA_THRESHOLD
-    if feather == 0:
-        weight = visible.astype(np.float64)
-    else:
-        eroded = binary_erosion(visible, iterations=feather)
-        weight = gaussian_filter(eroded.astype(np.float64), sigma=feather / 2.0)
+    real_added = opened_added_region(visible, infill[..., 3] > DEFAULT_ALPHA_THRESHOLD)
+    weight = seam_weight(visible, real_added, feather)
     blended = weight[..., None] * rgb_in.astype(np.float64) + (1.0 - weight[..., None]) * infill[..., :3].astype(np.float64)
     rgb = np.clip(np.rint(blended), 0, 255).astype(np.uint8)
     alpha = np.maximum(visible.astype(np.uint8) * 255, infill[..., 3]).astype(np.uint8)
@@ -153,6 +197,7 @@ def composite_visible_over_infill(crop_rgba, infill_rgba, feather_px):
         "reason": None,
         "visible_fraction": float(visible.sum()) / object_pixels if object_pixels else None,
         "alignment_iou": float(alignment_iou),
+        "seam_added_pixels": int(real_added.sum()),
     }
 
 

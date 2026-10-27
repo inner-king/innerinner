@@ -20,6 +20,7 @@ from PIL import Image
 from scipy.ndimage import binary_erosion
 
 from simfoundry.pipeline.upsample_color import (
+    SEAM_OPEN_RADIUS,
     _lab_to_rgb_uint8,
     _rgb_to_lab,
     apply_lab_affine,
@@ -29,10 +30,12 @@ from simfoundry.pipeline.upsample_color import (
     filled_vs_visible_delta_e,
     lab_affine_coefficients,
     match_color_lab,
+    opened_added_region,
     pixel_delta_e,
     resolve_color_match,
     resolve_infill_mode,
     resolve_rim_trim_px,
+    seam_weight,
     skip_reason,
     trim_infill_rim,
     trim_infill_rim_file,
@@ -112,8 +115,8 @@ def test_visible_interior_keeps_the_crop_colour_not_the_infill():
     out, info = composite_visible_over_infill(crop, _solid(80, 80, (20, 240, 30)), feather_px=3)
 
     expected = _lanczos(crop[..., :3], 80, 80)
-    # The weight is 1 once the eroded visible surface and the blur's reach (4 sigma) both lie inside the object:
-    # 9 px at feather 3, so the centre of a 20 px square at infill resolution is exact.
+    # The weight is 1 once the seam cannot reach. The added region grown by feather (3 px) and blurred over 4 sigma
+    # (6 px) reaches 9 px into the object at feather 3, so the centre of a 20 px square at infill resolution is exact.
     inner = np.s_[30:50, 30:50]
     assert info["composited"] is True
     assert np.abs(out[inner][..., :3].astype(int) - expected[inner].astype(int)).max() <= 1
@@ -682,18 +685,20 @@ def _weight_row_out():
     return out
 
 
-# Red values along row 50 from the closed-form seam weight: a normalised Gaussian (sigma 1.5, radius 6) over the 3 px
-# erosion of the square, which starts at x = 20. The 0.5 crossing lies between x = 22 (0.367) and x = 23 (0.633).
-EXPECTED_RED = {17: 0, 18: 0, 19: 2, 20: 11, 21: 39, 22: 94, 23: 161, 24: 216, 25: 244, 26: 253, 27: 255, 28: 255, 29: 255}
+# Red values along row 50 from the seam weight: 1 minus a normalised Gaussian (sigma 1.5, radius 6) of the opened added
+# region, which here is the frame outside the square grown 3 px into it, so the seam starts at x = 20. The weight is zero
+# outside the square, which is why x = 19 is 0 and not a leak of 2. The 0.5 crossing lies between x = 22 (0.37) and
+# x = 23 (0.63).
+EXPECTED_RED = {17: 0, 18: 0, 19: 0, 20: 11, 21: 39, 22: 94, 23: 161, 24: 216, 25: 244, 26: 253, 27: 255, 28: 255, 29: 255}
 
 
-def test_the_seam_weight_is_pinned_so_a_wider_or_narrower_erosion_is_caught():
+def test_the_seam_weight_is_pinned_so_a_wider_or_narrower_seam_is_caught():
     out = _weight_row_out()
 
     for x, red in EXPECTED_RED.items():
         assert int(out[50, x, 0]) == red, x
     assert (out[50, 29:71, :3] == 255).all()  # exactly 1 from depth 9 to 3 px short of the right edge
-    assert (out[50, :17, :3] == 0).all()      # the black infill, beyond the seam
+    assert (out[50, :20, :3] == 0).all()      # the black infill outside the square, beyond the seam
 
 
 def test_alpha_127_is_not_visible_and_alpha_128_is():
@@ -704,6 +709,17 @@ def test_alpha_127_is_not_visible_and_alpha_128_is():
         crop[5:35, 5:35, 3] = alpha
         out, _ = composite_visible_over_infill(crop, infill, feather_px=3)
         assert out[20, 20, 0] == expected, alpha
+
+
+def test_infill_alpha_127_is_no_seam_and_alpha_128_is_the_whole_block():
+    # The infill mask uses the same threshold as the visible mask: a 12 px block outside the visible square is seam
+    # at alpha 128 and not at alpha 127.
+    crop = _crop(50, 50, (4, 4, 24, 24), (255, 255, 255))
+    for alpha, expected in ((127, 0), (128, 144)):
+        infill = _solid(50, 50, (0, 0, 0), alpha=0)
+        infill[30:42, 30:42, 3] = alpha
+        _, info = composite_visible_over_infill(crop, infill, feather_px=3)
+        assert info["seam_added_pixels"] == expected, alpha
 
 
 def test_the_visible_mask_follows_the_bilinear_alpha_not_the_nearest_one():
@@ -1060,3 +1076,99 @@ def test_the_rim_record_is_merged_into_the_composite_record_of_the_same_image():
     ]
     assert len(updates) == 1
     assert isinstance(updates[0].func.value.slice, ast.Name) and updates[0].func.value.slice.id == "img_name"
+
+
+# ---------------------------------------------------------------------------
+# B8d: the seam only where the infill filled something in
+# ---------------------------------------------------------------------------
+
+def _outline_case():
+    """A white 60 px square [20, 80) in a 100 px crop, and an infill that draws a black outline 2 px outside it.
+
+    The infill is opaque black from 18 to 82 (the outline and the square under it) and transparent, grey-blue, beyond, so
+    the infill's added region is only the thin outline ring.
+    """
+    crop = _crop(100, 100, (20, 20, 80, 80), (255, 255, 255))
+    infill = np.zeros((100, 100, 4), dtype=np.uint8)
+    infill[..., :3] = (40, 50, 60)
+    infill[18:82, 18:82] = (0, 0, 0, 255)
+    return crop, infill
+
+
+def test_an_outline_the_infill_draws_around_the_object_never_reaches_the_visible_surface():
+    crop, infill = _outline_case()
+    out, info = composite_visible_over_infill(crop, infill, feather_px=3)
+    visible = crop[..., 3] > 127
+    assert info["seam_added_pixels"] == 0
+    # Exact on every visible pixel, the edge ones included: the crop's own colour, as its Lanczos picture gives it.
+    assert np.array_equal(out[visible, :3], _lanczos(crop[..., :3], 100, 100)[visible])
+    # The four-pixel band inside the edge has no near-black pixel, as the crop has none.
+    band = visible & ~binary_erosion(visible, iterations=4)
+    near_black = (out[..., :3].astype(float).mean(axis=-1) < 50) & band
+    assert int(near_black.sum()) == 0
+
+
+def test_outside_the_visible_part_the_picture_is_the_infill_colour():
+    crop, infill = _outline_case()
+    out, _ = composite_visible_over_infill(crop, infill, feather_px=3)
+    visible = crop[..., 3] > 127
+    assert np.array_equal(out[~visible, :3], infill[~visible, :3])
+
+
+@pytest.mark.parametrize("width, opened", [(4, 0), (5, 1300)])
+def test_the_opening_drops_an_outline_narrower_than_five_pixels_and_keeps_a_wider_one(width, opened):
+    crop = _crop(100, 100, (20, 20, 80, 80), (255, 255, 255))
+    infill = np.zeros((100, 100, 4), dtype=np.uint8)
+    infill[20 - width:80 + width, 20 - width:80 + width, 3] = 255
+    _, info = composite_visible_over_infill(crop, infill, feather_px=3)
+    assert info["seam_added_pixels"] == opened
+
+
+def test_the_opening_radius_is_the_fixed_two_pixels():
+    assert SEAM_OPEN_RADIUS == 2
+
+
+def _hole_case():
+    """A white 60 px square with a 24 px hole in its middle, and an infill that fills only the hole, with black."""
+    crop = _crop(100, 100, (20, 20, 80, 80), (255, 255, 255))
+    crop[38:62, 38:62, 3] = 0
+    infill = np.zeros((100, 100, 4), dtype=np.uint8)
+    infill[38:62, 38:62] = (0, 0, 0, 255)
+    return crop, infill
+
+
+def test_the_seam_fades_in_from_a_filled_hole_and_nowhere_else():
+    crop, infill = _hole_case()
+    out, info = composite_visible_over_infill(crop, infill, feather_px=3)
+    assert info["seam_added_pixels"] == 24 * 24
+    visible = crop[..., 3] > 127
+    weight = seam_weight(visible, opened_added_region(visible, infill[..., 3] > 127), 3)
+    # Depth 0 is the visible pixel next to the hole. The weight is low there, rises into the visible part, and is exactly
+    # 1 from depth 9 (feather + ceil(4 sigma)): the seam does not reach further than that.
+    row = [float(weight[50, 37 - depth]) for depth in range(12)]
+    assert row[0] < 0.1
+    assert all(a <= b for a, b in zip(row[:10], row[1:10]))
+    assert row[9] == 1.0 and row[11] == 1.0
+    assert (weight[~visible] == 0.0).all()
+    assert tuple(out[50, 28, :3]) == (255, 255, 255)                     # far into the visible part: the crop
+    assert tuple(out[50, 50, :3]) == (0, 0, 0) and out[50, 50, 3] == 255  # inside the hole: the infill, and object
+
+
+def test_feather_zero_makes_the_seam_hard_at_the_filled_hole():
+    crop, infill = _hole_case()
+    out, _ = composite_visible_over_infill(crop, infill, feather_px=0)
+    assert tuple(out[50, 37, :3]) == (255, 255, 255)  # the last visible pixel keeps the crop's colour
+    assert tuple(out[50, 38, :3]) == (0, 0, 0)        # the first hole pixel is the infill
+    visible = crop[..., 3] > 127
+    weight = seam_weight(visible, opened_added_region(visible, infill[..., 3] > 127), 0)
+    assert set(np.unique(weight).tolist()) <= {0.0, 1.0}
+
+
+def test_seam_added_pixels_is_a_plain_int_when_composited_and_none_when_refused():
+    crop, infill = _hole_case()
+    _, composited = composite_visible_over_infill(crop, infill, feather_px=3)
+    assert type(composited["seam_added_pixels"]) is int
+    json.dumps(composited)
+    _, refused = composite_visible_over_infill(crop, _solid(100, 130, (0, 0, 0)), feather_px=3)
+    assert refused["seam_added_pixels"] is None
+    json.dumps(refused)

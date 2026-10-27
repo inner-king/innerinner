@@ -111,7 +111,9 @@ stage 6 writes nothing extra.
 
 Two options against colour drift are off by default (`simfoundry/pipeline/upsample_color.py`). With
 `s6_upsample.infill_mode: occluded_only` the crop's visible pixels are kept and the infill is taken only where the
-object was hidden, with a seam `infill_feather_px` wide; by default the model repaints the visible surface too.
+object was hidden. The seam, `infill_feather_px` wide, sits only where the infill adds pixels the crop does not
+show, so a thin outline the model draws around the object is left out and the object's own edge keeps its colour.
+By default the model repaints the visible surface too.
 `s6_upsample.infill_rim_trim_px` (default 0, off) takes that many pixels off the infill's outer edge, which can be a
 dark rim, and leaves the visible surface alone. With
 `s6_upsample.color_match.enabled` the upsampled object's Lab colour statistics are moved onto the crop's visible
