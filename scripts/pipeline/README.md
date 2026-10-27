@@ -214,6 +214,33 @@ file. Nobody attaches it by hand in the light editor. It has no collision: the o
 which is hidden while the mesh is shown. It is not combined with `include_gs`; with both on, the mesh is skipped
 with a warning. Without the GLB, stage 14 warns and goes on without it. The saved JSON keeps the relative path, so a consumer resolves it with `simfoundry.utils.scene_utils.load_json_with_absolute_usd_paths` before handing the file to OmniGibson, since restoring the JSON as it is fails (OmniGibson resolves a relative path against a temporary scene USD).
 
+#### Background exposure (off by default)
+
+The texture of the background mesh comes from a photograph, so it already carries the lighting of the moment it was taken. Stage 14 then writes it onto a material that the scene's dome light lights a second time. This is an interpretation, not a direct measurement; the render comes out brighter than the photograph (measured background gain 0.68 to 0.87 under the default skybox).
+
+There are two forms, both off by default. The keys are `s14_og.bg_mesh_shading`, `s14_og.bg_mesh_exposure_scale` and `s14_og.bg_mesh_emissive_intensity`, and a Hydra override sets them, for example `s14_og.bg_mesh_shading=unlit s14_og.bg_mesh_emissive_intensity=2700`.
+
+- `lit` keeps the scene lighting and multiplies the texture by `bg_mesh_exposure_scale` (one number, or R, G, B). The multiplier is written to the texture node's `scale` input.
+- `unlit` replaces the material with one OmniPBR (MDL) shader whose emission is the texture, with diffuse and specular at zero. `bg_mesh_emissive_intensity` sets the emission; null means 2700.
+
+The values are written into the USD, so `expected_file_hash` (the MD5 of the USD bytes) covers them. The scene JSON gets no new key, and the consumers (the light editor, policy evaluation, teleop and replay) do not change.
+
+The numbers and what they came from, all measured with the default skybox and the engine's default tone mapper and exposure:
+
+- The brightness of the `unlit` background stayed within 0.7% for skybox strengths 0, 2500 and 5000 (one scene, one experiment).
+- With `emissive_intensity` at 2700, the mean background gain over three scenes is 1 ± 0.02. The values that give a gain of exactly 1 are 2776, 2700 and 2700.
+- The per-channel `lit` multipliers that bring the background to the photograph are 0.577 to 0.754, per scene.
+- Correcting object textures against the exposure-matched background gave the same result with either form, over six variants of three scenes.
+
+Limits:
+
+- Replay lighting randomization (`s18_replay.domain_randomization.lighting`, on in the repository yaml, intensity 300 to 1200, which is 0.12 to 0.48 times the default 2500). The ratio of background brightness to object brightness was measured at skybox intensities 300, 600, 1200 and 2500 (research 1, `lightcal/rand_eval.md`; one variant in each of three scenes; the mean background over the mean objects at the scene's final state, divided by the same ratio at the default 2500). With `lit` plus a multiplier the ratio is almost unchanged on LiDAR v2 (0.99 to 1.09 times), but it leaves that range on marker new (0.55 to 0.84 times) and on bowl nofit, where R goes to 0.46 to 0.71 times while G and B stay at 0.99 to 1.09 times; this is likely due to the ACES curve (an estimate). With `unlit` the background hardly depends on the skybox intensity (within 0.7%) while the objects get darker, so at intensity 300 the ratio leaves that range by 2.5 to 6.2 times (marker 2.9 to 4.0, bowl 2.5 to 6.2, LiDAR 3.8 to 4.9). These are one variant per scene from one experiment.
+- `unlit` is pure emission with zero diffuse, so shadows and specular reflection are expected to be absent. This was not checked with a render.
+- The default `emissive_intensity` of about 2700 is bound to the camera exposure (filmIso 100, fNumber 5, 1/50 s) and the ACES tone mapper. Changing `tonemap_op` or `image_gamma` in policy evaluation makes it wrong; this was not measured.
+- `unlit` is an MDL (OmniPBR) material, so only an Omniverse renderer (RTX) shows it. The browser editor reads the texture from `emissive_color_texture` and ignores `emissive_intensity`.
+- The texture PNG is not covered by `expected_file_hash`. Rewriting the PNG to apply the exposure would leave the hash and the warning unchanged, which is why the values are written into the USD.
+- Not yet checked: whether the MDL material written into the USD gives the same render as one set at render time after loading, and whether the `lit` texture-node `scale` gives the same render as baking the multiplier into the PNG.
+
 ### Inputs And Outputs
 
 Inputs:

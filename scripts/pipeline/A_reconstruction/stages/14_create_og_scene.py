@@ -36,6 +36,7 @@ from simfoundry.pipeline.background_usd import (
     add_background_object,
     make_scene_cfg,
     relativize_background_path,
+    resolve_background_exposure,
     write_background_usd,
 )
 import numpy as np
@@ -180,6 +181,13 @@ def main(cfg):
     if attach_bg_mesh and not os.path.exists(bg_mesh_glb):
         print(f"[WARN] include_bg_mesh=True but {bg_mesh_glb} does not exist. Run stage 5c (--bg-mesh) first. Skipping the background mesh.")
         attach_bg_mesh = False
+    # Checked here, before Isaac Sim starts and whether or not the flag is on, so a typo fails in a second
+    # instead of after the boot.
+    bg_mesh_shading, bg_mesh_exposure_scale, bg_mesh_emissive_intensity = resolve_background_exposure(
+        cfg.s14_og.get("bg_mesh_shading", "lit"),
+        cfg.s14_og.get("bg_mesh_exposure_scale", None),
+        cfg.s14_og.get("bg_mesh_emissive_intensity", None),
+    )
     bg_mesh_record = {"attached": False, "usd": None}
 
 
@@ -426,7 +434,9 @@ def main(cfg):
     # --bg-mesh: the stage-5c mesh goes in as a visual-only USD in the stage-4 world (not the Y-up glTF it was
     # written as). It is added before the robot and the save, so the saved scene has it.
     if attach_bg_mesh:
-        bg_usd = write_background_usd(bg_mesh_glb, f"{out_dir}/background/{BACKGROUND_NAME}.usd")
+        bg_usd = write_background_usd(bg_mesh_glb, f"{out_dir}/background/{BACKGROUND_NAME}.usd",
+                                      shading=bg_mesh_shading, exposure_scale=bg_mesh_exposure_scale,
+                                      emissive_intensity=bg_mesh_emissive_intensity)
         add_background_object(env, bg_usd["usd_path"])
         bg_mesh_record = {"attached": True, "usd": f"background/{BACKGROUND_NAME}.usd", **bg_usd}
         print(f"Attached background mesh {BACKGROUND_NAME}: {bg_usd['vertices']} vertices, {bg_usd['faces']} faces")
