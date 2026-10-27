@@ -326,6 +326,24 @@ Not known or not measured:
   the capture, so the dependence on viewpoint was not tested.
 - The sink's real depth: this depth map cannot give it.
 
+Tapered move (candidate, off by default): `s_bg_mesh.plane_snap_ramp_px` fades a one-sided snap's move in from the rim of
+the snapped region over that many pixels, instead of moving every snapped vertex in full. At 0 (the default) the mesh and
+the texture are byte-identical to the output before this setting existed. Why: the length filter in `grid_triangles` runs
+before the snap, so a triangle that spans the rim keeps one corner moved and its neighbour in place, and then it is
+stretched. On the LiDAR v2 scene with the 3 cm / 1 cm band, 465 triangles are stretched at 0, 1 at 4 and 1 at 6
+(`plane_snap_ramp_px` 0, 4 and 6; one scene, one run of this code on the same inputs, CPU). Here 'stretched' means an edge
+length over the pixel footprint of more than eight, as the stage's own stretched-edge test measures it, taken on the vertices
+after the move. The share of the 1 to 3 cm low surface that ends within 3 mm of the plane goes from 100% to 87% and 82%.
+
+Limits: (i) one scene and one sensor; 4 to 6 pixels are candidates, not a default; (ii) the numbers come from a CPU run of
+this code on the stored inputs, and the RTX render that shows the rim has not been checked (views 1, 5, 6 and 7 are the ones
+to look at); (iii) the ramp moves vertices only (at 4 and 6 the faces, uv and texture are identical to those at 0, 279145
+triangles), so it cannot close a gap the triangulation leaves: the thin white seam at the front edge is still there in a CPU
+picture of the mesh at 6, and whether it shows in the RTX render has not been checked; (iv) how much of the pot's floor gap
+(+2.5 to +0.3 cm) the ramp leaves has not been measured; (v) the current symmetric band has the same rim problem on a smaller
+scale (14 stretched triangles in the current output, by the same test), so the same ramp could apply there, but its effect has
+not been measured.
+
 #### Background exposure (off by default)
 
 The texture of the background mesh comes from a photograph, so it already carries the lighting of the moment it was taken. Stage 14 then writes it onto a material that the scene's dome light lights a second time. This is an interpretation, not a direct measurement; the render comes out brighter than the photograph (measured background gain 0.68 to 0.87 under the default skybox).
