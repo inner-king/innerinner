@@ -210,7 +210,8 @@ def test_the_background_module_is_imported_at_module_level():
     imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.module == "simfoundry.pipeline.background_usd"]
     assert len(imports) == 1
     names = {alias.name for alias in imports[0].names}
-    assert {"write_background_usd", "add_background_object", "relativize_background_path", "make_scene_cfg"} <= names
+    assert {"write_background_usd", "add_background_object", "relativize_background_path", "make_scene_cfg",
+            "resolve_background_exposure"} <= names
 
 
 def test_the_scene_config_takes_the_attached_mesh_not_the_request():
@@ -645,3 +646,338 @@ def test_the_editor_entry_has_the_shape_the_editor_writes_for_a_room(tmp_path, m
     records = {r["name"]: r for r in scene_io.iter_objects(scene, json_path, usd_facts=False)}
     assert records[bu.BACKGROUND_NAME]["kind"] == "background"
     assert records[bu.BACKGROUND_NAME]["usd"] == pathlib.Path(info["usd_path"]).resolve()
+
+
+# --------------------------------------------------------------------------------------
+# Shading options: lit with a multiplier, unlit as an OmniPBR emission (B19)
+# --------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("args, expected", [
+    (("lit", None, None), ("lit", None, None)),
+    (("lit", 0.5, None), ("lit", (0.5, 0.5, 0.5), None)),
+    (("lit", (0.4, 0.5, 0.6), None), ("lit", (0.4, 0.5, 0.6), None)),
+    (("unlit", None, None), ("unlit", None, 2700.0)),
+    (("unlit", None, 1500), ("unlit", None, 1500.0)),
+])
+def test_the_accepted_options_resolve_to_their_values(args, expected):
+    assert bu.resolve_background_exposure(*args) == expected
+
+
+@pytest.mark.parametrize("args", [
+    ("Lit", None, None), (" lit", None, None), ("", None, None), (None, None, None), (3, None, None),
+    ("lit", None, 2700.0),
+    ("unlit", 0.4, None),
+    ("lit", 0, None), ("lit", -1, None), ("lit", float("nan"), None), ("lit", float("inf"), None),
+    ("lit", True, None), ("lit", "0.4", None),
+    ("lit", [0.4, 0.4], None), ("lit", [0.4] * 4, None), ("lit", [[0.4] * 3], None), ("lit", [], None),
+    ("unlit", None, 0), ("unlit", None, -1), ("unlit", None, float("nan")), ("unlit", None, True),
+    ("unlit", None, "2700"), ("unlit", None, [2700.0] * 3),
+    # Each channel of a sequence is checked on its own, not only the length.
+    ("lit", [0.4, 0, 0.4], None), ("lit", [0.4, -1, 0.4], None), ("lit", [0.4, float("nan"), 0.4], None),
+    ("lit", [0.4, True, 0.4], None), ("lit", [0.4, "0.5", 0.4], None),
+])
+def test_the_refused_options_are_refused(args):
+    with pytest.raises(ValueError):
+        bu.resolve_background_exposure(*args)
+
+
+@pytest.mark.parametrize("args", [
+    ("lit", None, None), ("lit", 0.5, None), ("lit", (0.4, 0.5, 0.6), None),
+    ("unlit", None, None), ("unlit", None, 1500),
+])
+def test_resolving_a_result_again_changes_nothing(args):
+    once = bu.resolve_background_exposure(*args)
+    assert bu.resolve_background_exposure(*once) == once
+
+
+def test_an_omegaconf_list_counts_as_three_channels():
+    omegaconf = pytest.importorskip("omegaconf")
+    assert bu.resolve_background_exposure("lit", omegaconf.ListConfig([0.4, 0.5, 0.6]), None) == (
+        "lit", (0.4, 0.5, 0.6), None)
+
+
+def test_an_omegaconf_list_with_a_bad_channel_is_refused():
+    omegaconf = pytest.importorskip("omegaconf")
+    with pytest.raises(ValueError):
+        bu.resolve_background_exposure("lit", omegaconf.ListConfig([0.4, 0, 0.4]), None)
+
+
+def test_the_unlit_default_and_the_shading_names_are_pinned():
+    assert bu.UNLIT_DEFAULT_EMISSIVE_INTENSITY == 2700.0
+    assert bu.SHADINGS == ("lit", "unlit")
+
+
+def _shader_inputs(stage):
+    """Every input of every shader in the file as (shader path, input name, type, value, connection targets), sorted.
+
+    The value is the authored one in plain Python: an asset is its path and a vector is a tuple. It is None for an input
+    that is connected rather than given a value.
+    """
+    from pxr import Sdf, UsdShade
+
+    rows = []
+    for prim in stage.Traverse():
+        if prim.IsA(UsdShade.Shader):
+            for item in UsdShade.Shader(prim).GetInputs():
+                value = item.Get()
+                if isinstance(value, Sdf.AssetPath):
+                    value = value.path
+                elif hasattr(value, "__len__") and not isinstance(value, str):
+                    value = tuple(value)
+                targets = [str(path) for path in item.GetAttr().GetConnections()]
+                rows.append((str(prim.GetPath()), item.GetBaseName(), str(item.GetTypeName()), value, targets))
+    return sorted(rows, key=lambda row: row[:2])
+
+
+# The default material as it was before the options: UsdPreviewSurface, the st reader and the texture, nothing else.
+# The values are pinned with the names: a different roughness or colour space changes every background written so far.
+DEFAULT_LIT_INPUTS = [
+    ("/mesh_background/material/basecolor", "file", "asset", "./textures/mesh_background_0_basecolor.png", []),
+    ("/mesh_background/material/basecolor", "sourceColorSpace", "token", "sRGB", []),
+    ("/mesh_background/material/basecolor", "st", "float2", None, ["/mesh_background/material/st.outputs:result"]),
+    ("/mesh_background/material/st", "varname", "token", "st", []),
+    ("/mesh_background/material/surface", "diffuseColor", "color3f", None,
+     ["/mesh_background/material/basecolor.outputs:rgb"]),
+    ("/mesh_background/material/surface", "metallic", "float", 0.0, []),
+    ("/mesh_background/material/surface", "roughness", "float", 1.0, []),
+]
+
+
+def test_the_default_writes_the_shaders_and_inputs_it_always_wrote(tmp_path):
+    pytest.importorskip("pxr")
+    _, _, _, info = _write(tmp_path)
+    assert _shader_inputs(_stage(info)) == DEFAULT_LIT_INPUTS
+    assert (info["shading"], info["exposure_scale"], info["emissive_intensity"]) == ("lit", None, None)
+
+
+def test_the_same_input_writes_the_same_bytes(tmp_path):
+    pytest.importorskip("pxr")
+    glb, _, _ = _glb(tmp_path)
+    first = bu.write_background_usd(glb, tmp_path / "first" / "mesh_background_0.usd")
+    second = bu.write_background_usd(glb, tmp_path / "second" / "mesh_background_0.usd")
+    assert pathlib.Path(first["usd_path"]).read_bytes() == pathlib.Path(second["usd_path"]).read_bytes()
+
+
+@pytest.mark.parametrize("scale, expected", [
+    (0.5, (0.5, 0.5, 0.5)),
+    ((0.4, 0.5, 0.6), (0.4, 0.5, 0.6)),
+])
+def test_lit_with_an_exposure_scale_multiplies_the_texture_and_keeps_the_diffuse_connection(tmp_path, scale, expected):
+    pytest.importorskip("pxr")
+    from pxr import Gf, Sdf, UsdShade
+
+    glb, _, _ = _glb(tmp_path)
+    info = bu.write_background_usd(glb, tmp_path / "background" / "mesh_background_0.usd", exposure_scale=scale)
+    stage = _stage(info)
+    scale_input = UsdShade.Shader(stage.GetPrimAtPath("/mesh_background/material/basecolor")).GetInput("scale")
+    assert scale_input.GetTypeName() == Sdf.ValueTypeNames.Float4
+    assert scale_input.Get() == Gf.Vec4f(*expected, 1.0)
+    rows = _shader_inputs(stage)
+    # The value of `scale` is checked above; here only its name, type and place matter.
+    assert [row[:3] + row[4:] for row in rows if row[1] == "scale"] == [
+        ("/mesh_background/material/basecolor", "scale", "float4", [])]
+    assert ("/mesh_background/material/surface", "diffuseColor", "color3f", None,
+            ["/mesh_background/material/basecolor.outputs:rgb"]) in rows
+    assert not any("omnipbr" in row[0] for row in rows)
+    assert (info["shading"], info["exposure_scale"]) == ("lit", list(expected))
+
+
+def test_unlit_writes_one_omnipbr_material_with_the_documented_inputs(tmp_path):
+    pytest.importorskip("pxr")
+    from pxr import Gf, Sdf, UsdShade
+
+    glb, _, _ = _glb(tmp_path)
+    info = bu.write_background_usd(glb, tmp_path / "background" / "mesh_background_0.usd", shading="unlit")
+    stage = _stage(info)
+    shader = UsdShade.Shader(stage.GetPrimAtPath("/mesh_background/material/omnipbr"))
+    assert shader.GetImplementationSource() == "sourceAsset"
+    assert shader.GetSourceAsset("mdl") == Sdf.AssetPath("OmniPBR.mdl")
+    assert shader.GetSourceAssetSubIdentifier("mdl") == "OmniPBR"
+    values = {}
+    for item in shader.GetInputs():
+        value = item.Get()
+        values[item.GetBaseName()] = (str(item.GetTypeName()), value.path if isinstance(value, Sdf.AssetPath) else value)
+    assert values == {
+        "diffuse_color_constant": ("color3f", Gf.Vec3f(0, 0, 0)),
+        "enable_emission": ("bool", True),
+        "emissive_color": ("color3f", Gf.Vec3f(1, 1, 1)),
+        "emissive_color_texture": ("asset", "./textures/mesh_background_0_basecolor.png"),
+        "emissive_intensity": ("float", 2700.0),
+        "specular_level": ("float", 0.0),
+        "reflection_roughness_constant": ("float", 1.0),
+        "metallic_constant": ("float", 0.0),
+    }
+    assert (pathlib.Path(info["usd_path"]).parent / info["texture"]).is_file()
+
+    material = UsdShade.Material(stage.GetPrimAtPath("/mesh_background/material"))
+    assert [str(path) for path in material.GetSurfaceOutput("mdl").GetAttr().GetConnections()] == [
+        "/mesh_background/material/omnipbr.outputs:out"]
+    universal = material.GetSurfaceOutput()
+    assert not universal or not universal.HasConnectedSource()
+    shader_ids = {UsdShade.Shader(prim).GetShaderId() for prim in stage.Traverse() if prim.IsA(UsdShade.Shader)}
+    assert shader_ids == {None}
+    bound = UsdShade.MaterialBindingAPI(stage.GetPrimAtPath("/mesh_background/base_link/mesh"))
+    assert bound.GetDirectBinding().GetMaterialPath().pathString == "/mesh_background/material"
+
+
+def test_unlit_takes_the_provisional_intensity_unless_one_is_given(tmp_path):
+    pytest.importorskip("pxr")
+    from pxr import UsdShade
+
+    def intensity(info):
+        stage = _stage(info)  # kept in a name: a prim is invalid once the stage it came from is gone
+        shader = UsdShade.Shader(stage.GetPrimAtPath("/mesh_background/material/omnipbr"))
+        return shader.GetInput("emissive_intensity").Get()
+
+    glb, _, _ = _glb(tmp_path)
+    default = bu.write_background_usd(glb, tmp_path / "default" / "mesh_background_0.usd", shading="unlit")
+    given = bu.write_background_usd(glb, tmp_path / "given" / "mesh_background_0.usd", shading="unlit",
+                                    emissive_intensity=1500)
+    assert (default["emissive_intensity"], intensity(default)) == (2700.0, 2700.0)
+    assert (given["emissive_intensity"], intensity(given)) == (1500.0, 1500.0)
+
+
+def test_a_glb_without_a_texture_keeps_its_colour_by_default_and_refuses_unlit_and_exposure(tmp_path):
+    pytest.importorskip("pxr")
+    import trimesh
+
+    from simfoundry.pipeline.depth_mesh import export_glb
+
+    glb = tmp_path / "plain.glb"
+    export_glb(trimesh.creation.box(extents=(1.0, 1.0, 1.0)), glb)
+    info = bu.write_background_usd(glb, tmp_path / "default" / "mesh_background_0.usd")
+    assert info["texture"] is None
+    refused = tmp_path / "refused" / "mesh_background_0.usd"
+    with pytest.raises(ValueError, match="needs a base-colour texture"):
+        bu.write_background_usd(glb, refused, shading="unlit")
+    with pytest.raises(ValueError, match="needs a base-colour texture"):
+        bu.write_background_usd(glb, refused, exposure_scale=0.5)
+    assert not refused.exists()
+
+
+def test_a_glb_without_a_texture_takes_its_colour_from_the_base_colour_factor(tmp_path):
+    pytest.importorskip("pxr")
+    import trimesh
+    from pxr import UsdShade
+    from trimesh.visual.material import PBRMaterial
+    from trimesh.visual.texture import TextureVisuals
+
+    from simfoundry.pipeline.depth_mesh import export_glb
+
+    def diffuse(info):
+        stage = _stage(info)
+        shader = UsdShade.Shader(stage.GetPrimAtPath("/mesh_background/material/surface"))
+        return tuple(shader.GetInput("diffuseColor").Get())
+
+    coloured = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    coloured.visual = TextureVisuals(material=PBRMaterial(baseColorFactor=[200, 100, 50, 255]))
+    coloured_glb = tmp_path / "coloured.glb"
+    export_glb(coloured, coloured_glb)
+    info = bu.write_background_usd(coloured_glb, tmp_path / "coloured" / "mesh_background_0.usd")
+    assert info["texture"] is None
+    assert diffuse(info) == pytest.approx((200 / 255, 100 / 255, 50 / 255), abs=1e-6)
+
+    # A GLB with no material at all keeps the writer's grey fallback.
+    plain_glb = tmp_path / "plain.glb"
+    export_glb(trimesh.creation.box(extents=(1.0, 1.0, 1.0)), plain_glb)
+    plain = bu.write_background_usd(plain_glb, tmp_path / "plain" / "mesh_background_0.usd")
+    assert diffuse(plain) == pytest.approx((0.8, 0.8, 0.8), abs=1e-6)
+
+
+def test_the_result_keeps_its_keys_and_adds_the_options(tmp_path):
+    pytest.importorskip("pxr")
+    glb, _, _ = _glb(tmp_path)
+    lit = bu.write_background_usd(glb, tmp_path / "lit" / "mesh_background_0.usd", exposure_scale=0.5)
+    unlit = bu.write_background_usd(glb, tmp_path / "unlit" / "mesh_background_0.usd", shading="unlit")
+    for info in (lit, unlit):
+        assert {"usd_path", "texture", "vertices", "faces", "bounds"} <= set(info)
+        assert {"shading", "exposure_scale", "emissive_intensity"} <= set(info)
+        json.dumps(info)
+    assert (lit["shading"], lit["exposure_scale"], lit["emissive_intensity"]) == ("lit", [0.5, 0.5, 0.5], None)
+    assert (unlit["shading"], unlit["exposure_scale"], unlit["emissive_intensity"]) == ("unlit", None, 2700.0)
+
+
+def _resolve_assignment_targets(main):
+    """The names the stage's resolve call assigns: the checked options that the write call must take."""
+    assigns = [n for n in ast.walk(main) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+               and _call_name(n.value) == "resolve_background_exposure"]
+    assert len(assigns) == 1 and isinstance(assigns[0].targets[0], ast.Tuple)
+    return [t.id for t in assigns[0].targets[0].elts]
+
+
+def test_the_options_are_checked_once_before_isaac_sim_and_outside_any_loop_or_flag():
+    _, main = _stage14()
+    calls = _calls(main, "resolve_background_exposure")
+    assert len(calls) == 1
+    call = calls[0]
+    environments = [c for c in _calls(main, "Environment") if ast.unparse(c.func.value) == "og"]
+    assert len(environments) == 1 and call.lineno < environments[0].lineno
+    loops = [n for n in ast.walk(main) if isinstance(n, (ast.For, ast.While))]
+    assert not [n for n in loops if n.lineno <= call.lineno <= n.end_lineno]
+    flagged = [n for n in ast.walk(main) if isinstance(n, ast.If) and {"include_bg_mesh", "attach_bg_mesh"} & _names(n.test)]
+    assert not [n for n in flagged if n.lineno <= call.lineno <= n.end_lineno]
+
+
+def test_the_write_call_takes_the_checked_options_and_nothing_else_changes_under_the_flag():
+    _, main = _stage14()
+    assert _resolve_assignment_targets(main) == ["bg_mesh_shading", "bg_mesh_exposure_scale", "bg_mesh_emissive_intensity"]
+    writes = _calls(main, "write_background_usd")
+    assert len(writes) == 1
+    assert writes[0] in list(ast.walk(_attach_block(main)))
+    options = {keyword.arg: ast.unparse(keyword.value) for keyword in writes[0].keywords}
+    assert options == {"shading": "bg_mesh_shading", "exposure_scale": "bg_mesh_exposure_scale",
+                       "emissive_intensity": "bg_mesh_emissive_intensity"}
+    assert len(writes[0].args) == 2
+    assert ast.unparse(writes[0].args[0]) == "bg_mesh_glb"
+    assert isinstance(writes[0].args[1], ast.JoinedStr)
+
+
+def test_the_config_is_read_with_the_defaults_the_yaml_states():
+    _, main = _stage14()
+    reads = {call.args[0].value: call.args[1] for call in _calls(main, "get")
+             if ast.unparse(call.func.value) == "cfg.s14_og" and len(call.args) == 2
+             and isinstance(call.args[0], ast.Constant) and str(call.args[0].value).startswith("bg_mesh_")}
+    assert set(reads) == {"bg_mesh_shading", "bg_mesh_exposure_scale", "bg_mesh_emissive_intensity"}
+    assert (reads["bg_mesh_shading"].value, reads["bg_mesh_exposure_scale"].value,
+            reads["bg_mesh_emissive_intensity"].value) == ("lit", None, None)
+
+
+def test_the_yaml_defaults_are_the_code_defaults():
+    yaml = pytest.importorskip("yaml")
+    s14 = yaml.safe_load(CFG.read_text())["s14_og"]
+    assert (s14["bg_mesh_shading"], s14["bg_mesh_exposure_scale"], s14["bg_mesh_emissive_intensity"]) == (
+        "lit", None, None)
+
+
+def test_the_readme_section_states_the_defaults_and_recommends_no_option():
+    import re
+
+    text = (REPO / "scripts/pipeline/README.md").read_text()
+    start = text.index("#### Background exposure (off by default)")
+    heading = re.search(r"\n#{1,3} ", text[start + 1:])
+    section = text[start:start + 1 + heading.start()] if heading else text[start:]
+    intensity = int(bu.UNLIT_DEFAULT_EMISSIVE_INTENSITY)
+    for fragment in (
+        "The keys are `s14_og.bg_mesh_shading`, `s14_og.bg_mesh_exposure_scale` and "
+        "`s14_og.bg_mesh_emissive_intensity`",
+        f"`bg_mesh_emissive_intensity` sets the emission; null means {intensity}.",
+        "one OmniPBR (MDL) shader whose emission is the texture",
+    ):
+        assert fragment in section
+    assert "recommend" not in section.lower()
+
+
+def test_the_background_is_added_from_the_usd_the_writer_returned():
+    _, main = _stage14()
+    calls = _calls(main, "add_background_object")
+    assert len(calls) == 1
+    assert ast.unparse(calls[0].args[1]) == "bg_usd['usd_path']"  # ast.unparse writes string subscripts in single quotes
+
+
+def test_the_record_is_made_under_the_flag_with_the_attached_and_usd_keys():
+    _, main = _stage14()
+    records = [n for n in ast.walk(_attach_block(main)) if isinstance(n, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "bg_mesh_record" for t in n.targets)]
+    assert len(records) == 1 and isinstance(records[0].value, ast.Dict)
+    assert [key.value for key in records[0].value.keys if key is not None] == ["attached", "usd"]
+    assert any(key is None for key in records[0].value.keys)  # **bg_usd: the writer's keys come along

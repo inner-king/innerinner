@@ -499,6 +499,18 @@ s14_og:
   # as mesh_background_0: a visual-only USD in the scene JSON, referenced by a relative path. It is not
   # combined with include_gs (the two would sit in the same place), so with both on the mesh is skipped.
   include_bg_mesh: false
+  # How the background mesh is shaded. Stage 14 checks these on every run; they change the USD only with
+  # include_bg_mesh on, and the defaults write the same USD as before.
+  #   lit: the texture is lit by the scene, as before.
+  #   unlit: one OmniPBR (MDL) material whose emission is the texture, with no diffuse and no specular, so the
+  #     skybox barely changes it. Provisional; see the README section "Background exposure (off by default)".
+  bg_mesh_shading: lit
+  # lit only: a linear multiplier on the texture, one positive number or three (R, G, B). null means no multiplier.
+  bg_mesh_exposure_scale: null
+  # unlit only: the OmniPBR emission intensity. null means 2700, provisional. It is bound to the camera exposure
+  # (filmIso 100, fNumber 5, 1/50 s) and the ACES tone mapper, so a policy evaluation that changes tonemap_op or
+  # image_gamma does not get the same brightness.
+  bg_mesh_emissive_intensity: null
   randomize_xy_range: 0.01
   randomize_z_rotation_deg: 50           # Z-axis rotation range: 360 = full [0,360°), else ±N degrees (e.g. 30 = ±30°)
   randomize_settle_steps: 100

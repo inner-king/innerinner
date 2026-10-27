@@ -188,11 +188,12 @@ def _open_asset_image(asset, usd_dir):
 
 
 def _texture_from_shader(shader, usd_dir):
-    """Pull a diffuse texture out of a shader, covering both conventions here.
+    """Pull a diffuse texture out of a shader, covering the conventions used here.
 
     OmniGibson's exported objects use MDL shaders with a ``diffuse_texture``
     input; the scanned mesh backgrounds use UsdPreviewSurface with
-    ``diffuseColor`` connected to a UsdUVTexture.
+    ``diffuseColor`` connected to a UsdUVTexture; the unlit background is an
+    OmniPBR material whose texture is ``emissive_color_texture``.
     """
     direct = shader.GetInput("diffuse_texture")
     if direct:
@@ -212,6 +213,16 @@ def _texture_from_shader(shader, usd_dir):
     file_input = shader.GetInput("file")
     if file_input:
         return _open_asset_image(file_input.Get(), usd_dir)
+
+    # The unlit background's emission texture, read as the colour. emissive_intensity is not applied: the browser
+    # has no tone mapping, so multiplying by the ~2700 that matches the render would only blow the picture out.
+    emissive = shader.GetInput("emissive_color_texture")
+    asset = emissive.Get() if emissive else None
+    # An empty asset is no texture; opening it would only print an unreadable-texture warning.
+    if asset:
+        img = _open_asset_image(asset, usd_dir)
+        if img is not None:
+            return img
     return None
 
 
