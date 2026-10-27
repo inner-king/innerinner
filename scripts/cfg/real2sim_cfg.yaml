@@ -196,6 +196,7 @@ s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mes
   plane_snap_tol_m: 0.01    # metres; vertices this close to the support plane are set onto it (0 disables)
   plane_snap_below_m: null  # candidate, not a default: metres under z = 0 that snap (null -> plane_snap_tol_m); see the README 5c section
   plane_snap_above_m: null  # candidate, not a default: metres over z = 0 that snap (null -> plane_snap_tol_m; 1 cm keeps raised relief unflattened)
+  plane_snap_ramp_px: 0     # candidate, not a default: pixels over which a one-sided snap's move fades in from the rim of the snapped region (0 = full move, as before; see the README)
   z_far: null               # metres in the camera frame; null -> s4_frame.z_far
 s6_upsample:      # env: simfoundry
   rerun: true

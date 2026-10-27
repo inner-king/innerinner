@@ -39,8 +39,9 @@ LEFT_HALF = (slice(2, 46), slice(6, 44))      # lowered on the left only: the ri
 OBJECT_CORE = (slice(21, 27), slice(29, 35))  # the middle of the object mask, away from its edge
 RAISED_SMALL = (slice(4, 10), slice(50, 60))  # clear of the lowered region, so the two offsets do not add up
 
-NEW_KEYS = {"vertices_snapped_from_below", "vertices_snapped_from_above", "plane_snap_below_m_used", "plane_snap_above_m_used"}
-NEW_PARAMS = {"plane_snap_below_m", "plane_snap_above_m"}
+NEW_KEYS = {"vertices_snapped_from_below", "vertices_snapped_from_above", "plane_snap_below_m_used",
+            "plane_snap_above_m_used", "plane_snap_ramp_px_used", "vertices_snap_ramped"}
+NEW_PARAMS = {"plane_snap_below_m", "plane_snap_above_m", "plane_snap_ramp_px"}
 
 
 def flat(with_box=False):
@@ -139,6 +140,7 @@ def test_the_stage_reads_the_new_keys_from_the_config_through_its_own_comprehens
     s_bg = omegaconf.OmegaConf.load(CONFIG).s_bg_mesh
     params = {k: s_bg[k] for k in DEFAULT_PARAMS if k in s_bg}
     assert params["plane_snap_below_m"] is None and params["plane_snap_above_m"] is None
+    assert params["plane_snap_ramp_px"] == 0
     assert "params = {k: cfg.s_bg_mesh[k] for k in DEFAULT_PARAMS if k in cfg.s_bg_mesh}" in STAGE.read_text()
 
 

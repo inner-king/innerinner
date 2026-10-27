@@ -93,6 +93,9 @@ DEFAULT_PARAMS: dict[str, Any] = {
     # and one sensor, so they stay out of the defaults; the config and the README say what they do.
     "plane_snap_below_m": None,
     "plane_snap_above_m": None,
+    # Pixels over which a one-sided snap's move fades in from the rim of the snapped region (snap_ramp_weights). 0
+    # moves every snapped vertex in full, as before. Candidate, not a default: one scene, one sensor; see the README.
+    "plane_snap_ramp_px": 0,
     # Metres in the camera frame; None keeps every pixel with a positive depth.
     "z_far": None,
 }
@@ -327,6 +330,35 @@ def plane_snap_mask(z: np.ndarray, below: float, above: float) -> np.ndarray:
     return (z > -below) & (z < above)
 
 
+def snap_ramp_weights(plane_flag: np.ndarray, ramp_px: int) -> np.ndarray:
+    """How far each pixel's snap moves it onto the plane: 0 at the rim of the snapped region, 1 `ramp_px` pixels in.
+
+    A one-sided band snaps a lowered region's shallow rim and leaves its deeper floor where it is, so the move steps by
+    up to 3 cm across the rim. A triangle that spans the rim then has one corner moved and its neighbour not. The length
+    filter in `grid_triangles` runs before the snap, so it cannot see that stretch; fading the move in from the rim over
+    `ramp_px` pixels removes the step.
+
+    The weight is the Euclidean distance from each pixel to the nearest pixel outside the region (`distance_transform_edt`
+    on the region), less one, over `ramp_px`, clipped to [0, 1]. Rim pixels, which touch the outside, are 0; a pixel
+    `ramp_px` steps further in is 1; pixels outside the region are 0. A region with no outside pixel at all would be
+    measured from the array's own edge, so a full region gets the plain mask.
+
+    Args:
+        plane_flag: (H, W) bool, the pixels that snap onto the plane.
+        ramp_px: pixels over which the move fades in. 0 is no ramp, and the weight is the mask itself.
+
+    Returns:
+        np.ndarray: (H, W) float64 weights in [0, 1].
+    """
+    from scipy.ndimage import distance_transform_edt
+
+    plane_flag = np.asarray(plane_flag, dtype=bool)
+    if ramp_px == 0 or plane_flag.all():
+        return plane_flag.astype(np.float64)
+    dist = distance_transform_edt(plane_flag)
+    return np.clip((dist - 1.0) / ramp_px, 0.0, 1.0)
+
+
 def fit_plane_robust(points: np.ndarray, iterations: int = 4):
     """Least-squares plane z = a x + b y + c, with the points that do not fit dropped and refitted.
 
@@ -492,6 +524,12 @@ def build_background_mesh(
             continue
         if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(value) or value < 0:
             raise ValueError(f"s_bg_mesh.{key} must be null or a finite number of metres >= 0, got {value!r}")
+    ramp = p["plane_snap_ramp_px"]
+    if isinstance(ramp, bool) or not isinstance(ramp, numbers.Integral) or ramp < 0:
+        raise ValueError(f"s_bg_mesh.plane_snap_ramp_px must be an integer >= 0 (0 turns the ramp off), got {ramp!r}")
+    ramp_px = int(ramp)
+    # stage_info.json takes these settings as they are; a numpy integer would not serialise.
+    p["plane_snap_ramp_px"] = ramp_px
     depth = np.asarray(depth, dtype=np.float64)
     K = np.asarray(K, dtype=np.float64)
     cam2world = np.asarray(cam2world, dtype=np.float64)
@@ -561,12 +599,24 @@ def build_background_mesh(
     # noise, so the plane does not wobble with the measurement. Vertices are shared by both layers, so each
     # is one point and no seam opens between them.
     on_plane, hits_plane = plane_intersections(rays_world, centre)
-    use = plane_flag & hits_plane
-    points = np.where(use[..., None], on_plane, points)
-    points[..., 2] = np.where(plane_flag & ~hits_plane, 0.0, points[..., 2])
+    weight = None
+    if ramp_px == 0:
+        use = plane_flag & hits_plane
+        points = np.where(use[..., None], on_plane, points)
+        points[..., 2] = np.where(plane_flag & ~hits_plane, 0.0, points[..., 2])
+    else:
+        # The move fades in from the rim of the snapped region, so no triangle is left spanning a step of up to 3 cm.
+        # The weight is 0 at the rim: a rim vertex stays where it was measured.
+        weight = snap_ramp_weights(plane_flag, ramp_px)
+        use = plane_flag & hits_plane
+        points = np.where(use[..., None], points + weight[..., None] * (on_plane - points), points)
+        points[..., 2] = np.where(plane_flag & ~hits_plane, points[..., 2] * (1.0 - weight), points[..., 2])
 
     used = np.unique(triangles)
     plane_used = plane_flag.reshape(-1)[used]
+    # The mesh's plane vertices whose move the ramp takes only part of the way, counted on the vertices that made it into
+    # the mesh. A ray that misses the plane still lowers such a vertex's height, so it is counted too.
+    n_ramped = 0 if weight is None else int(np.count_nonzero(plane_used & (weight.reshape(-1)[used] < 1.0)))
     snapped_from_below = int((plane_used & (pre_snap_z.reshape(-1)[used] < 0)).sum())
     snapped_from_above = int((plane_used & (pre_snap_z.reshape(-1)[used] > 0)).sum())
     remap = np.full(h * w, -1, dtype=np.int64)
@@ -607,6 +657,8 @@ def build_background_mesh(
         "vertices_snapped_from_above": snapped_from_above,
         "plane_snap_below_m_used": below,
         "plane_snap_above_m_used": above,
+        "plane_snap_ramp_px_used": ramp_px,
+        "vertices_snap_ramped": n_ramped,
         "bounds_min_m": [float(x) for x in bounds[0]],
         "bounds_max_m": [float(x) for x in bounds[1]],
         "texture_hw": [texture.height, texture.width],
