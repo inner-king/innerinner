@@ -16,8 +16,6 @@ from simfoundry.utils.asset_conversion_utils import import_custom_object, import
 from simfoundry.models.vlm import Gemini
 import hydra
 import trimesh
-import random
-import string
 import logging
 import re
 from simfoundry import CFG_DIR
@@ -27,6 +25,7 @@ from simfoundry.utils.prompt_utils import mass_prompt_volumes, prompt_object_mas
 from simfoundry.utils.mass_estimation import estimate_rigid_mass
 from simfoundry.pipeline.articulation_physics import resolve_articulation_physics
 from simfoundry.pipeline.stage_utils import StageResult, bootstrap_hydra_workdir, finalize_stage
+from simfoundry.utils.asset_naming import articulated_input_files, content_hash8, model_name
 
 # see https://github.com/facebookresearch/hydra/issues/2949#issue-2516892001
 if hydra.core.global_hydra.GlobalHydra.instance().is_initialized():
@@ -34,22 +33,6 @@ if hydra.core.global_hydra.GlobalHydra.instance().is_initialized():
 
 logger = logging.getLogger(__name__)
 bootstrap_hydra_workdir(__file__)
-
-def generate_seeded_random_letters(seed_value, length=6):
-    """
-    Generates a string of random lowercase letters using a specified seed.
-
-    Args:
-        seed_value: The seed to initialize the random number generator.
-        length: The desired length of the random string (default is 6).
-
-    Returns:
-        A string of random lowercase letters.
-    """
-    random.seed(seed_value)  # Set the seed for reproducibility
-    letters = string.ascii_lowercase  # All lowercase letters
-    random_string = ''.join(random.choices(letters, k=length))
-    return random_string
 
 def load_mesh_as_trimesh(mesh_path: str) -> trimesh.Trimesh:
     """Load a mesh file and ensure it's a Trimesh object (not a Scene)."""
@@ -320,6 +303,10 @@ def main(cfg):
     if requested_indices is not None:
         logger.info(f"Filtering to requested object indices: {sorted(requested_indices)}")
 
+    # With the content hash on, an object's model name is a function of its input (asset_naming); with it off, of the
+    # scene, the category and the index only, as it was before.
+    model_name_content_hash = bool(cfg.s11_sim.get("model_name_content_hash", True))
+
     # Iterate over all meshes, and transform them accordingly
     for filename in sorted(os.listdir(mesh_dir)):
         if not filename.endswith(".glb"):
@@ -347,8 +334,6 @@ def main(cfg):
         obj_phrase = cat_info["removed_obj_phrase"]
         # replace all non alphanumeric characters with an underscore
         obj_category = re.sub(r'[^a-zA-Z0-9]', '_', obj_phrase).lower()
-        seed_string = f"{cfg.scene_name}_{obj_category}_{idx}"
-        obj_model = generate_seeded_random_letters(seed_value=seed_string, length=6)
 
         is_articulated = obj_phrase in articulated_objects
         obj_results_dir = resolve_articulation_results_dir(
@@ -399,6 +384,26 @@ def main(cfg):
             total_scale = pre_scale_factor * tf_scale
             logger.info(f"[DEBUG] Articulated object: applying total_scale={total_scale:.6f} (pre_scale_factor={pre_scale_factor:.6f} * tf_scale={tf_scale:.6f})")
             tm.apply_scale(total_scale)
+
+        # The model name, from what the asset is made of. The content hash needs the scale the files are written at, so the
+        # name comes after the scale (asset_naming.content_hash8). Articulated objects are written at tf_scale (their parts
+        # already carry pre_scale_factor), and rigid objects at rigid_scale, which is tf_scale too.
+        if model_name_content_hash:
+            if is_articulated:
+                hash_files = articulated_input_files(obj_results_dir, urdf_path, mesh_parts_dir)
+                hash_scale = tf_scale
+            else:
+                hash_files = [(os.path.basename(mesh_path), mesh_path)]
+                hash_scale = rigid_scale
+            asset_content_hash = content_hash8(hash_files, hash_scale, is_articulated)
+            obj_model = model_name(cfg.scene_name, obj_category, idx, content_hash=asset_content_hash)
+            logger.info(
+                f"model name {obj_model} from content hash {asset_content_hash} "
+                f"(scene/category/idx seed {cfg.scene_name}_{obj_category}_{idx}_{asset_content_hash})"
+            )
+        else:
+            asset_content_hash = None
+            obj_model = model_name(cfg.scene_name, obj_category, idx)
         
         obb_tf, obb_extent = trimesh.bounds.oriented_bounds(tm)
         logger.info(f"[DEBUG] Mesh extent after scaling: {obb_extent} m ({obb_extent*100} cm)")
@@ -435,6 +440,8 @@ def main(cfg):
                 material_volume_m3=material_volume_m3,
                 tm=tm,
             )
+            if asset_content_hash is not None:
+                scene_objects_info[idx]["asset_content_hash"] = asset_content_hash
 
         else: # process articulated objects
             # For articulated objects, mesh parts from stage 9 are from the canonical mesh
@@ -489,6 +496,8 @@ def main(cfg):
                 "parts_properties": parts_properties,
                 "physics_source": physics_source,
             }
+            if asset_content_hash is not None:
+                scene_objects_info[idx]["asset_content_hash"] = asset_content_hash
 
 
     # Store scene object info. When only a subset of objects was (re)processed,

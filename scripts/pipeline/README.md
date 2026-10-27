@@ -100,6 +100,10 @@ frame throughout.*
 | `13` | `A_reconstruction/stages/13_import_usd.py` | `simfoundry` | Import assets into USD datasets. | dataset USD assets |
 | `14` | `A_reconstruction/stages/14_create_og_scene.py` | `simfoundry` | Create the final OG scene JSON and preview. | `s14_og/reconstructed_og_scene.json`, `reconstructed_scene.png` |
 
+### Asset names and re-imports
+
+Stage 11 names each object's model from its content: the seed of the six-letter name carries an eight-digit hash of the stage-8 mesh (for an articulated object, of its parts and URDF) and of the scale it is written at (`s11_sim.model_name_content_hash`, on by default; `false` gives the old names, which depend on the scene, the category and the index only). The name does not cover what stage 11 derives from that mesh (collision meshes, the URDF of a rigid object) or the mass and friction the VLM proposes; a change to those keeps the name, and stage 13 then reports it as a geometry or physics change. Stage 13 imports each asset into the shared dataset, where an import under an existing name used to overwrite the asset that an earlier scene points at. Each imported asset now carries a manifest (`real2sim_asset.json`) with the hashes of its inputs, and a re-import reports one of: a geometry change (`s13_usd.on_conflict`: `warn` by default, `fail` to stop before the import, `overwrite` to log at INFO), a change of the import settings or the import code (a warning), an asset made before manifests existed (a warning), or a physics-only change (INFO, with the mass before and after). The decision is recorded per object in `stage_info.json` under `asset_imports`. `s13_usd.skip_unchanged` (off by default) skips an import when the manifest says nothing changed. The manifest hashes the stage-11 inputs, not the imported asset, so a hand edit to the dataset's USD is not seen, and a skip copies that edit into the scene. Each run keeps a copy of its finished assets in its own `s13_usd/objects/<category>/<model>`; the shared asset that an old name overwrote exists only in those copies.
+
 ### Mesh Generators
 
 Stage 7 supports three image-to-3D backends, selected with `s7_mesh.shape_model` and
