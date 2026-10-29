@@ -359,18 +359,21 @@ def test_the_summary_carries_size_warnings_only_when_the_check_is_on():
 
 def test_the_stretched_mesh_is_measured_again_before_its_record_is_written():
     _, main = _stage8_main()
+    # Two branches rewrite the canonical mesh: the height fit and the column fit (column_fit.py). Each measures the
+    # mesh again, once, before the record is written.
     applied = [i for i in ast.walk(main) if isinstance(i, ast.If) and "applied" in ast.dump(i.test)]
-    assert len(applied) == 1
-    recomputed = [n for n in ast.walk(applied[0]) if isinstance(n, ast.Assign)
-                  and any(isinstance(t, ast.Name) and t.id == "size_check_record" for t in n.targets)
-                  and isinstance(n.value, ast.Call) and getattr(n.value.func, "id", None) == "size_report"]
-    assert len(recomputed) == 1
+    assert len(applied) == 2
+    for branch in applied:
+        recomputed = [n for n in ast.walk(branch) if isinstance(n, ast.Assign)
+                      and any(isinstance(t, ast.Name) and t.id == "size_check_record" for t in n.targets)
+                      and isinstance(n.value, ast.Call) and getattr(n.value.func, "id", None) == "size_report"]
+        assert len(recomputed) == 1
 
 
 def test_the_stage_passes_the_depth_the_ring_and_the_camera_up_to_the_check():
     _, main = _stage8_main()
     calls = _calls(main, "size_report")
-    assert len(calls) == 2
+    assert len(calls) == 3          # the check, and the measurement again after the height fit and after the column fit
     for call in calls:
         args = [ast.unparse(a) for a in call.args]
         assert len(args) == 7
@@ -695,7 +698,7 @@ def test_the_warning_text_says_where_the_floor_came_from_only_for_a_height_warni
 def test_the_stage_passes_the_fallback_floor_to_both_size_checks_and_reads_the_noise_settings():
     _, main = _stage8_main()
     calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "size_report"]
-    assert len(calls) == 2
+    assert len(calls) == 3
     for call in calls:
         assert len(call.args) == 7 and ast.unparse(call.args[6]) == "size_fallback_points"
     source = ast.unparse(main)

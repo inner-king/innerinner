@@ -40,6 +40,7 @@ from simfoundry.utils.python_utils import atomic_output_path
 from simfoundry.pipeline.size_check import (
     decide_height_fit, final_scale_record, fit_height, ring_mask, size_report, validate_height_fit_safeguards,
 )
+from simfoundry.pipeline.column_fit import column_fit, lowest_mode, resolve_settings as resolve_column_fit_settings
 from simfoundry.pipeline.cpd_scale import apply_cpd_scale_limit, cpd_scale_limit_record, cpd_scale_of, validate_cpd_scale_limit
 from simfoundry.pipeline.pre_scale import pre_scale_record, select_pre_scale, validate_pre_scale_method
 import multiprocessing
@@ -337,6 +338,32 @@ def _stretch_canonical_height(glb_path, up_canonical, scale):
     return None
 
 
+def _column_fit_canonical(glb_path, tf, up_cam, depth_points, support_m, settings, under_points):
+    """Column-fit the canonical mesh file (column_fit.column_fit) in the camera frame. Returns the fit's record.
+
+    The node transform is baked into the vertices and reset to the identity, as `_stretch_canonical_height` does, so the
+    file reads back in the frame the placement `tf` applies to. The vertices are placed by `tf`, fitted, and taken back.
+    """
+    scene = trimesh.load(glb_path)
+    nodes = list(scene.graph.nodes_geometry)
+    if len(nodes) != 1:
+        return {"applied": False, "skipped": f"the canonical mesh has {len(nodes)} geometries; the column fit rewrites one"}
+    node = nodes[0]
+    transform, geometry_name = scene.graph[node]
+    parent = scene.graph.transforms.parents.get(node)
+    geometry = scene.geometry[geometry_name]
+    geometry.apply_transform(transform)
+    placed = tf.scale * np.asarray(geometry.vertices) @ tf.rot.T + tf.t
+    fitted, record = column_fit(placed, geometry.faces, depth_points, up_cam, support_m, settings, under_points)
+    if fitted is None:
+        return record
+    geometry.vertices = ((fitted - tf.t) @ tf.rot) / tf.scale
+    scene.graph.update(frame_to=node, frame_from=parent, matrix=np.eye(4))
+    with atomic_output_path(glb_path) as tmp:
+        scene.export(tmp)
+    return record
+
+
 def _size_warning_text(img_name, report, threshold) -> str:
     parts = []
     if "footprint" in report["warnings"]:
@@ -420,6 +447,8 @@ def main(cfg):
     if height_fit_settings["skip_rod_like"] is None:
         height_fit_settings["skip_rod_like"] = False
     validate_height_fit_safeguards(height_fit_settings)
+    # Column fit (column_fit.py), off by default; it needs the size check's floor. Off: no call and no column_fit key.
+    column_fit_settings = resolve_column_fit_settings(cfg.s8_pose.get("column_fit", None))
     size_settings = {
         "size_warn_ratio": float(size_warn_ratio) if size_check_on else None,
         "visible_only": bool(cfg.s8_pose.get("size_check_visible_only", True)),
@@ -1033,6 +1062,38 @@ def main(cfg):
                     height_fit_record = {"applied": False, "scale": None, "skipped": reason}
             height_fit_record = {**height_fit_record, "before_m": before_m,
                                  "after_m": size_check_record["height"].get("mesh_m")}
+            if column_fit_settings["enabled"]:
+                height_rec = size_check_record["height"]
+                if "floor_m" not in height_rec:
+                    column_fit_record = {"applied": False, "skipped": "size check: " + height_rec.get("skipped", "no floor")}
+                else:
+                    # The support: the ring's floor; when the floor came from the band with the neighbours in it, the
+                    # lowest well-populated surface of that band (column_fit.lowest_mode).
+                    support_m = (height_rec["floor_m"] if height_rec["floor_source"] == "ring"
+                                 else lowest_mode(np.asarray(size_fallback_points, dtype=np.float64) @ up_cam))
+                    # What stage 5 left in the object's place once it removed it, inside the eroded mask.
+                    under_path = Path(scene_dir, "metric_depth", f"iter_{idx}.npy")
+                    under_points = None
+                    if under_path.exists():
+                        under_pc = compute_point_cloud_from_depth(depth=np.load(under_path), K=K).reshape(-1, 3)
+                        under_points = under_pc[mask_resized_unpadded_eroded.flatten()]
+                    column_fit_record = _column_fit_canonical(
+                        canonical_mesh_fpath, top_info["tf_z_up"], up_cam, size_depth_points, support_m,
+                        column_fit_settings, under_points)
+                    column_fit_record["support_source"] = height_rec["floor_source"]
+                    if column_fit_record["applied"]:
+                        canonical_mesh = o3d.io.read_triangle_mesh(canonical_mesh_fpath, enable_post_processing=True)
+                        mesh_updated = deepcopy(canonical_mesh)
+                        vertices = np.asarray(mesh_updated.vertices)
+                        vertices = top_info["tf_z_up"].scale * vertices @ top_info["tf_z_up"].rot.T + top_info["tf_z_up"].t
+                        mesh_updated.vertices = o3d.utility.Vector3dVector(vertices)
+                        size_check_record = size_report(
+                            np.asarray(mesh_updated.vertices), np.asarray(canonical_mesh.triangles),
+                            size_depth_points, size_ring_points, up_cam, size_settings, size_fallback_points,
+                        )
+                        logger.info(f"Column fit for {img_name}: support {support_m:.4f} m ({height_rec['floor_source']}), "
+                                    f"mean thickness {column_fit_record['mesh_mean_thickness_m']:.4f} -> depth "
+                                    f"{column_fit_record['depth_mean_height_m']:.4f} m")
             if size_check_record["height"].get("floor_source") == "neighbour_masks":
                 logger.info(f"Size check for {img_name}: the object's own ring had too few points; the floor was read "
                             f"from the neighbouring object's pixels")
@@ -1090,6 +1151,8 @@ def main(cfg):
             out_info["height_fit"] = height_fit_record
             # The stretch is along up only, so it is kept apart from final_scale rather than multiplied into it.
             out_info["height_fit_scale"] = height_fit_record["scale"] if height_fit_record["applied"] else 1.0
+            if column_fit_settings["enabled"]:
+                out_info["column_fit"] = column_fit_record
 
         with atomic_output_path(f"{out_dir}/info/{img_name}.json") as _tmp_info, open(_tmp_info, "w") as f:
             json.dump(out_info, f, indent=4)

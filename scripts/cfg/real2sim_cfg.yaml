@@ -376,6 +376,20 @@ s8_pose:          # env: simfoundry
     rod_min_roundness: 0.6        # candidate: 0.6
     min_axis_alignment: null      # candidate: 0.9; null: off
     min_result_extent_m: null     # candidate: 0.004 m; null: off
+  # Column fit (simfoundry/pipeline/column_fit.py), off by default: lay each column of a slab-like mesh between the surface it
+  # stands on and the depth's top, so a mesh Hunyuan made too thin or bowed takes the depth's volume (the lidar run's tofu:
+  # 112.7 -> 218.1 cm3, stage 11 mass 124 -> 240 g). Every value below is provisional, from one lidar scene of eight objects;
+  # the evidence and its limits are in scripts/pipeline/README.md, Size Check.
+  column_fit:
+    enabled: false
+    cell_m: 0.003                   # column width (m)
+    min_two_hit_share: 0.9          # share of columns a vertical line crosses exactly twice (a height field)
+    max_depression: 0.3             # a container sinks inside its rim by more than this share of its height, in the mesh and to the sensor
+    top_erode_cells: 2              # depth columns dropped at the rim of the depth's footprint (the sensor mixes an edge with what is behind)
+    min_top_cells: 20               # depth columns the top must keep
+    min_thickness_uniformity: 0.7   # 25th over 75th percentile of the inner columns' thickness; a ball or a dome thins to its edge
+    max_support_disagreement: 0.3   # support around the object vs the depth stage 5 left under it, as a share of the depth's height
+    threshold: 0.25                 # mean column thickness vs the depth's height over the support: the difference that triggers the fit
   # use_any6d: true
   # resume_idx: Controls the interactive pose editing workflow (8b_match_object_poses_interactive.py)
   #   null  -> Normal mode: run pose fitting from scratch, auto-generate suffix for output
