@@ -110,6 +110,11 @@ def _source(forward, rng, symmetric=False, x_max=1.2, n=30000):
     y = rng.uniform(0.0, 0.6, n)
     scene = np.column_stack([x, y, rng.normal(0.0, 0.001, n)])
     brightness = np.clip(_counter(x, y, symmetric) + rng.normal(0.0, 2.0, n), 0.0, 255.0)
+    # The sunken patch lies below the counter, outside the band on the source side too, and must not be counted.
+    sx, sy = np.meshgrid(np.arange(0.4, 0.6, 0.005), np.arange(0.1, 0.3, 0.005), indexing="ij")
+    sunk = np.column_stack([sx.ravel(), sy.ravel(), np.full(sx.size, -0.08)])
+    scene = np.vstack([scene, sunk])
+    brightness = np.concatenate([brightness, np.full(len(sunk), 255.0)])
     return scene @ rotation.T + translation, np.repeat(brightness[:, None], 3, axis=1)
 
 
@@ -144,6 +149,33 @@ def _errors(record, forward):
     normal = matrix[:3, :3] @ (rotation @ np.array([0.0, 0.0, 1.0]))
     tilt = np.degrees(np.arccos(np.clip(normal[2], -1.0, 1.0)))
     return position, tilt
+
+
+def _wrapped(degrees):
+    """The smallest angle, in degrees, that a difference between two angles stands for."""
+    return abs((degrees + 180.0) % 360.0 - 180.0)
+
+
+def _expected_yaw(forward):
+    """The yaw the record must carry: the known inverse transform, minus the gravity frame that the fitted plane gives."""
+    rotation, translation = forward
+    normal = rotation @ np.array([0.0, 0.0, 1.0])
+    gravity = bg_align.gravity_transform(normal, -normal @ translation)
+    spin = rotation.T @ gravity[:3, :3].T
+    return float(np.degrees(np.arctan2(spin[1, 0], spin[0, 0])) % 360.0)
+
+
+def _align_scaled_target(factor, forward, seed=1):
+    """As `_align`, with the scene enlarged by `factor` in x and y, so the source has to be enlarged to match it."""
+    rng = np.random.default_rng(seed)
+    target, target_rgb = _scene()
+    target[:, :2] *= factor
+    source, source_rgb = _source(forward, rng)
+    cameras = _cameras(forward, rng)
+    seed_points = source[rng.choice(len(source), 5000, replace=False)]
+    return bg_align.align_clouds(
+        target, target_rgb, source, source_rgb, cameras, TEST_SETTINGS, seed_points=seed_points,
+    )
 
 
 def _plane_cloud(rng, normal, offset, n=4000, outliers=0.4, noise=0.001):
@@ -184,6 +216,17 @@ def test_the_counter_is_recovered_within_half_a_centimetre_and_half_a_degree(see
     assert record["settings"] == bg_align.resolve_settings(TEST_SETTINGS)
     assert set(record) == RECORD_KEYS
     json.dumps(record, sort_keys=True)
+    assert record["n_source_points"] == 30000  # the sunken patch below the counter is outside the band here too
+    assert record["schema"] == "bg_align/1"
+    assert record["shift_m"][2] == 0.0
+    assert [round(s, 2) for s, _ in record["scale_curve"]] == [round(1.0 + 0.01 * k, 2) for k in range(-4, 5)]
+
+
+def test_the_recorded_yaw_is_the_known_yaw_for_the_thirty_seven_degree_scene():
+    forward = _forward(*CASES[0][1:])
+    record = _align(forward, CASES[0][0])
+    assert record["accepted"]
+    assert _wrapped(record["yaw_deg"] - _expected_yaw(forward)) <= 0.15
 
 
 def test_the_same_inputs_give_the_same_record_byte_for_byte():
@@ -213,6 +256,7 @@ def test_a_source_covering_less_than_half_the_counter_is_refused_for_no_overlap(
     record = _align(forward, 1, x_max=0.5)
     assert record["accepted"] is False
     assert "no_overlap" in record["reasons"]
+    assert record["overlap"] is None or 0.0 <= record["overlap"] <= 1.0
     assert record["M_src_to_scene"] is None
 
 
@@ -723,3 +767,132 @@ def test_the_stale_sidecar_flag_comes_from_a_file_check():
 
 def test_the_unknown_mode_still_refuses_with_the_same_message():
     assert "Unknown bridge mode" in STAGE.read_text()
+
+
+def _same_expression(node, source):
+    return ast.unparse(node) == ast.unparse(ast.parse(source, mode="eval").body)
+
+
+def _appearance_call(tree, name):
+    return next(n for n in ast.walk(_chain(tree)["appearance"])
+                if isinstance(n, ast.Call) and ast.unparse(n.func) == name)
+
+
+def _lattice_patch(half=0.2, step=0.005, seed=21):
+    rng = np.random.default_rng(seed)
+    blocks = rng.uniform(0.0, 255.0, (60, 60))
+    gx, gy = np.meshgrid(np.arange(0.0, half, step), np.arange(0.0, half, step), indexing="ij")
+    xy = np.column_stack([gx.ravel(), gy.ravel()])
+    values = blocks[np.floor(xy[:, 0] / 0.01).astype(int), np.floor(xy[:, 1] / 0.01).astype(int)]
+    return xy, values
+
+
+def test_the_overlap_is_the_share_of_the_target_fine_cells_the_source_covers():
+    target, target_lum = _lattice_patch()
+    full = bg_align.search_alignment(target, target_lum, target, target_lum, {"margin_m": 0.05})
+    assert 0.95 <= full["overlap"] <= 1.0
+    part = target[:, 0] < 0.11
+    half = bg_align.search_alignment(target, target_lum, target[part], target_lum[part], {"margin_m": 0.05})
+    assert 0.4 <= half["overlap"] <= 0.6
+
+
+@pytest.mark.parametrize("yaw", [12.3, 200.7])
+def test_the_fine_stage_recovers_a_fractional_yaw_and_a_sub_centimetre_shift(yaw):
+    shift = np.array([0.043, -0.021])
+    target, target_lum = _texture_points()
+    source = (target - shift) @ _rotation_about_z(-yaw).T
+    result = bg_align.search_alignment(target, target_lum, source, target_lum, {"margin_m": 0.05})
+    assert _wrapped(result["yaw_deg"] - yaw) <= 0.15
+    assert np.abs(np.array(result["shift_xy"]) - shift).max() <= 0.0025
+
+
+def test_the_scale_check_reads_a_three_percent_enlargement_and_the_record_keeps_scale_one():
+    record = _align_scaled_target(1.03, _forward(*CASES[0][1:]))
+    assert record["accepted"]
+    assert abs(record["scale_best"] - 1.03) <= 0.005
+    assert record["scale"] == 1.0
+    assert [round(s, 2) for s, _ in record["scale_curve"]] == [round(1.0 + 0.01 * k, 2) for k in range(-4, 5)]
+    rotation = np.asarray(record["M_src_to_scene"])[:3, :3]
+    assert np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-9)
+    assert np.linalg.det(rotation) == pytest.approx(1.0, abs=1e-9)
+    assert len(record["warnings"]) == 1 and "recorded only" in record["warnings"][0]
+
+
+def test_the_scale_warning_needs_a_gain_above_scale_min_gain():
+    # A 1.7 percent enlargement puts the best scale at 1.02, beyond the warning's threshold, while the gain over
+    # scale 1.0 stays below scale_min_gain. The test checks both conditions itself rather than trusting the choice.
+    record = _align_scaled_target(1.017, _forward(*CASES[0][1:]))
+    curve = {round(s, 2): n for s, n in record["scale_curve"]}
+    gain = max(n for _, n in record["scale_curve"]) - curve[1.0]
+    assert record["accepted"]
+    assert abs(record["scale_best"] - 1.0) > 0.01
+    assert gain < bg_align.DEFAULT_SETTINGS["scale_min_gain"]
+    assert record["warnings"] == []
+
+
+def test_the_height_residual_is_the_median_of_the_matched_cells_not_their_mean():
+    gx, gy = np.meshgrid(np.arange(0.0, 0.1, 0.005), np.arange(0.0, 0.1, 0.005), indexing="ij")
+    xy = np.column_stack([gx.ravel(), gy.ravel()])
+    source_z = np.full(len(xy), 0.001)
+    source_z[0] = 0.1  # one cell far off: it moves the mean but not the median
+    residual = bg_align._height_residual(xy, np.zeros(len(xy)), xy, source_z, {"margin_m": 0.01})
+    assert residual == pytest.approx(0.001, abs=1e-12)
+
+
+def test_points_that_tie_within_the_window_are_both_peaks():
+    assert bg_align.second_peak_score({0.0: 0.9, 90.0: 0.9, 180.0: 0.5}, 0.0, 10.0) == pytest.approx(0.9)
+    assert bg_align.second_peak_score({0.0: 0.9, 5.0: 0.9, 180.0: 0.5}, 0.0, 10.0) == pytest.approx(0.9)
+
+
+def test_the_stride_applies_to_columns_as_well_as_rows(tmp_path):
+    rng = np.random.default_rng(23)
+    rows, cols = 7, 10
+    rotation, _ = np.linalg.qr(rng.normal(size=(3, 3)))
+    translation = rng.normal(0.0, 0.3, 3)
+    extrinsics = np.hstack([rotation, translation[:, None]])[None].astype(np.float32)
+    intrinsics = np.array([[[5.0, 0.0, 4.0], [0.0, 5.0, 3.0], [0.0, 0.0, 1.0]]], dtype=np.float32)
+    depth = rng.uniform(1.0, 2.0, (1, rows, cols)).astype(np.float32)
+    image = rng.integers(0, 256, (1, rows, cols, 3), dtype=np.uint8)
+    path = tmp_path / "results.npz"
+    np.savez(path, extrinsics=extrinsics, intrinsics=intrinsics, depth=depth, image=image)
+
+    points, _, _ = bg_align.da3_world_points(path, stride=2)
+
+    assert len(points) == ((rows + 1) // 2) * ((cols + 1) // 2)
+    world_rotation = extrinsics[0, :, :3].astype(np.float64)
+    world_translation = extrinsics[0, :, 3].astype(np.float64)
+    expected = []
+    for v in range(0, rows, 2):
+        for u in range(0, cols, 2):
+            z = float(depth[0, v, u])
+            camera = np.array([(u - 4.0) / 5.0 * z, (v - 3.0) / 5.0 * z, z])
+            expected.append(np.linalg.inv(world_rotation) @ (camera - world_translation))
+    np.testing.assert_allclose(points, np.array(expected), atol=1e-5)
+
+
+def test_the_seed_keyword_is_the_seed_and_not_the_source_cloud():
+    call = _appearance_call(_stage_tree(), "bg_align.align_clouds")
+    assert {keyword.arg: ast.unparse(keyword.value) for keyword in call.keywords} == {"seed_points": "seed_points"}
+
+
+def test_the_stage_passes_the_pixel_stride_to_the_da3_reader():
+    call = _appearance_call(_stage_tree(), "bg_align.da3_world_points")
+    stride = {keyword.arg: keyword.value for keyword in call.keywords}.get("stride")
+    assert stride is not None and _same_expression(stride, 'settings["pixel_stride"]')
+
+
+def test_the_seed_default_is_the_depth_mesh_seed_cloud_not_the_input_section():
+    tree = _stage_tree()
+    assign = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id == "seed_ply" for t in n.targets))
+    assert _same_expression(assign.value.orelse, "Path(cfg.s4_seed_ply.out_ply)")
+
+
+def test_the_texture_default_is_the_name_the_depth_mesh_stage_writes():
+    tree = _stage_tree()
+    assign = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id == "scene_texture" for t in n.targets))
+    default_name = assign.value.orelse.args[0].value
+    depth_stage = ast.parse((ROOT / "scripts/pipeline/A_reconstruction/stages/5c_depth_mesh_background.py").read_text())
+    save = next(n for n in ast.walk(depth_stage) if isinstance(n, ast.Call) and ast.unparse(n.func) == "texture.save")
+    assert default_name == save.args[0].right.value == "background_texture.png"
