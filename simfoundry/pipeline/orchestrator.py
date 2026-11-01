@@ -17,7 +17,7 @@ from typing import Iterable
 
 from omegaconf import OmegaConf
 
-from simfoundry import configure_omnigibson_data_path
+from simfoundry import configure_omnigibson_data_path, dataset_root_source, get_omnigibson_data_path
 from simfoundry.pipeline.reporting import write_pipeline_report
 from simfoundry.pipeline.resource_scheduler import query_gpu_memory_used_gb
 
@@ -510,6 +510,8 @@ def run_pipeline(
     if skip_successful:
         selected = filter_previously_successful(selected, extra_overrides)
 
+    # Once per run, before any stage: every stage of the run writes into this one root, so say which it is.
+    print(f"[Pipeline] dataset root = {os.path.realpath(get_omnigibson_data_path())} (source: {dataset_root_source()})")
     durations: dict[str, float] = {}
     memory_samples: dict[str, dict[str, float | None]] = {}
     i = 0

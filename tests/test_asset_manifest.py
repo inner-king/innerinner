@@ -356,7 +356,8 @@ def test_stage_13_records_the_decisions_in_stage_info_beside_the_existing_keys()
     assert len(results) == 1
     keywords = {k.arg: k.value for k in results[0].keywords}
     assert isinstance(keywords["additional_info"], ast.Dict)
-    assert [key.value for key in keywords["additional_info"].keys] == ["asset_imports"]
+    assert [key.value for key in keywords["additional_info"].keys] == [
+        "asset_imports", "dataset_path", "dataset_root_source", "dataset_outside_checkout"]
 
 
 def test_stage_13_removes_the_old_manifest_in_the_loop_body_after_the_skip_branch():

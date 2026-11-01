@@ -23,6 +23,8 @@ Options:
   --pipeline video|stereo|zed     Input pipeline mode. zed is an alias for stereo. Default: video
   --scene-name NAME               Hydra scene_name override. Default: home_coffee_4
   --root-dir DIR                  Hydra root_dir override. Default: <repo>/Data
+  --dataset-root DIR              Write the stage-13 assets under DIR instead of this checkout's deps datasets (sets
+                                  SIMFOUNDRY_DATASET_ROOT). DIR must already exist.
   --video-fpath PATH              Source video path for video mode.
   --include IDS                   Comma-separated stage ids to include, e.g. 1b,2,3
   --exclude IDS                   Comma-separated stage ids to exclude.
@@ -99,6 +101,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --root-dir)
       ROOT_DIR="$2"
+      shift 2
+      ;;
+    --dataset-root)
+      if [[ ! -d "${2:-}" ]]; then
+        echo "--dataset-root: not a directory: ${2:-}" >&2
+        exit 2
+      fi
+      export SIMFOUNDRY_DATASET_ROOT="$(cd "$2" && pwd)"
       shift 2
       ;;
     --video-fpath)

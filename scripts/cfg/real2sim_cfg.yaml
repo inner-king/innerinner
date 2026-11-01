@@ -470,6 +470,9 @@ s13_usd: #env b1k
   # Skip the import when the asset's manifest says its geometry, import settings, import code and physics are unchanged.
   # Off: the decision is still logged and written to the manifest, and the import runs as before.
   skip_unchanged: false
+  # The dataset folder can resolve outside this checkout (a copied checkout whose deps/ links to a shared tree). true keeps
+  # the old behaviour and only warns; false stops before any import in that case. Set SIMFOUNDRY_DATASET_ROOT to choose a folder.
+  allow_external_dataset: true
 s14_og:
   rerun: true
   out_dirname: s14_og

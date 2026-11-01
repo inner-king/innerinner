@@ -22,7 +22,13 @@ import json
 import shutil
 import subprocess
 import hydra
-from simfoundry import CFG_DIR
+from simfoundry import CFG_DIR, REPO_DIR, checkout_dataset_root, dataset_root_source, get_omnigibson_data_path
+from simfoundry.pipeline.dataset_root import (
+    check_dataset_root,
+    describe_dataset_root,
+    explicit_root_mismatch,
+    source_of_dataset_root,
+)
 from simfoundry.pipeline.asset_manifest import (
     apply_conflict_policy,
     decide_import,
@@ -108,6 +114,34 @@ def main(cfg):
         ],
         import_code_versions(),
     )
+
+    # The imported assets go into the dataset folder, which a copied checkout's deps/ can link out of the checkout (the
+    # shared real2sim-assets folder). Say where it is before any import, and stop there when the config asks to.
+    dataset_info = describe_dataset_root(
+        get_dataset_path(cfg.s13_usd.dataset_name),
+        REPO_DIR,
+        source_of_dataset_root(
+            explicit=dataset_root_source() == "explicit",
+            env_value=os.environ.get("OMNIGIBSON_DATA_PATH"),
+            checkout_value=checkout_dataset_root(),
+        ),
+    )
+    # An explicit root is only a request until OmniGibson writes there: it reads OMNIGIBSON_DATA_PATH, not this
+    # variable. A stage started without the orchestrator writes into OmniGibson's own default root; this stops first.
+    if dataset_root_source() == "explicit":
+        mismatch = explicit_root_mismatch(dataset_info["dataset_path"], get_omnigibson_data_path())
+        if mismatch:
+            sys.exit(mismatch)
+    warning, stop_reason = check_dataset_root(
+        dataset_info, allow_external=bool(cfg.s13_usd.get("allow_external_dataset", True)),
+    )
+    if warning:
+        logger.warning(warning)
+    if stop_reason:
+        sys.exit(stop_reason)
+    if dataset_info["source"] == "ambient":
+        logger.info("Dataset folder from the environment's OMNIGIBSON_DATA_PATH, not this checkout: "
+                    f"{dataset_info['dataset_path']}")
 
     # Load scene objects info
     scene_objects_info_fpath = f"{sim_dir}/scene_objects_info.json"
@@ -236,7 +270,12 @@ def main(cfg):
     finalize_stage(
         stage_cfg=cfg.s13_usd,
         out_dir=cfg.s13_usd.out_dir,
-        result=StageResult(success=True, additional_info={"asset_imports": asset_imports}),
+        result=StageResult(success=True, additional_info={
+            "asset_imports": asset_imports,
+            "dataset_path": dataset_info["dataset_path"],
+            "dataset_root_source": dataset_info["source"],
+            "dataset_outside_checkout": dataset_info["outside_checkout"],
+        }),
     )
 
     # Bypass OmniGibson/Isaac Sim teardown — avoids SIGSEGV in libomni.syntheticdata.plugin.so

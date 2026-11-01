@@ -55,6 +55,15 @@ Useful options:
 - `--env-nerfstudio NAME`: select the Nerfstudio environment used by stage 2c. Default: `nerfstudio_simfoundry`.
 - `--env-b1k NAME`: env for the OmniGibson stages. Default: `simfoundry`; pass this only if OmniGibson lives in a separate env.
 
+**Where the assets go.** Stage 13 imports the object assets into the OmniGibson dataset folder. The pipeline uses this checkout's
+`deps/BEHAVIOR-1K/datasets` and ignores an `OMNIGIBSON_DATA_PATH` left in the shell, so the stages of one run share one root. To write
+elsewhere, pass `--dataset-root DIR` (an existing directory) or set `SIMFOUNDRY_DATASET_ROOT=DIR`; a missing directory stops the run.
+The B and C stages have no `--dataset-root` option: set `SIMFOUNDRY_DATASET_ROOT` in their environment instead. Stage 13 records the
+folder it used in `s13_usd/stage_info.json` (`dataset_path`, `dataset_root_source`, `dataset_outside_checkout`) and warns when that
+folder lies outside the checkout: a copied checkout whose `deps/` links to a shared tree writes into the shared folder that way. Set
+`s13_usd.allow_external_dataset=false` to stop before any import in that case. The first log line of a run names the root and its source.
+If you run stage 13 directly with the variable set, `OMNIGIBSON_DATA_PATH` must name the same root too; otherwise stage 13 stops before any import.
+
 ### Capturing an input video
 
 Keep these in mind when taking an input video:
