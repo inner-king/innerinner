@@ -106,6 +106,19 @@ def ledger_statistics(L, gc, knife_area):
     )
 
 
+def replay_args(a):
+    """The arguments as the JSON records them. The hold options appear only when they are used, so a run without a
+    press writes the same JSON as before they existed, and that JSON still replays through this script."""
+    args = dict(vars(a))
+    if args["hold"] == "none":
+        del args["hold"]
+    if args["hold_pressure"] is None:
+        del args["hold_pressure"]
+    if args["hold_band"] is None:
+        del args["hold_band"]
+    return args
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--E", type=float, default=FIRM_TOFU.youngs_modulus)
@@ -134,6 +147,13 @@ def main():
     ap.add_argument("--gravity-scale", type=float, default=1.0, help="extra factor on gravity (weight x this)")
     ap.add_argument("--mass-scale", type=float, default=1.0,
                     help="density x s and gravity / s: the same weight, a sqrt(s) longer time step")
+    ap.add_argument("--hold", default="none", choices=["none", "top_pressure", "plate", "side_jig", "board_adhesion"],
+                    help="how the block is held down (SimConfig.hold); the last three are reserved and refuse to run")
+    ap.add_argument("--hold-pressure", type=float, default=None,
+                    help="pressure on the top skin [Pa] for --hold top_pressure (default: HOLD_KAPPA x Young's modulus)")
+    ap.add_argument("--hold-band", type=float, default=None,
+                    help="half-width [m] of the strip beside the blade's plane not pressed while the knife is on "
+                         "(SimConfig.hold_band; default 1.5 dx)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -146,7 +166,8 @@ def main():
     )
     sim = MPMCuttingSim(mat, list(a.block), knife=KnifeGeometry(),
                         config=SimConfig(dx=a.dx, tearing=not a.no_tearing, gravity=9.81 * a.gravity_scale / a.mass_scale, cfl=a.cfl,
-                                         crack_lead=a.crack_lead, dilation=a.dilation, particles_per_axis=a.ppa),
+                                         crack_lead=a.crack_lead, dilation=a.dilation, particles_per_axis=a.ppa,
+                                         hold=a.hold, hold_pressure=a.hold_pressure, hold_band=a.hold_band),
                         device="cpu")
     top_z = float(sim.block_max[2])
     c = 0.5 * (sim.block_min + sim.block_max)
@@ -224,7 +245,7 @@ def main():
     lag_binw_mean = lag_mm(cut, binw_sum)[0] if has_cut else None
     closure_J, closure_frac = closure_residual(W_end, float(ledger[0]), U_end, K_end)
     res = dict(
-        args=vars(a), particles=int(sim.n_particles), dt=float(sim.dt), substeps=int(round(sim.time / sim.dt)),
+        args=replay_args(a), particles=int(sim.n_particles), dt=float(sim.dt), substeps=int(round(sim.time / sim.dt)),
         sim_time=float(sim.time), wall_s=round(wall, 2), solver_wall_s=round(solver_wall, 2),
         solver_ms_per_substep=round(1e3 * solver_wall / max(1, sim.time / sim.dt), 3),
         wall_per_substep_ms=round(1e3 * wall / max(1, sim.time / sim.dt), 3),

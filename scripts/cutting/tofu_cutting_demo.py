@@ -256,6 +256,10 @@ def main():
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--no-tearing", action="store_true", help="grow cracks only under the knife (SimConfig.tearing)")
+    ap.add_argument("--hold", default="none", choices=["none", "top_pressure", "plate", "side_jig", "board_adhesion"],
+                    help="how the block is held down (SimConfig.hold); the last three are reserved and refuse to run")
+    ap.add_argument("--hold-pressure", type=float, default=None,
+                    help="pressure on the top skin [Pa] for --hold top_pressure (default: HOLD_KAPPA x Young's modulus)")
     ap.add_argument("--view", choices=["oblique", "side", "front"], default=None, help="camera (default per scenario)")
     ap.add_argument("--style", choices=["studio", "kitchen"], default=None, help="lights and backdrop")
     ap.add_argument("--blade-alpha", type=float, default=1.0, help="blade opacity; below 1 shows the cut through it")
@@ -281,7 +285,7 @@ def main():
     args.descend_speed = speed if args.descend_speed is None else args.descend_speed
     view = args.view or view
     style = {"studio": STUDIO, "kitchen": KITCHEN}[args.style or style]
-    config = SimConfig(dx=args.dx, tearing=not args.no_tearing)
+    config = SimConfig(dx=args.dx, tearing=not args.no_tearing, hold=args.hold, hold_pressure=args.hold_pressure)
     sim = MPMCuttingSim(material, args.block, knife=knife, config=config, device=args.device)
     top_z = sim.block_max[2]
     driver = build_driver(args, sim)
