@@ -37,7 +37,7 @@ import numpy as np
 from simfoundry.cutting.export import export_pieces
 from simfoundry.cutting.knife import CHEF_KNIFE, KnifeGeometry, KnifePose, KnifeTrajectory
 from simfoundry.cutting.materials import PRESETS
-from simfoundry.cutting.mpm import MPMCuttingSim, SimConfig
+from simfoundry.cutting.mpm import LEDGER_NAMES, MPMCuttingSim, SimConfig
 from simfoundry.cutting.render import KITCHEN, STUDIO, Camera, Renderer, tofu_look
 
 # Blade along y cuts the block's length (x); yaws chosen so the handle points away from the camera.
@@ -316,6 +316,7 @@ def main():
     frames_dir.mkdir(exist_ok=True)
 
     rows = []
+    prev_origin, W_knife = None, 0.0  # the knife's work from its forces, as solver_sweep.py takes it
     t_wall = time.time()
     sim_wall = 0.0
     fi = 0
@@ -325,6 +326,10 @@ def main():
         t0 = time.time()
         force, moment = driver.advance(sim, t)
         sim_wall += time.time() - t0
+        origin = np.asarray(sim.knife_pose.origin, dtype=float)
+        if prev_origin is not None:
+            W_knife += -float(np.dot(force, origin - prev_origin))
+        prev_origin = origin
         pose = sim.knife_pose
         front = float("nan")
         if sim.active_cut >= 0:
@@ -344,6 +349,11 @@ def main():
             t=t, edge_height=float(pose.origin[2] - sim.board_z), depth=float(top_z - pose.origin[2]),
             fx=force[0], fy=force[1], fz=force[2], pieces=sim.connected_pieces(), cut=sim.active_cut,
             crack_front_height=front, piece0_thin_axis_from_vertical_deg=tilt0,
+            # Instruments (see the mpm.py queries): knife work so far, the crack area of the active cut, the
+            # floating bottom-layer particles, and the energies.
+            W_knife_J=W_knife, W_kind_J=float(sim.knife_work_by_kind().sum()),
+            crack_area_m2=sim.crack_area(sim.active_cut) if sim.active_cut >= 0 else 0.0,
+            floating=sim.floating_count(), U_J=sim.strain_energy_total(), K_J=sim.kinetic_energy(),
         ))
         overlay = [
             f"{args.scenario}: {material.name.replace('_', ' ')}, G_c {material.fracture_energy:g} J/m2   t = {t:5.2f} s",
@@ -423,6 +433,30 @@ def main():
             reached_board_at_s=driver.reached_board_at,
             push_time_s=None if driver.push_end is None else round(driver.push_end - driver.start, 3),
         )
+    # The knife's work by node kind, the crack ledger and the crack area by path, per cut; the pre-board ratio; and the
+    # closure of the energy with the crack's spent work (the criterion of scripts/cutting/solver_sweep.py).
+    path_keys = ("knife", "pinch", "tear")
+    pre = [sim.pre_board(c) for c in range(sim.n_cuts)]
+    spent_total = float(sum(sim.ledger(c)[0] for c in range(sim.n_cuts)))
+    W_end = rows[-1]["W_knife_J"] if rows else 0.0
+    U_end = sim.strain_energy_total()
+    K_end = sim.kinetic_energy()
+    metrics["instruments"] = dict(
+        knife_work_by_kind_J=dict(zip(("nose", "belly", "crack_face"), sim.knife_work_by_kind().tolist())),
+        knife_work_from_forces_J=W_end,
+        # The ledger by name (LEDGER_NAMES): energies in J, need_shortfall_stepsum a diagnostic (not an energy).
+        ledger=[dict(zip(LEDGER_NAMES, sim.ledger(c).tolist())) for c in range(sim.n_cuts)],
+        crack_area_paths_m2=[dict(zip(path_keys, sim.crack_area_paths(c).tolist())) for c in range(sim.n_cuts)],
+        crack_area_m2=[sim.crack_area(c) for c in range(sim.n_cuts)],
+        pre_board=[None if p is None else dict(
+            ratio=sim.pre_board_ratio(c), area_m2=p["area"], height_mm=1e3 * p["height"], W_J=p["W"])
+            for c, p in enumerate(pre)],
+        strain_energy_end_J=U_end, kinetic_energy_end_J=K_end,
+        kinetic_energy_max_J=max((r["K_J"] for r in rows), default=0.0),
+        floating_max=max((r["floating"] for r in rows), default=0),
+        closure_J=W_end - spent_total - U_end - K_end,
+        closure_frac_of_W=(W_end - spent_total - U_end - K_end) / max(W_end, 1e-300),
+    )
     # The final particles, and each piece as a closed mesh for a rigid-body scene.
     np.savez_compressed(args.out / "final_particles.npz", x=x, piece=pc, particle_mass=sim.particle_mass)
     groups = sim.piece_groups()[pc]  # fields joined below a slit export as one mesh

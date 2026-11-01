@@ -61,6 +61,21 @@ from simfoundry.cutting.materials import SoftSolidMaterial
 
 NO_CRACK = wp.constant(1.0e3)
 MASS_EPS = wp.constant(1.0e-14)
+# The columns of MPMCuttingSim.ledger (instrumentation; see _settle_crack_work). Energies in J, the rest counts or ratios.
+LEDGER_NAMES = (
+    "spent",  # the crack's charged work: spent_init + spent_prop
+    "discarded",  # work beyond the need, in every step with a crack
+    "need_shortfall_stepsum",  # DIAGNOSTIC, not an energy: the whole need left over, summed over steps after the first crack
+    "discarded_idle",  # work while nothing was to be cut
+    "initiation_work",  # all the work done before and at the first crack
+    "spent_init",  # the need the first crack charged (the over-charge is spent_init - G_c * initiation_area)
+    "spent_prop",  # the charged work after the first crack
+    "need_steps",  # steps with a need above zero (a count)
+    "short_steps",  # of those, the steps whose work fell short of the need (a count)
+    "pay_ratio_sum",  # sum over those steps of min(work / need, 1); divide by need_steps for the mean
+    "need_last",  # the need of the latest step (read when the edge first reaches the board's pinch threshold)
+    "initiation_area",  # the crack area the knife's energy balance opened at the first crack [m^2]
+)
 # The contact and bonding bookkeeping keeps one bit per piece in an int32.
 MAX_PIECES = 30
 
@@ -294,6 +309,16 @@ def _crack_reach(knife: KnifeState, s: float, u: wp.vec3, w: wp.vec3, dx: float,
     return r0 * wp.sqrt(1.0 + slope * slope) + 0.5 * dx * slope + lead
 
 
+@wp.func
+def _bin_area(width: float, top: float, front_b: float, board_w: float):
+    """One bin's crack area [m^2]: its width times the crack's height above the board (see crack_area).
+
+    Instrumentation only: the kernels that move a front add the change of this to the area of their path.
+    """
+    eff = wp.max(wp.min(front_b, top), board_w)
+    return width * wp.max(0.0, top - eff)
+
+
 @wp.kernel
 def _slice_factors(
     knife: KnifeState,
@@ -397,8 +422,13 @@ def _advance_crack(
     need: wp.array(dtype=float),
     initiated: wp.array(dtype=int),
     first_crack: wp.array(dtype=float),
+    area_path: wp.array2d(dtype=float),
 ):
-    """Runs the crack as far as this step's work on the intact material pays for."""
+    """Runs the crack as far as this step's work on the intact material pays for.
+
+    ``area_path`` (instrumentation) gets the crack area each front move adds: column 0 for the energy
+    balance (initiation included), column 1 for the pinch branch below the board.
+    """
     b = wp.tid()
     o = knife.origin - cut_o[c]
     s, arm = _edge_at_bin(knife, o, cut_u[c], umin + (float(b) + 0.5) * dx)
@@ -411,7 +441,9 @@ def _advance_crack(
         if w_edge < front[c, b]:
             # Well below the board: the nodes just under it still carry mass from the bottom
             # layer, and a front level with them would leave the pieces bonded there.
+            area_before = _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2])
             front[c, b] = wp.min(front[c, b], w_edge - gap - 3.0 * dx)
+            wp.atomic_add(area_path, c, 1, _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2]) - area_before)
         return
     if width[b] <= 0.0 or factor[b] <= 0.0 or need[0] <= 0.0:
         return
@@ -426,24 +458,58 @@ def _advance_crack(
             return
         # How deep the edge's lowest point in the material had pressed when it gave way.
         wp.atomic_min(first_crack, c, w_edge)
+        area_before = _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2])
         front[c, b] = wp.max(target, front_eff - initiation_length)
+        wp.atomic_add(area_path, c, 0, _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2]) - area_before)
         return
     # Every bin the edge presses into goes the same fraction of its way: the edge is one blade.
     f = wp.min(1.0, work[0] / need[0])
+    area_before = _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2])
     front[c, b] = front_eff - f * (front_eff - target)
+    wp.atomic_add(area_path, c, 0, _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2]) - area_before)
 
 
 @wp.kernel
 def _settle_crack_work(
-    work: wp.array(dtype=float), need: wp.array(dtype=float), initiated: wp.array(dtype=int), c: int
+    work: wp.array(dtype=float), need: wp.array(dtype=float), initiated: wp.array(dtype=int), c: int,
+    ledger: wp.array2d(dtype=float), area_path: wp.array2d(dtype=float),
 ):
+    """Settles the knife's work against the crack's need, and keeps the ledger of a cut (instrumentation).
+
+    The columns of ``ledger[c]`` are named by ``LEDGER_NAMES``. The charge at the first crack (``spent_init``) is the
+    need that crack was given, though where the blade is shallow the knife opens less than that: a side effect of the
+    existing initiation rule (_crack_need charges the full initiation length in every bin), not a design choice. It
+    is kept as it is here; the solver request's R9 is where it gets fixed. ``need_shortfall_stepsum`` adds up, step by
+    step, the whole need left over, so it counts the same unfinished crack again at every step: a diagnostic, not an
+    energy.
+    """
+    if need[0] > 0.0:
+        ledger[c, 7] = ledger[c, 7] + 1.0
+        ledger[c, 9] = ledger[c, 9] + wp.min(work[0] / need[0], 1.0)
+        if work[0] < need[0]:
+            ledger[c, 8] = ledger[c, 8] + 1.0
+    ledger[c, 10] = need[0]
     if need[0] > 0.0 and (initiated[c] == 1 or work[0] >= need[0]):
         # Spent on the crack. Work beyond what it needed went into pressing and is not kept:
         # banked, it would let the knife cut on later with no push at all.
+        if initiated[c] == 0:
+            # The first crack pays its need; the push beyond that is discarded like any other. The knife's
+            # area before the first crack is zero, so the area now is the area the first crack opened.
+            ledger[c, 0] = ledger[c, 0] + need[0]
+            ledger[c, 5] = ledger[c, 5] + need[0]
+            ledger[c, 1] = ledger[c, 1] + wp.max(work[0] - need[0], 0.0)
+            ledger[c, 4] = ledger[c, 4] + work[0]
+            ledger[c, 11] = area_path[c, 0]
+        else:
+            ledger[c, 0] = ledger[c, 0] + wp.min(work[0], need[0])
+            ledger[c, 6] = ledger[c, 6] + wp.min(work[0], need[0])
+            ledger[c, 1] = ledger[c, 1] + wp.max(work[0] - need[0], 0.0)
+            ledger[c, 2] = ledger[c, 2] + wp.max(need[0] - work[0], 0.0)
         initiated[c] = 1
         work[0] = 0.0
     elif need[0] <= 0.0:
         # Nothing to cut (the edge is off the material, or lifting): this pressing pays for nothing.
+        ledger[c, 3] = ledger[c, 3] + work[0]
         work[0] = 0.0
     need[0] = 0.0
 
@@ -604,6 +670,10 @@ def _tear(
     cut_u: wp.array(dtype=wp.vec3),
     cut_w: wp.array(dtype=wp.vec3),
     umin: float,
+    area_path: wp.array2d(dtype=float),
+    cut_bin_top: wp.array2d(dtype=float),
+    cut_bin_width: wp.array2d(dtype=float),
+    board_z: float,
 ):
     """Tears the uncut ligament down by one cell where it is pulled open harder than the tofu holds.
 
@@ -648,7 +718,9 @@ def _tear(
         if open_cnt[c, b, 0] + open_cnt[c, b, 1] > 0.0 and front[c, b] > wb - 1.5 * dx:
             # Material at the crack front but no node below it shared by both sides: the sides
             # have already come apart here. Record it, so that cut_complete agrees.
+            area_before = _bin_area(cut_bin_width[c, b], cut_bin_top[c, b], front[c, b], board_z - cut_o[c][2])
             front[c, b] = wb - 3.0 * dx
+            wp.atomic_add(area_path, c, 2, _bin_area(cut_bin_width[c, b], cut_bin_top[c, b], front[c, b], board_z - cut_o[c][2]) - area_before)
         return
     t = wp.max(top + 0.5 * dx - wb, 0.5 * dx)
     n = lig_n[c, b]
@@ -688,7 +760,9 @@ def _tear(
         # What was left is the row under the board, which holds the bottom layer: that parts as
         # well, with the front well below the board as the knife leaves it (_advance_crack).
         new_front = wb - 3.0 * dx
+    area_before = _bin_area(cut_bin_width[c, b], cut_bin_top[c, b], front[c, b], board_z - cut_o[c][2])
     front[c, b] = new_front
+    wp.atomic_add(area_path, c, 2, _bin_area(cut_bin_width[c, b], cut_bin_top[c, b], front[c, b], board_z - cut_o[c][2]) - area_before)
 
 
 @wp.kernel
@@ -722,7 +796,13 @@ def _grid_update(
     knife_impulse: wp.array(dtype=wp.vec3),
     knife_moment: wp.array(dtype=wp.vec3),
     crack_work: wp.array(dtype=float),
+    kind_work: wp.array(dtype=float),
+    kind_impulse: wp.array(dtype=wp.vec3),
+    kind_side: wp.array(dtype=float),
 ):
+    """Instrumentation: ``kind_*`` take, per node kind, the knife's work sum(dp . v_knife), impulse sum(dp) and
+    side impulse sum(|dp . e_v|). Kind 0: the edge's nose (separated == 0, kw < 0), 1: its belly
+    (separated == 0, kw >= 0), 2: a face of a crack (separated == 1). They only read the physics."""
     i, j, k = wp.tid()
     m_total = float(0.0)
     p_total = wp.vec3(0.0)
@@ -841,6 +921,15 @@ def _grid_update(
                             grid_v[f, i, j, k] = nv
                             wp.atomic_add(knife_impulse, 0, dp)
                             wp.atomic_add(knife_moment, 0, wp.cross(r, dp))
+                            # Instrumentation: the same dp, sorted by kind of node (see _grid_update's docstring).
+                            kind = 2
+                            if separated == 0:
+                                kind = 0
+                                if kw >= 0.0:
+                                    kind = 1
+                            wp.atomic_add(kind_work, kind, wp.dot(dp, kvel))
+                            wp.atomic_add(kind_impulse, kind, dp)
+                            wp.atomic_add(kind_side, kind, wp.abs(wp.dot(dp, knife.e_v)))
                             if active_cut >= 0 and separated == 0:
                                 # Work of the knife's push on material the crack has not reached:
                                 # only along the edge's normal, as slicing is counted by xi.
@@ -934,6 +1023,26 @@ def _g2p(
         m = (e0 + e1 + e2) / 3.0
         s = wp.vec3(wp.exp((e0 - m) * relax), wp.exp((e1 - m) * relax), wp.exp((e2 - m) * relax))
         Fn[p] = U @ wp.diag(s) @ wp.transpose(V)
+
+
+def crack_area_from_bins(front, top, width, board_w):
+    """Crack area [m^2] of one cut from its bins: each bin's width times the crack's height above the board.
+
+    Args:
+        front: Crack-front height per bin, in the cut's frame (1000 where not cracked).
+        top: Top of the material per bin, in the same frame.
+        width: Material width per bin; a bin of zero width counts nothing.
+        board_w: The board's height in the cut's frame, board_z - o_z.
+
+    Returns:
+        The area [m^2].
+    """
+    front = np.asarray(front, dtype=float)
+    top = np.asarray(top, dtype=float)
+    width = np.asarray(width, dtype=float)
+    eff = np.maximum(np.minimum(front, top), board_w)
+    height = np.maximum(top - eff, 0.0)
+    return float(np.sum(np.where(width > 0.0, width * height, 0.0)))
 
 
 @dataclass(frozen=True)
@@ -1117,6 +1226,20 @@ class MPMCuttingSim:
         self.field_side = wp.zeros(config.max_pieces, dtype=int, device=dev)
         self.knife_impulse = wp.zeros(1, dtype=wp.vec3, device=dev)
         self.knife_moment = wp.zeros(1, dtype=wp.vec3, device=dev)
+        # Instrumentation (read by the queries, never by the physics): the knife's work, impulse and
+        # side impulse per node kind, cumulative over the solver's life; per cut, the crack area each
+        # kind of front move adds (energy balance, pinch, tear), the ledger of the work settled against
+        # the crack, and the material of each cut's bins (the tear needs the bins of cuts that are no
+        # longer the active one).
+        self.kind_work = wp.zeros(3, dtype=float, device=dev)
+        self.kind_impulse = wp.zeros(3, dtype=wp.vec3, device=dev)
+        self.kind_side = wp.zeros(3, dtype=float, device=dev)
+        self.area_path = wp.zeros((mc, 3), dtype=float, device=dev)
+        self.crack_ledger = wp.zeros((mc, len(LEDGER_NAMES)), dtype=float, device=dev)
+        self.cut_bin_top = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self.cut_bin_width = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self._pre_board = {}  # per cut: the crack state when the edge first came within reach of the board
+        self._kind_work_at_start = {}  # per cut: the knife's total work when the cut began
         # Tearing: per bonded pair, the side of the cut's plane its second field lies on; per cut,
         # whether anything is still bonded across it and the board's height in its frame; per
         # bin, the ligament's tension, its moment and highest bonded node, and how long the
@@ -1277,6 +1400,14 @@ class MPMCuttingSim:
         self._set_bin_material(x, o, e_u, e_v, e_w)
         self.crack_work.zero_()
         self.crack_need.zero_()
+        # Instrumentation: this cut's bins, kept for the tear (the bin arrays hold only the active cut).
+        cut_top = self.cut_bin_top.numpy()
+        cut_top[c] = self.bin_top.numpy()
+        self.cut_bin_top.assign(cut_top)
+        cut_width = self.cut_bin_width.numpy()
+        cut_width[c] = self.bin_width.numpy()
+        self.cut_bin_width.assign(cut_width)
+        self._kind_work_at_start[c] = float(self.kind_work.numpy().sum())
         self._cut_frames.append((o, e_u, e_v, e_w))
         board = self.cut_board.numpy()
         board[c] = self._board_w(c)
@@ -1408,6 +1539,7 @@ class MPMCuttingSim:
                     mat.tensile_strength, mat.critical_opening, self.tear_hold, self.tear_clock,
                     self.front_seen, self.open_ref, self._knife, self.active_cut,
                     self.cut_o, self.cut_u, self.cut_w, self.bin_umin,
+                    self.area_path, self.cut_bin_top, self.cut_bin_width, self.board_z,
                 ],
                 device=dev,
             )
@@ -1423,6 +1555,7 @@ class MPMCuttingSim:
                 self._knife, self.active_cut, self.field_side,
                 mat.contact_friction, cfg.board_cells, mat.board_friction,
                 nx, ny, nz, self.knife_impulse, self.knife_moment, self.crack_work,
+                self.kind_work, self.kind_impulse, self.kind_side,
             ],
             device=dev,
         )
@@ -1452,12 +1585,12 @@ class MPMCuttingSim:
                 _advance_crack, dim=self.n_bins, device=dev,
                 inputs=common + [
                     mat.initiation_length, self.crack_work, self.crack_need, self.crack_initiated,
-                    self.first_crack,
+                    self.first_crack, self.area_path,
                 ],
             )
             wp.launch(
                 _settle_crack_work, dim=1, device=dev,
-                inputs=[self.crack_work, self.crack_need, self.crack_initiated, c],
+                inputs=[self.crack_work, self.crack_need, self.crack_initiated, c, self.crack_ledger, self.area_path],
             )
         hi = wp.vec3(*((np.array(self.grid_shape) - 3) * self.dx))
         wp.launch(
@@ -1500,6 +1633,7 @@ class MPMCuttingSim:
                 pose, lin, ang = trajectory.state(self.time + 0.5 * dt)
                 self.set_knife(pose, lin, ang)
             self.substep(dt)
+            self._track_pre_board()
         self._drop_finished_pairs()
         span = max(self.time - t_start, 1e-12)
         imp = self.knife_impulse.numpy()[0].astype(float)
@@ -1531,6 +1665,99 @@ class MPMCuttingSim:
     def crack_front(self, c: int) -> np.ndarray:
         """Crack-front height of cut c per bin, in the cut's frame (1000 = not cracked)."""
         return self.front.numpy()[c].astype(float)
+
+    def crack_area(self, c: int) -> float:
+        """Crack area of cut c [m^2]: the bins' widths times the crack's height above the board.
+
+        The board's height is taken in the cut's frame as board_z - o_z, the design's definition.
+        """
+        o = self._cut_frames[c][0]
+        return crack_area_from_bins(
+            self.front.numpy()[c], self.cut_bin_top.numpy()[c], self.cut_bin_width.numpy()[c], self.board_z - o[2]
+        )
+
+    def crack_area_paths(self, c: int) -> np.ndarray:
+        """Crack area of cut c by the path that made it [m^2]: energy balance, pinch below the board, tear."""
+        return self.area_path.numpy()[c].astype(float)
+
+    def ledger(self, c: int) -> np.ndarray:
+        """The work ledger of cut c, one entry per name in LEDGER_NAMES (energies in J)."""
+        return self.crack_ledger.numpy()[c].astype(float)
+
+    def knife_work_by_kind(self) -> np.ndarray:
+        """The knife's work on the material by node kind [J], cumulative: edge nose, belly, crack face."""
+        return self.kind_work.numpy().astype(float)
+
+    def knife_impulse_by_kind(self) -> np.ndarray:
+        """Impulse sum(dp) by node kind, shape (3, 3) [kg m/s], cumulative."""
+        return self.kind_impulse.numpy().astype(float)
+
+    def knife_side_impulse_by_kind(self) -> np.ndarray:
+        """Side impulse sum(|dp . e_v|) by node kind [kg m/s], cumulative."""
+        return self.kind_side.numpy().astype(float)
+
+    def strain_energy_total(self) -> float:
+        """Strain energy of the material, U = sum psi_p V_p [J]."""
+        return float(self.psi.numpy().astype(float).sum() * self.particle_volume)
+
+    def kinetic_energy(self) -> float:
+        """Kinetic energy of the material, K = 1/2 sum m_p |v_p|^2 [J]."""
+        v = self.v.numpy().astype(float)
+        return float(0.5 * self.particle_mass * np.sum(v * v))
+
+    def floating_count(self) -> int:
+        """Particles of the bottom layer that now sit more than half a particle spacing above their start.
+
+        The bottom layer is what started less than one spacing above the block's floor (the lattice's first
+        layer sits at half a spacing, jittered by a tenth of one).
+        """
+        h = self.dx / self.config.particles_per_axis
+        bottom = self.x0[:, 2] - self.block_min[2] < h
+        lift = self.x.numpy().astype(float)[:, 2] - self.x0[:, 2]
+        return int(np.count_nonzero(bottom & (lift > 0.5 * h)))
+
+    def pre_board(self, c: int):
+        """Cut c's crack state at the edge's first approach to the board, or None if it has not come.
+
+        Keys: ``area`` (crack area [m^2]), ``height`` (the edge's lowest point above the board [m]),
+        ``width_sum`` (sum of the bins' widths [m]), ``H`` (the block's height [m]), ``W`` (the knife's work
+        on the material since the cut began [J]) and ``need_at_pinch`` (the crack's need at that step [J]).
+        """
+        return self._pre_board.get(c)
+
+    def pre_board_ratio(self, c: int):
+        """The design's pre-board crack ratio of cut c: area / (sum of bin widths * (H - height)), or None.
+
+        The threshold is ``dilation * dx + 0.5 mm`` (see _track_pre_board). The legacy field
+        ``cut_by_crack_before_board`` of solver_sweep.py uses a 1 mm threshold and the block's full width times H;
+        the two differ, which is why both are reported.
+        """
+        p = self._pre_board.get(c)
+        if p is None:
+            return None
+        return p["area"] / (p["width_sum"] * (p["H"] - p["height"]))
+
+    def _track_pre_board(self):
+        """Stores cut c's crack state the first time the blade's lowest edge point comes within
+        ``dilation * dx + 0.5 mm`` of the board. Reads only; the physics never sees it.
+        """
+        c = self.active_cut
+        if c < 0 or self._knife.enabled != 1 or c in self._pre_board:
+            return
+        low = self.knife_geometry.lowest_edge_point(self.knife_pose)
+        height = float(low[2] - self.board_z)
+        if height >= self.config.dilation * self.dx + 0.5e-3:
+            return
+        self._pre_board[c] = dict(
+            area=self.crack_area(c),
+            height=height,
+            width_sum=float(self.cut_bin_width.numpy()[c].sum()),
+            H=float(self.block_max[2] - self.block_min[2]),
+            W=float(self.knife_work_by_kind().sum() - self._kind_work_at_start[c]),
+            # The need of this very step (settled just before this read): what the crack asked for at the pinch
+            # threshold, before any of it was paid.
+            need_at_pinch=float(self.crack_ledger.numpy()[c, LEDGER_NAMES.index("need_last")]),
+        )
 
     def piece_groups(self) -> np.ndarray:
         """Physical piece of each grid field, numbered from 0.
