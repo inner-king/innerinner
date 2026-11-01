@@ -269,13 +269,17 @@ def _p2g(
                 wp.atomic_add(grid_g, f, bx + i, by + j, bz + kk, grad)
 
 
+# The strip beside the blade is an option, not part of the press: with the default band of 0 the whole top is pressed.
+# A strip of 1.5 dx removed part of the top that presses in research 2's runs (zucchini: force ratio 0.8407 with it,
+# 0.9446 without), and a strip in cells would move with the grid. See SimConfig.hold_band.
 @wp.func
 def _in_hold_band(knife: KnifeState, x: wp.vec3, band: float):
-    """Whether a particle is beside the blade, where the press is left out. The only place that reads "the knife is on".
+    """Whether a particle is beside the blade and so left unpressed: the knife-on rule, and the only place that reads it.
 
-    While a knife is set (``set_knife``, hovering included) a particle within ``band`` of the blade's plane is not
-    pressed. A hand presses beside the blade; a press over the cut would release the material next to it at the first
-    crack and jolt it. Change the rule here, and nowhere else.
+    A particle is left out only while a knife is set (``set_knife``, hovering included) and only within ``band`` of the
+    blade's plane. At the default band of 0 nothing is left out. The worry that a press over the cut would jolt the
+    material at the first crack did not show at band 0: the pre-board crack fraction is higher there than with the
+    strip (research 2's setP runs, final_veg/solver/runs/setP, 2026-11-02). Change the rule here, and nowhere else.
     """
     blocked = int(0)
     if knife.enabled == 1:
@@ -295,12 +299,12 @@ def _hold_p2g(
     dx: float,
     dt: float,
     grid_v: wp.array4d(dtype=wp.vec3),
-    totals: wp.array(dtype=float),
+    totals: wp.array(dtype=wp.float64),
 ):
     """Adds the pressing force of each pressed particle to the grid as momentum, with the weights of P2G.
 
     Particles beside the blade are left out by ``_in_hold_band`` (the knife-on rule). ``totals`` collects the number
-    of particles pressed and their total force [N].
+    of particles pressed and their total force [N], in float64 on the device; ``_hold_accumulate`` adds them up.
     """
     p = wp.tid()
     active = int(0)
@@ -326,8 +330,21 @@ def _hold_p2g(
                 for kk in range(3):
                     wz = _bspline(fz, kk)
                     wp.atomic_add(grid_v, f, bx + i, by + j, bz + kk, wx * wy * wz * mom)
-        wp.atomic_add(totals, 0, 1.0)
-        wp.atomic_add(totals, 1, force)
+        wp.atomic_add(totals, 0, wp.float64(1.0))
+        wp.atomic_add(totals, 1, wp.float64(force))
+
+
+@wp.kernel
+def _hold_accumulate(totals: wp.array(dtype=wp.float64), cum: wp.array(dtype=wp.float64)):
+    """Adds one substep's pressed count and force to the running totals, on the device, so no step waits for the host.
+
+    ``cum`` holds [sum of the forces over all steps, number of steps, pressed count of the last step, force of the last
+    step]. One thread: the substep's totals are complete when it runs, and there is nothing to race.
+    """
+    cum[0] = cum[0] + totals[1]
+    cum[1] = cum[1] + wp.float64(1.0)
+    cum[2] = totals[0]
+    cum[3] = totals[1]
 
 
 @wp.func
@@ -1145,8 +1162,11 @@ class SimConfig:
             for setups still to be decided: choosing one raises NotImplementedError.
         hold_pressure: Pressure on the top skin [Pa] for "top_pressure". None takes HOLD_KAPPA times
             the material's fast-load Young's modulus (HOLD_KAPPA: see the module constants).
-        hold_band: Half-width [m] of the strip beside the blade's plane that is not pressed while a knife
-            is on, that is from ``set_knife`` on, hovering included. None takes 1.5 cells.
+        hold_band: Half-width [m] of the strip either side of the blade's plane that is not pressed while
+            a knife is set (``set_knife``, hovering included); a metre value, not cells, so the strip does
+            not move when the grid does. 0 (the default) presses the whole top skin. Research 2's runs
+            (final_veg/solver/runs/setP, 2026-11-02) chose 0: zucchini's force ratio is 0.9446 at band 0 and
+            0.8407 with a 1.5 dx strip. Negative values are refused.
     """
 
     dx: float = 2.5e-3
@@ -1169,20 +1189,23 @@ class SimConfig:
     tearing: bool = True
     hold: str = "none"
     hold_pressure: float | None = None
-    hold_band: float | None = None
+    hold_band: float = 0.0
 
 
-def _check_hold(hold: str) -> None:
-    """Refuses a hold that the solver cannot build: the reserved names wait for the robot setup, others are typos.
+def _check_hold(hold: str, band: float) -> None:
+    """Refuses a hold that the solver cannot build: the reserved names wait for the robot setup, others are typos,
+    and a negative strip beside the blade has no meaning.
 
     Raises:
         NotImplementedError: For a reserved name.
-        ValueError: For a name that is neither a mode nor reserved.
+        ValueError: For a name that is neither a mode nor reserved, or for a negative band.
     """
     if hold in HOLD_RESERVED:
         raise NotImplementedError("reserved: waiting for the robot setup decision")
     if hold not in HOLD_MODES:
         raise ValueError(f"unknown hold {hold!r}; use one of {', '.join(HOLD_MODES)}")
+    if band < 0.0:
+        raise ValueError(f"hold_band must not be negative, got {band!r} m")
 
 
 class MPMCuttingSim:
@@ -1216,7 +1239,7 @@ class MPMCuttingSim:
     ):
         if config.max_pieces > MAX_PIECES:
             raise ValueError(f"max_pieces is limited to {MAX_PIECES}")
-        _check_hold(config.hold)
+        _check_hold(config.hold, config.hold_band)
         wp.init()
         self.material = material
         self.knife_geometry = knife
@@ -1285,7 +1308,7 @@ class MPMCuttingSim:
                 config.hold_pressure if config.hold_pressure is not None else HOLD_KAPPA * material.youngs_modulus
             )
         self.hold_particle_force = self.hold_pressure * (dx / config.particles_per_axis) ** 2
-        self.hold_band = config.hold_band if config.hold_band is not None else 1.5 * dx
+        self.hold_band = config.hold_band
         self._hold_on = config.hold == "top_pressure"
 
         # Time step: elastic waves (CFL) and explicit viscosity, both with margin.
@@ -1304,7 +1327,11 @@ class MPMCuttingSim:
         self.piece = wp.zeros(n, dtype=int, device=dev)
         self.psi = wp.zeros(n, dtype=float, device=dev)
         self._hold_flag = wp.array(hold_top.astype(np.int32), dtype=int, device=dev)
-        self.hold_totals = wp.zeros(2, dtype=float, device=dev)  # pressed particles, their total force [N], this step
+        # One substep's pressed count and total force [N], and the running totals over all steps: [sum of the forces,
+        # number of steps, last count, last force]. Both are float64 on the device and are read back only when a
+        # hold_* property is asked for, so a substep never waits for the host.
+        self.hold_totals = wp.zeros(2, dtype=wp.float64, device=dev)
+        self.hold_cum = wp.zeros(4, dtype=wp.float64, device=dev)
 
         gshape = (config.max_pieces,) + self.grid_shape
         self.grid_m = wp.zeros(gshape, dtype=float, device=dev)
@@ -1378,11 +1405,6 @@ class MPMCuttingSim:
 
         self.time = 0.0
         self.n_pieces = 1
-        # The pressing counter: the last step's pressed count and force, and the sum over all steps.
-        self.hold_count_last = 0
-        self.hold_force_last = 0.0
-        self.hold_force_sum = 0.0
-        self.hold_steps = 0
         self.n_cuts = 0
         self.active_cut = -1
         self._pairs = []  # (piece_a, piece_b, cut)
@@ -1728,8 +1750,8 @@ class MPMCuttingSim:
         """Pushes the pressed skin down: the pressing force goes into the grid's momentum just before the grid update.
 
         It enters where gravity does, after the ligament load of the tearing step has been read, so the load stays the
-        same as it is without a press. The step's pressed count and total force are kept in ``hold_count_last`` and
-        ``hold_force_last`` and summed in ``hold_force_sum``.
+        same as it is without a press. The step's totals are accumulated on the device; the ``hold_*`` properties read
+        them back when asked.
         """
         self.hold_totals.zero_()
         wp.launch(
@@ -1741,11 +1763,27 @@ class MPMCuttingSim:
             ],
             device=self.device,
         )
-        totals = self.hold_totals.numpy()
-        self.hold_count_last = int(round(float(totals[0])))
-        self.hold_force_last = float(totals[1])
-        self.hold_force_sum += self.hold_force_last
-        self.hold_steps += 1
+        wp.launch(_hold_accumulate, dim=1, inputs=[self.hold_totals, self.hold_cum], device=self.device)
+
+    @property
+    def hold_count_last(self) -> int:
+        """Particles pressed in the last substep (read back from the device when asked)."""
+        return int(round(float(self.hold_cum.numpy()[2])))
+
+    @property
+    def hold_force_last(self) -> float:
+        """Total pressing force [N] of the last substep."""
+        return float(self.hold_cum.numpy()[3])
+
+    @property
+    def hold_force_sum(self) -> float:
+        """Pressing force [N] summed over all substeps so far (float64 on the device)."""
+        return float(self.hold_cum.numpy()[0])
+
+    @property
+    def hold_steps(self) -> int:
+        """Number of substeps that applied the press so far."""
+        return int(round(float(self.hold_cum.numpy()[1])))
 
     def advance(self, t_end: float, trajectory=None):
         """Steps until ``t_end``, moving the knife along ``trajectory`` if given.

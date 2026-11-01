@@ -107,15 +107,17 @@ def ledger_statistics(L, gc, knife_area):
 
 
 def replay_args(a):
-    """The arguments as the JSON records them. The hold options appear only when they are used, so a run without a
-    press writes the same JSON as before they existed, and that JSON still replays through this script."""
+    """The arguments as the JSON records them. A run without a press writes the same JSON as before the hold options
+    existed. A press always writes its band, even the default 0, so the JSON replays that press if the default changes
+    again; the pressure is written only when one was given."""
     args = dict(vars(a))
     if args["hold"] == "none":
         del args["hold"]
+        del args["hold_pressure"]
+        del args["hold_band"]
+        return args
     if args["hold_pressure"] is None:
         del args["hold_pressure"]
-    if args["hold_band"] is None:
-        del args["hold_band"]
     return args
 
 
@@ -151,9 +153,9 @@ def main():
                     help="how the block is held down (SimConfig.hold); the last three are reserved and refuse to run")
     ap.add_argument("--hold-pressure", type=float, default=None,
                     help="pressure on the top skin [Pa] for --hold top_pressure (default: HOLD_KAPPA x Young's modulus)")
-    ap.add_argument("--hold-band", type=float, default=None,
-                    help="half-width [m] of the strip beside the blade's plane not pressed while the knife is on "
-                         "(SimConfig.hold_band; default 1.5 dx)")
+    ap.add_argument("--hold-band", type=float, default=0.0,
+                    help="half-width [m] of the strip either side of the blade's plane not pressed while a knife is "
+                         "set (SimConfig.hold_band; default 0, the whole top is pressed)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 

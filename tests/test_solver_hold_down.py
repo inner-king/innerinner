@@ -3,6 +3,7 @@
 and that the default presses nothing. CPU at coarse resolution."""
 
 import importlib.util
+import inspect
 import json
 import math
 import subprocess
@@ -46,7 +47,7 @@ def test_a_box_presses_its_top_layer_and_nothing_else():
 
 
 def test_the_band_beside_the_blade_is_left_out_while_the_knife_is_on():
-    sim = _sim(hold="top_pressure")
+    sim = _sim(hold="top_pressure", hold_band=1.5 * DX)
     centre = 0.5 * (sim.block_min + sim.block_max)
     origin = np.array([centre[0], centre[1], sim.block_max[2] + 0.01])
     pose = KnifePose(origin, ACROSS)
@@ -60,8 +61,20 @@ def test_the_band_beside_the_blade_is_left_out_while_the_knife_is_on():
     assert sim.hold_count_last == TOP_LAYER - 72
 
 
-def test_no_band_without_a_knife():
+def test_the_default_band_presses_the_whole_top_layer_with_the_knife_on():
+    # The default band is 0, so nothing beside the blade is left free: the whole top layer is pressed, and the press is
+    # the pressure times the whole top area (within 2%).
     sim = _sim(hold="top_pressure")
+    centre = 0.5 * (sim.block_min + sim.block_max)
+    origin = np.array([centre[0], centre[1], sim.block_max[2] + 0.01])
+    sim.set_knife(KnifePose(origin, ACROSS))
+    sim._apply_hold(1.0e-4)
+    assert sim.hold_count_last == TOP_LAYER
+    assert sim.hold_force_last == pytest.approx(sim.hold_pressure * BLOCK[0] * BLOCK[1], rel=0.02)
+
+
+def test_no_band_without_a_knife():
+    sim = _sim(hold="top_pressure", hold_band=1.5 * DX)
     sim._apply_hold(1.0e-4)
     assert sim.hold_count_last == TOP_LAYER
 
@@ -76,8 +89,22 @@ def test_a_particle_on_the_blade_plane_is_pressed_when_the_band_is_zero():
     assert sim.hold_count_last == TOP_LAYER
 
 
-def test_the_band_defaults_to_one_and_a_half_cells():
-    assert _sim(hold="top_pressure").hold_band == pytest.approx(1.5 * DX, rel=1e-12)
+def test_the_band_defaults_to_zero_so_the_whole_top_is_pressed():
+    assert SimConfig().hold_band == 0.0
+    assert _sim(hold="top_pressure").hold_band == 0.0
+
+
+@pytest.mark.parametrize("dx", [4.0e-3, 2.5e-3])
+def test_an_explicit_band_is_a_metre_value_whatever_the_grid(dx):
+    # The band is a physical half-width: 3 mm on a 4 mm grid and on a 2.5 mm one, not a number of cells.
+    config = SimConfig(dx=dx, side_margin=0.012, top_margin=0.016, hold="top_pressure", hold_band=0.003)
+    assert MPMCuttingSim(FIRM_TOFU, BLOCK, config=config, device="cpu").hold_band == 0.003
+
+
+@pytest.mark.parametrize("hold", ["none", "top_pressure"])
+def test_a_negative_band_is_refused_when_the_sim_is_built(hold):
+    with pytest.raises(ValueError, match="must not be negative"):
+        _sim(hold=hold, hold_band=-0.001)
 
 
 def test_the_pressing_force_is_the_pressure_times_the_top_area_and_points_down():
@@ -142,6 +169,28 @@ def test_the_step_counter_sums_every_pressed_step():
         sim._apply_hold(1.0e-4)
     assert sim.hold_steps == 3
     assert sim.hold_force_sum == pytest.approx(3 * per_step, rel=0.02)
+
+
+def test_the_totals_build_up_on_the_device_and_the_properties_read_them_back():
+    sim = _sim(hold="top_pressure")
+    sim._apply_hold(1.0e-4)
+    one_step = sim.hold_force_last
+    for _ in range(9):
+        sim._apply_hold(1.0e-4)
+    assert sim.hold_steps == 10
+    assert sim.hold_force_sum == pytest.approx(10 * one_step, rel=1e-9)  # float64 on the device: no drift over the steps
+    assert sim.hold_count_last == TOP_LAYER
+    assert sim.hold_force_last == pytest.approx(one_step, rel=1e-9)
+    # Each property reads the device totals when asked, so reading them again gives the same numbers.
+    first = (sim.hold_steps, sim.hold_force_sum, sim.hold_count_last, sim.hold_force_last)
+    again = (sim.hold_steps, sim.hold_force_sum, sim.hold_count_last, sim.hold_force_last)
+    assert first == again
+
+
+def test_the_press_step_never_reads_the_host():
+    # A .numpy() in _apply_hold copies the totals back on every substep and makes the loop wait for the device each
+    # time. The hold_* properties may read the host when asked; the step itself may not.
+    assert ".numpy()" not in inspect.getsource(MPMCuttingSim._apply_hold)
 
 
 def test_the_pressure_is_kappa_times_the_fast_load_modulus_unless_given():
@@ -242,11 +291,18 @@ def _sweep_module():
 
 def test_the_sweep_records_the_hold_options_only_when_they_are_used():
     sweep = _sweep_module()
-    plain = dict(E=1.0e6, out="run.json", hold="none", hold_pressure=None, hold_band=None)
-    assert sorted(sweep.replay_args(Namespace(**plain))) == ["E", "out"]  # a press-free run writes the old JSON
-    pressed = dict(plain, hold="top_pressure", hold_pressure=1234.0, hold_band=0.0)
+    plain = dict(E=1.0e6, out="run.json", hold="none", hold_pressure=None, hold_band=0.0)
+    # A press-free run writes the old JSON: none of the three hold keys, whatever band it was given.
+    assert sorted(sweep.replay_args(Namespace(**plain))) == ["E", "out"]
+    assert sorted(sweep.replay_args(Namespace(**dict(plain, hold_band=0.003)))) == ["E", "out"]
+    # A press always writes its band, even the default 0, so its JSON replays the same press if the default changes.
+    pressed = dict(plain, hold="top_pressure", hold_pressure=None)
     recorded = sweep.replay_args(Namespace(**pressed))
-    assert recorded["hold"] == "top_pressure" and recorded["hold_pressure"] == 1234.0 and recorded["hold_band"] == 0.0
+    assert recorded["hold"] == "top_pressure" and recorded["hold_band"] == 0.0
+    assert "hold_pressure" not in recorded  # the default pressure is not written
+    assert sweep.replay_args(Namespace(**dict(pressed, hold_band=0.003)))["hold_band"] == 0.003
+    given = sweep.replay_args(Namespace(**dict(pressed, hold_pressure=1234.0)))
+    assert given["hold_pressure"] == 1234.0 and given["hold_band"] == 0.0
 
 
 def test_the_sweep_takes_the_hold_options_on_its_command_line():
@@ -273,11 +329,12 @@ def _sweep_run(tmp_path, name, *extra):
 
 
 def test_the_sweep_press_changes_the_cut_and_the_band_changes_the_press(tmp_path):
-    # A 2 cm block: the 1.5 dx band leaves some of its top pressed, so the press and the band both show in the ratio.
+    # On a 2 cm block the default band of 0 presses the whole top, so the press changes the cut. A 6 mm strip either
+    # side of the blade leaves part of the top free, so the band changes the press too. Zero pressure is no press.
     plain = _sweep_run(tmp_path, "none")
     pressed = _sweep_run(tmp_path, "press", "--hold", "top_pressure")
-    narrow = _sweep_run(tmp_path, "band0", "--hold", "top_pressure", "--hold-band", "0.0")
+    wide = _sweep_run(tmp_path, "wide", "--hold", "top_pressure", "--hold-band", "0.006")
     unloaded = _sweep_run(tmp_path, "zero", "--hold", "top_pressure", "--hold-pressure", "0.0")
     assert abs(pressed["force_ratio"] - plain["force_ratio"]) > 1e-4
-    assert abs(narrow["force_ratio"] - pressed["force_ratio"]) > 1e-4
+    assert abs(wide["force_ratio"] - pressed["force_ratio"]) > 1e-4
     assert unloaded["force_ratio"] == pytest.approx(plain["force_ratio"], abs=1e-12)  # zero pressure is no press
