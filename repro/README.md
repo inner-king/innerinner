@@ -493,8 +493,8 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 - 장면: 저자 공개 `droid_desk_serve_fruits`(DROID 책상, Robotiq 그리퍼를 단 Franka, 과일 넷·접시·쟁반, 메시 배경 `droid_v1`). 바닥은 장면의 `ground_plane_info`대로 z = −0.02 m입니다.
 - 소프트웨어: OmniGibson 3.8.0(BEHAVIOR-1K d89aae4), Isaac Sim 5.1.0, omni.physx 107.3.26. 쿠킹 설정은 기본값입니다(UJITSO 쿠킹 켬, 로컬 메시 캐시 1 GB).
 - 설정: 텔레옵과 같은 `apply_teleop_omnigibson_macros()`(GPU dynamics 끔 = CPU PhysX, CCD·Fabric·물체 상태·전이 규칙 켬). 물리 120 Hz, 행동·렌더 15 Hz, headless.
-- 머신: GPU 측정은 super2(i9-12900K, RTX 3060 12 GB)에서 했습니다.
-  - 이 머신(super3)의 GPU는 다른 세션의 정책 평가가 계속 쓰고 있었습니다. super2는 그 평가 대기열이 끝나 다른 GPU 작업이 없을 때 썼습니다(시작·끝의 `nvidia-smi`가 결과 JSON에 있음).
+- 머신: GPU 측정은 RTX 3060 12 GB가 있는 워크스테이션에서 했습니다.
+  - 이 머신의 GPU는 다른 세션의 정책 평가가 계속 쓰고 있었습니다. 측정한 워크스테이션은 그 평가 대기열이 끝나 다른 GPU 작업이 없을 때 썼습니다(시작·끝의 `nvidia-smi`가 결과 JSON에 있음).
   - 두 머신은 CPU·GPU·BEHAVIOR-1K 커밋이 같고, 장면 파일과 조각 데이터도 같습니다.
 - 표의 값은 중앙값입니다. 1은 변형마다 24회(과일 4개 × 평면 6개), 2는 방식마다 6회입니다.
 
@@ -502,7 +502,7 @@ rclone config create innerking drive scope=drive root_folder_id=<Inner-King 폴�
 - **시각 메시**: 과일 넷(사과·바나나·배·오렌지)은 283k–300k 삼각형입니다. 과일마다 무작위 평면 6개(시드 고정, 양쪽에 대리 메시 꼭짓점이 25% 이상)로 trimesh `slice_plane`을 하고, 잘린 테두리 고리마다 중심으로 부채꼴 뚜껑을 덮었습니다. 반쪽은 88k–221k 삼각형입니다.
 - **충돌용 대리 메시**: 과일을 복셀화(긴 변 96칸)·marching cubes·2,000 삼각형 decimation으로 닫힌 메시로 만들고 같은 평면으로 잘랐습니다(반쪽 790–1,682 삼각형). 반쪽 48개가 모두 닫혀 있고, 두 반쪽 부피의 합은 원래 부피와 같습니다.
 - **자산의 볼록 껍질**(사과 23, 배 10, 바나나 4, 오렌지 2개)도 같은 평면으로 잘랐습니다. 볼록 다면체는 평면으로 잘라도 볼록하므로 분해를 다시 할 필요가 없습니다.
-- **CPU 시간**: 반쪽당 중앙값입니다. super3에서 load average 4 안팎일 때 쟀습니다.
+- **CPU 시간**: 반쪽당 중앙값입니다. 이 머신에서 load average 4 안팎일 때 쟀습니다.
 
   | 단계 | 시간 |
   |---|---|
@@ -690,7 +690,7 @@ PhysX에서 강체 칼날은 강체 과일 표면에서 멈춥니다. 그래서 
 
 **조건**
 - 장면: 저자 공개 `droid_desk_serve_fruits`에서 과일 넷에 `cutting`을 붙이고 칼을 더했습니다. 그 밖에는 그대로입니다(Franka 포함, 바닥 z = −0.02 m).
-- 실행: super2(i9-12900K, RTX 3060). 시작·끝 `nvidia-smi`에 다른 GPU 작업이 없었습니다. OmniGibson 3.8.0(BEHAVIOR-1K d89aae4), Isaac Sim 5.1.0이고, 설정은 텔레옵과 같은 `apply_teleop_omnigibson_macros()`입니다. 물리 120 Hz, 행동·렌더 15 Hz, headless이고, 손목 카메라 1280×720과 그림용 640×480 카메라가 렌더링합니다. 자르지 않는 env 스텝은 중앙값 63 ms입니다.
+- 실행: RTX 3060 12 GB가 있는 워크스테이션. 시작·끝 `nvidia-smi`에 다른 GPU 작업이 없었습니다. OmniGibson 3.8.0(BEHAVIOR-1K d89aae4), Isaac Sim 5.1.0이고, 설정은 텔레옵과 같은 `apply_teleop_omnigibson_macros()`입니다. 물리 120 Hz, 행동·렌더 15 Hz, headless이고, 손목 카메라 1280×720과 그림용 640×480 카메라가 렌더링합니다. 자르지 않는 env 스텝은 중앙값 63 ms입니다.
 - 아래 수치는 커밋된 코드로 다시 돌린 실행입니다. 그 앞의 같은 실행(오류 처리와 캐시 형식만 다른 코드)과 수치가 거의 같았습니다.
 - 칼: `cut` 모드에서는 운동학적 칼이 칼날 평면 안에서 칼날 쪽으로 5 cm/s로 내려갑니다.
   - 자세는 (yaw, 칼날 법선 방향 오프셋, 칼날 평면 기울기)로 과일마다 셋입니다. 다른 물체와 부딪히지 않는 것만 골랐고, 오렌지는 이번 실행에서 하나만 남았습니다.
@@ -868,7 +868,7 @@ PYTHONPATH=$PWD python repro/fruit_slicing/check_runtime_cut.py reset_probe --ou
   - 15.2의 사과 자세처럼 칼날이 로봇 쪽을 향하면, 손이 과일 너머로 가서 팔이 닿지 않습니다.
 - **속도.** 과일마다 첫 자세로 1 cm/s와 2 mm/s 획을 하나씩 더 했습니다. 이 둘은 과일 4 mm 위에서 시작하고, 자른 뒤 1 cm만 더 내려갑니다.
 - **에피소드.** 텔레옵처럼 한 번 쥐고 네 과일을 차례로 잘랐습니다.
-- **실행.** 이 머신(super3, RTX 3060)에서 돌렸습니다. super2와 CPU·GPU·OmniGibson·Isaac Sim이 같습니다. 시작할 때 GPU에는 ComfyUI 서버(196 MiB)만 떠 있었습니다.
+- **실행.** 이 머신(RTX 3060 12 GB)에서 돌렸습니다. 다른 워크스테이션과 CPU·GPU·OmniGibson·Isaac Sim이 같습니다. 시작할 때 GPU에는 ComfyUI 서버(196 MiB)만 떠 있었습니다.
   - 환경 생성은 32 s, 부팅 포함 전체는 약 7분이었습니다.
   - 팔이 서 있는 env 스텝은 중앙값 60 ms였고, 자르지 않는 획 스텝은 69 ms였습니다. 손목 카메라 1280×720과 그림용 640×480 카메라가 렌더링합니다.
 
