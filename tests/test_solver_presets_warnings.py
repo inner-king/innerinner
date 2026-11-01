@@ -254,13 +254,14 @@ def test_gel_keeps_firm_tofus_relaxation_so_it_is_the_same_tofu_model():
 def test_a_drawn_vegetable_stays_in_its_ranges_and_keeps_the_common_rule(name):
     rng = np.random.default_rng(1)
     ranges = VEGETABLE_RANGES[name]
-    for _ in range(300):
+    for _ in range(10000):
         m = M.sample_material(name, rng)
         for field in ("youngs_modulus", "fracture_energy", "density", "poisson_ratio"):
             low, high = ranges[field]
             assert low <= getattr(m, field) <= high, field
+        low, high = M.KNIFE_FRICTION_RANGE  # the range of the draw, read from the module (0.30-0.60, checked above)
+        assert low <= m.knife_friction <= high
         assert m.tensile_strength == pytest.approx(m.youngs_modulus / 10.0)
-        assert m.knife_friction == PRESETS[name].knife_friction  # the table has no range for it: the preset's value
         assert m.initiation_length == pytest.approx(2.0e-3)
         assert m.relaxed_modulus == 0.0
 
@@ -276,26 +277,58 @@ def test_the_same_seed_gives_the_same_draw_and_another_seed_a_different_one():
     assert kind_a == kind_b
 
 
-def test_the_draws_are_log_uniform_in_mean_and_variance():
-    rng = np.random.default_rng(3)
-    low, high = VEGETABLE_RANGES["carrot"]["youngs_modulus"]
-    logs = np.log([M.sample_material("carrot", rng).youngs_modulus for _ in range(10000)])
-    expected_mean = 0.5 * (math.log(low) + math.log(high))
-    expected_var = (math.log(high) - math.log(low)) ** 2 / 12.0
-    assert logs.mean() == pytest.approx(expected_mean, abs=0.02)
-    assert logs.var() == pytest.approx(expected_var, rel=0.05)
+class _SpyRng:
+    """A numpy Generator that records the bounds of each uniform draw it is asked for, and passes the draw through."""
+
+    def __init__(self, seed):
+        self.rng = np.random.default_rng(seed)
+        self.calls = []
+
+    def uniform(self, low=0.0, high=1.0):
+        self.calls.append((low, high))
+        return self.rng.uniform(low, high)
 
 
-@pytest.mark.parametrize("field", ["youngs_modulus", "fracture_energy", "density", "poisson_ratio"])
 @pytest.mark.parametrize("name", sorted(TABLE))
-def test_a_vegetable_is_drawn_log_uniformly_in_each_property(name, field, monkeypatch):
-    # A wide range makes a log-uniform draw and a uniform one differ clearly in the mean and variance of the logs.
-    low, high = 1.0e-2, 1.0e2
-    monkeypatch.setitem(VEGETABLE_RANGES[name], field, (low, high))
+def test_a_vegetable_asks_for_E_and_G_c_in_logs_and_nu_density_friction_in_their_own_bounds(name):
+    # The draws' bounds, in the order sample_material makes them: E (log), nu, density, G_c (log), friction.
+    spy = _SpyRng(21)
+    M.sample_material(name, spy)
+    e, nu, rho, g, fr = spy.calls
+    ranges = VEGETABLE_RANGES[name]
+    e_lo, e_hi = ranges["youngs_modulus"]
+    g_lo, g_hi = ranges["fracture_energy"]
+    assert e == pytest.approx((math.log(e_lo), math.log(e_hi)))
+    assert nu == pytest.approx(ranges["poisson_ratio"])
+    assert rho == pytest.approx(ranges["density"])
+    assert g == pytest.approx((math.log(g_lo), math.log(g_hi)))
+    assert fr == pytest.approx(M.KNIFE_FRICTION_RANGE)
+
+
+@pytest.mark.parametrize("name", sorted(TABLE))
+def test_a_vegetable_draws_E_and_G_c_log_uniformly_over_their_ranges(name):
     rng = np.random.default_rng(11)
-    logs = np.log([getattr(M.sample_material(name, rng), field) for _ in range(5000)])
-    assert logs.mean() == pytest.approx(0.5 * (math.log(low) + math.log(high)), abs=0.15)
-    assert logs.var() == pytest.approx((math.log(high) - math.log(low)) ** 2 / 12.0, rel=0.06)
+    draws = [M.sample_material(name, rng) for _ in range(10000)]
+    for field in ("youngs_modulus", "fracture_energy"):
+        low, high = VEGETABLE_RANGES[name][field]
+        logs = np.log([getattr(d, field) for d in draws])
+        assert logs.mean() == pytest.approx(0.5 * (math.log(low) + math.log(high)), rel=0.01)  # the middle of the log range
+        assert logs.var() == pytest.approx((math.log(high) - math.log(low)) ** 2 / 12.0, rel=0.10)
+
+
+@pytest.mark.parametrize("name", sorted(TABLE))
+def test_a_vegetable_draws_nu_density_and_friction_uniformly_over_their_ranges(name):
+    rng = np.random.default_rng(12)
+    draws = [M.sample_material(name, rng) for _ in range(10000)]
+    ranges = {
+        "poisson_ratio": VEGETABLE_RANGES[name]["poisson_ratio"],
+        "density": VEGETABLE_RANGES[name]["density"],
+        "knife_friction": M.KNIFE_FRICTION_RANGE,
+    }
+    for field, (low, high) in ranges.items():
+        values = np.array([getattr(d, field) for d in draws])
+        assert values.mean() == pytest.approx(0.5 * (low + high), rel=0.01)  # the middle of the range
+        assert values.var() == pytest.approx((high - low) ** 2 / 12.0, rel=0.10)
 
 
 @pytest.mark.parametrize("kind", ["root_tuber", "watery_fruit", "bulb_scale"])

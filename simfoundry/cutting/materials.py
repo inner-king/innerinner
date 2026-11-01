@@ -228,7 +228,8 @@ ZUCCHINI = _vegetable("zucchini", 1.8e6, 0.35, 960.0, 705.0, 0.36)
 # robot paper.
 ONION = _vegetable("onion", 1.8e6, 0.35, 1075.0, 451.0, 0.477)
 
-# The four vegetables' ranges, from which sample_material draws (the report's ranges; the draw is log-uniform).
+# The four vegetables' ranges, from which sample_material draws (the report's ranges). E and G_c are drawn log-uniformly;
+# nu and density uniformly, over the same ranges (research 2's rule, 2026-11-02, the one tissue kinds use too).
 VEGETABLE_RANGES = {
     "carrot": dict(youngs_modulus=(4.6e6, 9.9e6), fracture_energy=(344.0, 440.0), density=(1003.0, 1040.0),
                    poisson_ratio=(0.24, 0.45)),
@@ -254,10 +255,13 @@ TISSUE_KINDS = {
 }
 # The spread of a stand-in's E and G_c, as x and /: the report's rule 4, from Singh 2016's same-kind differences (2.1-2.6x).
 TISSUE_SPREAD = 2.6
+# The knife friction range of a vegetable and of a tissue kind: the report's friction values taken together (4-1, 0.30-0.60).
+# Both draws read this one constant.
+KNIFE_FRICTION_RANGE = (0.30, 0.60)
 # A stand-in's other properties, drawn uniformly over the whole table's range: no value exists for the kind itself, so the
 # range is the vegetables' (report rule 3; nu 0.24-0.45 is the onion's measured range, density 910-1110 the union of the
-# four vegetables' ranges, friction 0.30-0.60 the report's values taken together).
-TISSUE_OTHER_RANGES = dict(poisson_ratio=(0.24, 0.45), density=(910.0, 1110.0), knife_friction=(0.30, 0.60))
+# four vegetables' ranges).
+TISSUE_OTHER_RANGES = dict(poisson_ratio=(0.24, 0.45), density=(910.0, 1110.0), knife_friction=KNIFE_FRICTION_RANGE)
 # Gel is firm tofu, not a vegetable, so the vegetables' ranges do not apply: nu 0.40 and friction 0.30 are fixed (the
 # tofu presets' values), and density is the report's tofu range (Kong 1982: 1034-1083).
 GEL_OTHER_RANGES = dict(poisson_ratio=(0.40, 0.40), density=(1034.0, 1083.0), knife_friction=(0.30, 0.30))
@@ -361,8 +365,9 @@ def _log_uniform(rng, bounds):
 def sample_material(name, rng):
     """A vegetable drawn from its ranges, with the common rule applied again.
 
-    E, G_c, density and nu are each drawn log-uniformly from ``VEGETABLE_RANGES[name]``; the knife friction stays the
-    preset's (the report gives no range for it in the table).
+    E and G_c are drawn log-uniformly from ``VEGETABLE_RANGES[name]``, because they vary several times over their ranges.
+    nu and density are drawn uniformly over the same ranges, and the knife friction uniformly over ``KNIFE_FRICTION_RANGE``:
+    the rule research 2 set on 2026-11-02, the same one a tissue kind's draw follows.
 
     Args:
         name: A key of ``VEGETABLE_RANGES``.
@@ -375,10 +380,10 @@ def sample_material(name, rng):
     return _vegetable(
         name,
         _log_uniform(rng, ranges["youngs_modulus"]),
-        _log_uniform(rng, ranges["poisson_ratio"]),
-        _log_uniform(rng, ranges["density"]),
+        rng.uniform(*ranges["poisson_ratio"]),
+        rng.uniform(*ranges["density"]),
         _log_uniform(rng, ranges["fracture_energy"]),
-        VEGETABLES[name].knife_friction,
+        rng.uniform(*KNIFE_FRICTION_RANGE),
     )
 
 
