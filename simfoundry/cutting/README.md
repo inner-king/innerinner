@@ -163,7 +163,7 @@ PYTHONPATH=$PWD ~/miniforge3/envs/simfoundry/bin/python scripts/cutting/tofu_rea
 ### 파이프라인을 돌리며 고친 것
 
 - **단계 5:** 로컬 Qwen-Image-2.1이 마지막 물체(도마)를 지운 이미지를 RGBA로 돌려줘 `get_num_pixels_with_color`에서 멈췄습니다. 알파 최솟값이 247인, 사실상 불투명한 프레임이었습니다. 이런 알파는 버리고, 진짜로 투명하게 오려낸 이미지만 거부하도록 고쳤습니다.
-- **`local_backends._drop_opaque_alpha`:** 불투명 판정을 "최솟값 250 이상"에서 "알파 128 미만 픽셀이 1% 이하"로 바꿨습니다.
+- **`local_backends._drop_opaque_alpha`:** 불투명 판정을 "최솟값 250 이상"에서 "알파 128 미만 픽셀이 0.5% 미만"으로 바꿨습니다. 이 브랜치는 처음 쓴 1% 규칙이 아니라 main의 같은 수정(25d94fa)을 쓰므로 문턱이 0.5%입니다.
 
 ## 로봇 시뮬레이터와 붙이는 방법
 
