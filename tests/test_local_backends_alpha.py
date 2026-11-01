@@ -99,3 +99,43 @@ def test_alpha_249_pixel_keeps_its_rgb_value():
 def test_rgb_output_is_a_png():
     out = _drop_opaque_alpha(_png(_frame(Image.new("L", (W, H), 255))))
     assert _decode(out).format == "PNG"
+
+
+def _alpha_with(values, size):
+    """An 'L' image of `size` whose pixels take `values` in order (the rest of `values` is opaque)."""
+    image = Image.new("L", size, 255)
+    image.putdata(values)
+    return image
+
+
+def test_one_percent_at_alpha_127_is_a_cutout_and_at_128_is_not_127_counts_128_does_not():
+    # The pair fixes the cutoff at 128: 127 is under it and 128 is not, so a cutoff of 250 or 64 flips one of them.
+    total = W * H
+    count = round(0.01 * total)
+    cutout = _alpha_with([127] * count + [255] * (total - count), (W, H))
+    data = _png(_frame(cutout))
+    assert _drop_opaque_alpha(data) == data
+
+    not_cutout = _alpha_with([128] * count + [255] * (total - count), (W, H))
+    assert _decode(_drop_opaque_alpha(_png(_frame(not_cutout)))).mode == "RGB"
+
+
+def test_exactly_half_percent_at_alpha_127_is_a_cutout_127_counts_128_does_not():
+    # 200 of 40000 is exactly 0.5 %: a 127 pixel is counted, so the boundary itself is a cutout.
+    size = (200, 200)
+    data = _png(_frame(_alpha_with([127] * 200 + [255] * (40000 - 200), size)))
+    assert _drop_opaque_alpha(data) == data
+
+
+def test_199_at_127_plus_one_at_128_stays_rgb_one_short_127_counts_128_does_not():
+    # One 128 pixel added to 199 counted pixels must not tip the fraction over 0.5 %.
+    size = (200, 200)
+    alpha = _alpha_with([127] * 199 + [128] + [255] * (40000 - 200), size)
+    assert _decode(_drop_opaque_alpha(_png(_frame(alpha)))).mode == "RGB"
+
+
+def test_200_at_alpha_128_is_not_a_cutout_127_counts_128_does_not():
+    # Exactly the boundary count, but all at 128: the histogram slice must stop below 128.
+    size = (200, 200)
+    alpha = _alpha_with([128] * 200 + [255] * (40000 - 200), size)
+    assert _decode(_drop_opaque_alpha(_png(_frame(alpha)))).mode == "RGB"
