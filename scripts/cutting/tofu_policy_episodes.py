@@ -11,7 +11,9 @@ board by a seeded random amount, with the knife starting from a seeded random po
           baseline a policy has to beat: it shows how much of the task needs seeing the tofu);
   policy  a trained policy, asked for the next end-effector pose at every tick by a policy server
           (policy_server.py, in its own environment) over a local socket; the arm moves there linearly
-          over the tick's physics steps.
+          over the tick's physics steps. --action-mode sets how the action is read: under support-log its z
+          slot holds ln(h + eps), h the knife edge's lowest point above the solver's board plane, and the hand
+          height is solved from it (support_log_target).
 
 Every 1/--policy-hz s the episode records what a policy sees and does: a fixed camera on the board and one
 on the hand (RGB), the arm's joints, fingers and end-effector pose (robot base frame), and the end-effector
@@ -48,6 +50,13 @@ from simfoundry.cutting.knife import CHEF_KNIFE  # noqa: E402
 from simfoundry.cutting.materials import PRESETS  # noqa: E402
 from simfoundry.cutting.real2sim import OBJECTS_INFO, cook_stroke, fit_food, load_reconstruction  # noqa: E402
 from simfoundry.cutting.render import CUT_RGB, tofu_look  # noqa: E402
+from simfoundry.cutting.support_height import (  # noqa: E402
+    EPS_M,
+    hand_z_from_log_height,
+    state_with_support,
+    support_drop_near_constant,
+    support_state_mode,
+)
 
 
 def draw(seed, a):
@@ -204,6 +213,74 @@ def pack(a):
     """An array as plain types, so the two environments' numpy versions never meet in a pickle."""
     a = np.ascontiguousarray(a)
     return (a.dtype.str, a.shape, a.tobytes())
+
+
+def support_log_target(base, a9, knife_in_eef, support_z, eps=EPS_M):
+    """World hand pose for ``--action-mode support-log``: the policy's x, y and rotation, and the hand height that puts
+    the knife edge's lowest point at h = exp(u) - eps above the support, where u is the policy's z slot.
+
+    Why: the z slot holds a log height, not a length, so the hand height has to be solved from it, in world z; that
+    needs the base's z axis to be up, so a tilted base is refused rather than solved wrongly.
+
+    Args:
+        base: (4, 4) robot base pose in the world, level with its z axis up.
+        a9: the policy's 9-vector (position in the base frame, first two rotation columns); a9[2] is u.
+        knife_in_eef: (4, 4) knife pose in the hand.
+        support_z: the solver board plane's height in the world [m].
+        eps: the epsilon of u = ln(h + eps) [m].
+
+    Returns:
+        The (4, 4) world hand pose.
+    """
+    if abs(base[2, 0]) > 1e-6 or abs(base[2, 1]) > 1e-6 or abs(base[2, 2] - 1) > 1e-6:
+        raise ValueError("--action-mode support-log needs a level robot base (its z axis up)")
+    a = np.array(a9, float)
+    u = a[2]
+    # provisional: the height is capped at 1 m. exp(u) overflows to inf above u ~ 709, and the NaN pose that follows
+    # would take the whole arm with it. --max-step-m (3 cm per tick) already limits the move toward such a target, so
+    # the cap changes only the direction of a step toward a point more than 1 m up. Below, h -> -eps is finite already.
+    u = min(u, math.log(1.0 + eps))
+    a[2] = 0.0
+    E = base @ pose9(a)
+    E[2, 3] = float(hand_z_from_log_height(E, knife_in_eef, support_z, u, eps))
+    return E
+
+
+# The tick state is the joints (7), the fingers (2), the tip position (3) and its quaternion (4). The hand is the
+# last nine, the same columns the converter takes (npz_to_lerobot.STATE_COLS).
+HAND_COLS = slice(7, 16)
+
+
+def policy_state(tick_state, state_dim, support_z=None, drop_near_constant=False):
+    """The state the policy server is sent under ``--action-mode support-log``: the hand, with the support plane
+    appended when the dataset's state carries it.
+
+    Why the length is checked: the server reads the last n entries of what it is sent, n being the checkpoint's state
+    size, so a state longer than the policy expects would give it a joint angle as an input, with no error.
+
+    Args:
+        tick_state: the tick's 16-entry state (joints, fingers, tip position, quaternion).
+        state_dim: the state length the policy was trained with, from the dataset's meta/support_height.json.
+        support_z: the support plane s [m] when the dataset's state carries it, else None.
+        drop_near_constant: whether the dataset's state leaves out the two finger entries (its meta's
+            drop_near_constant). Why: the converter's --drop-near-constant removes them because their std is 0.0008.
+
+    Returns:
+        A float32 vector of length ``state_dim``.
+
+    Raises:
+        SystemExit: if the state built here is not ``state_dim`` long.
+    """
+    st = np.asarray(tick_state, np.float32)[HAND_COLS]
+    if drop_near_constant:
+        st = st[2:]
+    if support_z is not None:
+        st = state_with_support(st, support_z)
+    if len(st) != state_dim:
+        raise SystemExit(f"the policy takes a state of {state_dim} entries but this client builds {len(st)} (the hand, "
+                         "or the pose under drop_near_constant, and the support plane under state_support append): "
+                         "the dataset's meta does not match")
+    return st
 
 
 class EpisodeRun(T.Run):
@@ -682,8 +759,13 @@ def main():
                          "(the LiDAR board's collider-top measure is wrong). A rule that knows the board's height.")
     ap.add_argument("--policy-port", type=int, default=6000, help="policy: the policy server's port")
     ap.add_argument("--episode-s", type=float, default=12.0, help="policy: episode length [s]")
-    ap.add_argument("--action-mode", choices=["absolute", "delta"], default="absolute",
-                    help="policy: the action is the hand pose to reach, or its change from the hand's pose now")
+    ap.add_argument("--action-mode", choices=["absolute", "delta", "support-log"], default="absolute",
+                    help="policy: the action is the hand pose to reach, or its change from the hand's pose now; "
+                         "support-log: the z slot holds ln(h + eps), h = the knife edge's lowest point above the solver's "
+                         "board plane [m]")
+    ap.add_argument("--support-meta", type=Path, default=None,
+                    help="support-log: the dataset's meta/support_height.json; its state_support, state_dim and "
+                         "drop_near_constant give the layout of the policy's state (absent: the hand alone, 9 entries)")
     ap.add_argument("--edge-floor-mm", type=float, default=None,
                     help="policy: a RULE, not the policy: lift any commanded pose whose knife edge would go below the "
                          "board's collider top + this [mm] (it knows the board's height; report it apart)")
@@ -756,6 +838,17 @@ def main():
     ap.add_argument("--clear", nargs="*", default=["paper_towel"])
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
+    if args.action_mode == "support-log" and args.mode != "policy":
+        ap.error("--action-mode support-log needs --mode policy")
+    if args.support_meta is not None and args.action_mode != "support-log":
+        ap.error("--support-meta needs --action-mode support-log")
+    # the layout of the policy's state, from the dataset it was trained on: the hand alone unless its meta says append
+    support_meta = json.loads(args.support_meta.read_text()) if args.support_meta is not None else {}
+    state_mode = support_state_mode(support_meta) if args.support_meta is not None else "none"
+    drop_near_constant = support_drop_near_constant(support_meta) if args.support_meta is not None else False
+    # a dataset from before the key has s appended and its fingers kept, so its state is ten long
+    state_dim = support_meta.get("state_dim",
+                                 (7 if drop_near_constant else 9) + (1 if state_mode == "append" else 0))
     dicing = args.mode == "dice" or args.dice_eval  # the expert dices, or a policy is judged on dicing
     os.environ.setdefault("OMNIGIBSON_HEADLESS", "1")
     out = args.out.resolve()
@@ -1082,6 +1175,8 @@ def main():
                 print(f"[eps] seed {seed}: skipped, no clear dice plan", flush=True)
                 continue
         S = np.linalg.inv(W)
+        # the solver board plane's height in the world, the --floor-ref solver formula: the support the log height is taken above
+        support_s = float(W[2, 3] + sim.board_z) if args.action_mode == "support-log" else None
         traj = cook_stroke(sim, knife_yaw, tilt=math.radians(d["tilt_deg"]), descend_speed=d["descend_m_s"],
                            board_gap=T.BOARD_GAP)
         # To the episode's start pose before the block exists to the arm (not recorded).
@@ -1143,7 +1238,12 @@ def main():
             floor_hits = 0
             for _ in range(int(round(args.episode_s * args.policy_hz))):
                 tick = run.capture()
-                conn.send({"cmd": "act", "state": pack(tick["state"]), "env_state": pack(blk_now.astype(np.float32)),
+                if support_s is None:  # the other action modes send the tick state as it is
+                    state = tick["state"]
+                else:
+                    state = policy_state(tick["state"], state_dim, support_s if state_mode == "append" else None,
+                                         drop_near_constant)
+                conn.send({"cmd": "act", "state": pack(state), "env_state": pack(blk_now.astype(np.float32)),
                            "front": pack(tick["front"]), "wrist": pack(tick["wrist"]), "cuts_done": int(tick["cuts_done"])})
                 a = conn.recv()
                 a9 = np.frombuffer(a[2], dtype=a[0]).reshape(-1)
@@ -1156,6 +1256,8 @@ def main():
                     T_b[:3, :3] = Eb[:3, :3] @ D[:3, :3]
                     T_b[:3, 3] = Eb[:3, 3] + D[:3, 3]
                     E_tgt = arm.base @ T_b
+                elif args.action_mode == "support-log":  # the z slot is ln(h + eps): the hand height is solved from it
+                    E_tgt = support_log_target(arm.base, a9, K_in_E, support_s)
                 else:
                     E_tgt = arm.base @ pose9(a9)
                 E_tgt = limit_step(E_prev, E_tgt, args.max_step_m, args.max_step_deg)
@@ -1209,6 +1311,8 @@ def main():
         info = {"seed": seed, "mode": args.mode, "draw": d, "outcome": o, "regrasp": regrasp,
                 "order_in_process": seed - first, "start_grasp": "regrasp",
                 "knife_in_eef": K_in_E.tolist(), "board_pos0": board_p0.tolist(), "food_params": food_params}
+        if support_s is not None:
+            info["support_log"] = {"eps_m": EPS_M, "support_z_m": support_s}
         R = run.rec
         blk = np.concatenate([W[:3, :3] @ (0.5 * (sim.block_min + sim.block_max)) + W[:3, 3],
                               [math.atan2(W[1, 0], W[0, 0])], sim.block_max - sim.block_min])
