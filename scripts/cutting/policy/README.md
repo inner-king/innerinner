@@ -54,6 +54,24 @@ The dicing variants differ only in their inputs, so one set of demonstrations se
   step, so the history goes in as extra inputs. `policy_server.py --dice-variant B` rebuilds the same inputs from what
   it is sent.
 
+### Support-height datasets (single cut)
+
+```bash
+python npz_to_lerobot.py --list <sel dir>/accepted.txt --root <ds root> --kinds state image --action-height log-support --eps-mm 1.0
+python ../tofu_policy_episodes.py --mode policy --action-mode support-log ...   # the evaluation client: the same definition
+```
+
+The action's z slot becomes u = ln(h + eps), where h is the knife edge's lowest point above the block top at the
+commanded pose; the state gets the block top s appended (10 entries: two fingers, hand position, quaternion, s).
+Both sides use `simfoundry/cutting/support_height.py`, and eps must be its `EPS_M` (1.0 mm), or the run stops.
+`policy_server.py` reads the last 10 state entries and needs no change. The knife is the episode's own
+`knife_in_eef` when its JSON has one, else the setup grasp when that explains the edge heights, else a knife fitted to
+the folder's first nine unexplained episodes. `meta/support_height.json` records each episode's knife source, residuals
+and h range, and each fit. Converting many demonstrations that need a fitted knife requires scipy: install it in the
+LeRobot environment (`pip install scipy`), or record new demonstrations whose episode JSON carries `knife_in_eef`.
+`s` is 0.0110437 m in every demonstration so far, so its std is 0 and the normalizer divides by 1e-8: a block top of
+0.0210437 m at serve time becomes an input of about 1e6. Serve with the same block top the policy was trained on.
+
 ## Training (on a GPU VM, nothing here starts one)
 
 ```bash
