@@ -86,6 +86,11 @@ HOLD_MODES = ("none", "top_pressure")
 # Names for setups still to be decided (a plate on the top, a jig on the sides, glue to the board).
 HOLD_RESERVED = ("plate", "side_jig", "board_adhesion")
 
+# Subgrid contact (SimConfig.face_contact): a face value of FACE_OPEN means no particle of that side is in the node's
+# support, so nothing touches that node.
+FACE_OPEN = 1.0e30
+FACE_CONTACT_MODES = ("node", "subgrid")
+
 
 @wp.struct
 class KnifeState:
@@ -267,6 +272,109 @@ def _p2g(
                 # Sum of m_p grad N_i(x_p): points out of the body, used as the contact normal.
                 grad = wp.vec3(gwx * wy * wz, wx * gwy * wz, wx * wy * gwz) * (pmass * inv_dx)
                 wp.atomic_add(grid_g, f, bx + i, by + j, bz + kk, grad)
+
+
+@wp.kernel
+def _face_p2g(
+    x: wp.array(dtype=wp.vec3),
+    piece: wp.array(dtype=int),
+    field_side: wp.array(dtype=int),
+    knife: KnifeState,
+    reach_bound: float,
+    half_spacing: float,
+    dx: float,
+    face_min: wp.array4d(dtype=float),
+):
+    """Subgrid contact: how far each side's material has come inside the blade, at every node.
+
+    A particle p of side s (the side of its piece, ``field_side``) is compared with the blade's real half-thickness at its
+    own height kw_p: its shortfall is δ_p = h(kw_p) − (s·(x_p − o)·e_v − half_spacing). The node keeps the largest δ_p over
+    the particles of side s in its support. The least of −δ_p is stored, so the fill value FACE_OPEN means no particle,
+    and ``_grid_update`` adds the node's own half-thickness back. A min is exact and does not depend on the order of the
+    threads. A particle farther than ``reach_bound`` from the plane cannot be in the support of a node that the blade
+    reaches (see ``_grid_update``), so it is skipped and no node that uses the value changes.
+    """
+    p = wp.tid()
+    s = field_side[piece[p]]
+    xp = x[p]
+    d = wp.dot(xp - knife.origin, knife.e_v)
+    if s != 0:
+        if wp.abs(d) <= reach_bound:
+            side = int(0)
+            if s > 0:
+                side = 1
+            # The shortfall is taken at the particle's own height. A thinner part of the blade lower down must not raise
+            # the node's shortfall above the one the particle has where it is.
+            r = xp - knife.origin
+            kw_p = wp.dot(r, knife.e_w) - _edge_w(knife, wp.dot(r, knife.e_u))
+            value = float(s) * d - half_spacing - _half_thickness(knife, kw_p)
+            gx = xp * (1.0 / dx)
+            bx = int(wp.floor(gx[0] - 0.5))
+            by = int(wp.floor(gx[1] - 0.5))
+            bz = int(wp.floor(gx[2] - 0.5))
+            for i in range(3):
+                for j in range(3):
+                    for kk in range(3):
+                        wp.atomic_min(face_min, side, bx + i, by + j, bz + kk, value)
+
+
+@wp.func
+def _face_slope(knife: KnifeState, kw: float):
+    """h′ = dh/dkw at height kw: (spine − edge)/(2·bevel) on the bevel, 0 above it (where _half_thickness is clamped)."""
+    slope = float(0.0)
+    if kw >= 0.0:
+        if kw < knife.bevel_height:
+            slope = 0.5 * (knife.spine_thickness - knife.edge_thickness) / knife.bevel_height
+    return slope
+
+
+@wp.func
+def _face_normal(knife: KnifeState, s: float, kw: float):
+    """Unit normal of the blade's face on side s at height kw, pointing into that side's material:
+    (s·e_v − h′·e_w)/√(1 + h′²). On the bevel the face leans towards the spine, so the normal has a part along the
+    blade's back e_w; that part is the wedge."""
+    slope = _face_slope(knife, kw)
+    return (s * knife.e_v - slope * knife.e_w) / wp.sqrt(1.0 + slope * slope)
+
+
+@wp.func
+def _face_touch(knife: KnifeState, kv: float, kw: float, d: float, reach: float):
+    """1 if the blade touches a material face: the node is above the edge (kw >= 0) and within reach of the blade's plane
+    (|kv| < h + reach), and the face has come inside the blade's real half-thickness, d < h(kw). The dilation is not in h:
+    a face inside the dilated blade but outside h does not touch."""
+    touch = int(0)
+    if kw >= 0.0:
+        h = _half_thickness(knife, kw)
+        if wp.abs(kv) < h + reach:
+            if d < h:
+                touch = 1
+    return touch
+
+
+@wp.func
+def _face_required_at(knife: KnifeState, r: wp.vec3, h: float, d: float, dx: float):
+    """Speed the face must gain away from the blade at a node at offset r from the knife's origin: (h − d)·|v|/dx, with v
+    the knife's velocity there, lin_vel + ang_vel × r. It closes the gap h − d in the time the blade takes to cross one
+    cell, so the face is not pushed at once. It is 0 at the blade's surface, and wherever the blade stands still."""
+    speed = wp.length(knife.lin_vel + wp.cross(knife.ang_vel, r))
+    return (h - d) * speed / dx
+
+
+@wp.func
+def _face_push(vel: wp.vec3, kvel: wp.vec3, nrm: wp.vec3, req: float, friction: float):
+    """The node velocity after the face push: where the relative normal velocity vn is below req, it becomes req (away
+    from the blade), and the tangential part is cut by Coulomb friction with the normal impulse (req − vn). The existing
+    contact does the same with req = 0 and −vn. Nothing changes when vn ≥ req."""
+    rel = vel - kvel
+    vn = wp.dot(rel, nrm)
+    out = vel
+    if vn < req:
+        relt = rel - vn * nrm
+        rtl = wp.length(relt)
+        if rtl > 1.0e-12:
+            relt = relt * wp.max(0.0, 1.0 - friction * (req - vn) / rtl)
+        out = kvel + relt + req * nrm
+    return out
 
 
 # The strip beside the blade is an option, not part of the press: with the default band of 0 the whole top is pressed.
@@ -884,6 +992,8 @@ def _grid_update(
     kind_work: wp.array(dtype=float),
     kind_impulse: wp.array(dtype=wp.vec3),
     kind_side: wp.array(dtype=float),
+    face_min: wp.array4d(dtype=float),
+    face_on: int,
 ):
     """Instrumentation: ``kind_*`` take, per node kind, the knife's work sum(dp . v_knife), impulse sum(dp) and
     side impulse sum(|dp . e_v|). Kind 0: the edge's nose (separated == 0, kw < 0), 1: its belly
@@ -969,9 +1079,25 @@ def _grid_update(
                         s = field_side[f]
                     hit = int(0)
                     nrm = wp.vec3(0.0)
+                    req = float(0.0)
                     if separated == 1 and s != 0:
                         # Cracked here: each side meets the blade's face on its own side.
-                        if kw >= 0.0:
+                        if face_on == 1:
+                            # Subgrid: the face is the material's own (face_min, from _face_p2g), so the blade's real
+                            # half-thickness meets it, not the node's position (see _face_touch).
+                            side_idx = int(0)
+                            if s > 0:
+                                side_idx = 1
+                            d_face = face_min[side_idx, i, j, k]
+                            if d_face < 0.5e30:
+                                # The stored value is the least of −δ_p (see _face_p2g). The node's own half-thickness
+                                # turns it into the face distance that _face_touch and _face_required_at compare with h.
+                                d_face = d_face + _half_thickness(knife, kw)
+                            if _face_touch(knife, kv, kw, d_face, reach) == 1:
+                                hit = 2
+                                nrm = _face_normal(knife, float(s), kw)
+                                req = _face_required_at(knife, r, _half_thickness(knife, kw), d_face, dx)
+                        elif kw >= 0.0:
                             if float(s) * kv < _half_thickness(knife, kw):
                                 hit = 1
                                 nrm = float(s) * knife.e_v
@@ -1020,6 +1146,18 @@ def _grid_update(
                                 # only along the edge's normal, as slicing is counted by xi.
                                 en = _edge_normal(knife, ku)
                                 wp.atomic_add(crack_work, 0, wp.dot(dp, en) * wp.dot(kvel, en))
+                    if hit == 2:
+                        # Subgrid push: the relative normal velocity goes to req, and friction acts on the impulse
+                        # (req − vn). Kind 2 (a face of a crack), like the node push on a cracked face.
+                        vel = grid_v[f, i, j, k]
+                        nv = _face_push(vel, kvel, nrm, req, knife.friction)
+                        dp = m * (nv - vel)
+                        grid_v[f, i, j, k] = nv
+                        wp.atomic_add(knife_impulse, 0, dp)
+                        wp.atomic_add(knife_moment, 0, wp.cross(r, dp))
+                        wp.atomic_add(kind_work, 2, wp.dot(dp, kvel))
+                        wp.atomic_add(kind_impulse, 2, dp)
+                        wp.atomic_add(kind_side, 2, wp.abs(wp.dot(dp, knife.e_v)))
 
     for f in range(n_fields):
         m = grid_m[f, i, j, k]
@@ -1167,6 +1305,15 @@ class SimConfig:
             not move when the grid does. 0 (the default) presses the whole top skin. Research 2's runs
             (final_veg/solver/runs/setP, 2026-11-02) chose 0: zucchini's force ratio is 0.9446 at band 0 and
             0.8407 with a 1.5 dx strip. Negative values are refused.
+        face_contact: How a cracked face meets the blade. "node" (the default) pushes a grid node that lies inside the
+            blade's thickness, as before, byte for byte. "subgrid" meets the material instead: each side's face is the
+            nearest particle surface of that side (see ``_face_p2g``), pushed out to the blade's real half-thickness
+            along the blade's face normal (see ``_grid_update``).
+
+            Known limit (R3, 2026-11-02): with the faces held laterally and opened more than about 1 mm per
+            side, the particle layers next to the blade are crushed at fine grids (J < 0.5 at dx 1.25 mm) and
+            the face force is not grid-converged (a 10 mm wedge against the domain walls: +43% from 2.5 to
+            1.25 mm). The 0.95 mm blade converged (face force -12%, mean Fz -5%).
     """
 
     dx: float = 2.5e-3
@@ -1190,6 +1337,7 @@ class SimConfig:
     hold: str = "none"
     hold_pressure: float | None = None
     hold_band: float = 0.0
+    face_contact: str = "node"
 
 
 def _check_hold(hold: str, band: float) -> None:
@@ -1206,6 +1354,16 @@ def _check_hold(hold: str, band: float) -> None:
         raise ValueError(f"unknown hold {hold!r}; use one of {', '.join(HOLD_MODES)}")
     if band < 0.0:
         raise ValueError(f"hold_band must not be negative, got {band!r} m")
+
+
+def _check_face_contact(mode: str) -> None:
+    """Refuses an unknown face contact mode (the choices are FACE_CONTACT_MODES).
+
+    Raises:
+        ValueError: For a mode that is not in FACE_CONTACT_MODES.
+    """
+    if mode not in FACE_CONTACT_MODES:
+        raise ValueError(f"unknown face_contact {mode!r}; use one of {', '.join(FACE_CONTACT_MODES)}")
 
 
 class MPMCuttingSim:
@@ -1240,6 +1398,7 @@ class MPMCuttingSim:
         if config.max_pieces > MAX_PIECES:
             raise ValueError(f"max_pieces is limited to {MAX_PIECES}")
         _check_hold(config.hold, config.hold_band)
+        _check_face_contact(config.face_contact)
         wp.init()
         self.material = material
         self.knife_geometry = knife
@@ -1310,6 +1469,7 @@ class MPMCuttingSim:
         self.hold_particle_force = self.hold_pressure * (dx / config.particles_per_axis) ** 2
         self.hold_band = config.hold_band
         self._hold_on = config.hold == "top_pressure"
+        self._face_on = int(config.face_contact == "subgrid")
 
         # Time step: elastic waves (CFL) and explicit viscosity, both with margin.
         self.dt = config.cfl * dx / material.wave_speed
@@ -1332,6 +1492,10 @@ class MPMCuttingSim:
         # hold_* property is asked for, so a substep never waits for the host.
         self.hold_totals = wp.zeros(2, dtype=wp.float64, device=dev)
         self.hold_cum = wp.zeros(4, dtype=wp.float64, device=dev)
+        # Subgrid contact: each side's material face at every node, refilled every substep. The node path never reads
+        # it, so it is a placeholder there.
+        face_shape = (2,) + self.grid_shape if self._face_on == 1 else (2, 1, 1, 1)
+        self.face_min = wp.zeros(face_shape, dtype=float, device=dev)
 
         gshape = (config.max_pieces,) + self.grid_shape
         self.grid_m = wp.zeros(gshape, dtype=float, device=dev)
@@ -1641,6 +1805,20 @@ class MPMCuttingSim:
             ],
             device=dev,
         )
+        if self._face_on == 1 and self._knife.enabled == 1 and self.active_cut >= 0:
+            # Subgrid contact reads this step's material faces: refill with FACE_OPEN, then scatter the particles' faces.
+            # The bound is the largest half-thickness, the reach of the blade (dilation + dx) and a 3 dx margin for the
+            # support of a node.
+            k = self._knife
+            reach_bound = 0.5 * max(k.edge_thickness, k.spine_thickness) + k.dilation + 4.0 * self.dx
+            self.face_min.fill_(FACE_OPEN)
+            wp.launch(
+                _face_p2g,
+                dim=self.n_particles,
+                inputs=[self.x, self.piece, self.field_side, k, reach_bound, self.dx / (2.0 * cfg.particles_per_axis),
+                        self.dx, self.face_min],
+                device=dev,
+            )
         if cfg.tearing and mat.tensile_strength > 0.0 and self._pairs:
             # Before _grid_update merges the bonded fields: what the merge transmits is the load.
             self.lig_n.zero_()
@@ -1696,7 +1874,7 @@ class MPMCuttingSim:
                 self._knife, self.active_cut, self.field_side,
                 mat.contact_friction, cfg.board_cells, mat.board_friction,
                 nx, ny, nz, self.knife_impulse, self.knife_moment, self.crack_work,
-                self.kind_work, self.kind_impulse, self.kind_side,
+                self.kind_work, self.kind_impulse, self.kind_side, self.face_min, self._face_on,
             ],
             device=dev,
         )
