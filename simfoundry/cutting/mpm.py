@@ -51,6 +51,7 @@ removes, summed over nodes, so a robot simulator can apply it to the tool.
 """
 
 import math
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -85,6 +86,15 @@ HOLD_KAPPA = 0.0059
 HOLD_MODES = ("none", "top_pressure")
 # Names for setups still to be decided (a plate on the top, a jig on the sides, glue to the board).
 HOLD_RESERVED = ("plate", "side_jig", "board_adhesion")
+# Limits of the setting warnings (design_ko.md 5-7 and the materials report). They warn; the physics is the same either way.
+PI_LIMIT = 0.157  # G_c / (E dx) above which the blade's side push can stop a crack before it opens
+SIDE_MARGIN_CELLS = 5.0
+TOP_MARGIN_CELLS = 7.0
+WALL_BAND_CELLS = 3.0 + 1.5  # the walls act on the outer 3 cells, and a particle feels them 1.5 cells further in
+
+
+class SolverWarning(UserWarning):
+    """A run the solver does perform, but whose result the design does not trust as set up (MPMCuttingSim.warnings)."""
 
 
 @wp.struct
@@ -1110,6 +1120,15 @@ def _g2p(
         Fn[p] = U @ wp.diag(s) @ wp.transpose(V)
 
 
+@wp.kernel
+def _wall_band(x: wp.array(dtype=wp.vec3), lo: wp.vec3, hi: wp.vec3, flag: wp.array(dtype=int)):
+    """Sets flag[0] when a particle lies in the wall band: within WALL_BAND_CELLS of a side or top face (not the board)."""
+    p = wp.tid()
+    xp = x[p]
+    if xp[0] < lo[0] or xp[0] > hi[0] or xp[1] < lo[1] or xp[1] > hi[1] or xp[2] > hi[2]:
+        wp.atomic_max(flag, 0, 1)
+
+
 def crack_area_from_bins(front, top, width, board_w):
     """Crack area [m^2] of one cut from its bins: each bin's width times the crack's height above the board.
 
@@ -1365,6 +1384,13 @@ class MPMCuttingSim:
         self.field_side = wp.zeros(config.max_pieces, dtype=int, device=dev)
         self.knife_impulse = wp.zeros(1, dtype=wp.vec3, device=dev)
         self.knife_moment = wp.zeros(1, dtype=wp.vec3, device=dev)
+        # The wall band (see _wall_band): the flag is set on the device in every substep and read once per advance().
+        # The board side is not a wall, so the band has no lower z bound.
+        band = WALL_BAND_CELLS * dx
+        hi_band = self.domain_size - band
+        self._band_lo = wp.vec3(band, band, 0.0)
+        self._band_hi = wp.vec3(float(hi_band[0]), float(hi_band[1]), float(hi_band[2]))
+        self.wall_band = wp.zeros(1, dtype=int, device=dev)
         # Instrumentation (read by the queries, never by the physics): the knife's work, impulse and
         # side impulse per node kind, cumulative over the solver's life; per cut, the crack area each
         # kind of front move adds (energy balance, pinch, tear), the ledger of the work settled against
@@ -1418,6 +1444,44 @@ class MPMCuttingSim:
         nu = material.poisson_ratio
         c_s = math.sqrt(material.shear_modulus / material.density)
         self.tear_hold = dx / ((0.862 + 1.14 * nu) / (1.0 + nu) * c_s)
+        self.warnings = []  # the messages emitted, as strings, for the JSON records
+        self._warned = set()  # the kinds emitted: each kind once per simulation
+        self._warn_settings(block_size)
+
+    def _warn_settings(self, block_size):
+        """Warns about the settings the design rules out (see the module constants). Reads the setup only."""
+        dx = self.dx
+        cfg = self.config
+        mat = self.material
+        pi = mat.fracture_energy / (mat.youngs_modulus * dx)
+        if pi > PI_LIMIT:
+            self._warn_once("pi", f"Pi = G_c / (E dx) = {pi:.3f} is above {PI_LIMIT}: the blade's side push can stop the "
+                                  "crack before it opens (E is the fast-load value)")
+        kappa = mat.density * cfg.gravity * float(block_size[2]) / mat.youngs_modulus
+        if cfg.hold == "none" and kappa < HOLD_KAPPA:
+            self._warn_once("no_hold", f"no hold: rho g H / E = {kappa:.5f} is below HOLD_KAPPA = {HOLD_KAPPA}; the block "
+                                       "lifts off the board and the force ratio falls to 0.12-0.25")
+        short = []
+        if cfg.side_margin < SIDE_MARGIN_CELLS * dx:
+            short.append(f"side margin {1e3 * cfg.side_margin:.2f} mm < {SIDE_MARGIN_CELLS:g} dx = "
+                         f"{1e3 * SIDE_MARGIN_CELLS * dx:.2f} mm")
+        if cfg.top_margin < TOP_MARGIN_CELLS * dx:
+            short.append(f"top margin {1e3 * cfg.top_margin:.2f} mm < {TOP_MARGIN_CELLS:g} dx = "
+                         f"{1e3 * TOP_MARGIN_CELLS * dx:.2f} mm")
+        if short:
+            self._warn_once("margin", "the empty space is too narrow (" + "; ".join(short) + "): the walls act as a jig "
+                                      "on the food")
+
+    def _warn_once(self, kind, message):
+        """Records a warning and emits it the first time its kind occurs in this simulation.
+
+        A set decides, not the warnings module's filter, which repeats or hides a message by its location.
+        """
+        if kind in self._warned:
+            return
+        self._warned.add(kind)
+        self.warnings.append(message)
+        warnings.warn(message, SolverWarning, stacklevel=3)
 
     # -- knife -------------------------------------------------------------------------
 
@@ -1744,6 +1808,7 @@ class MPMCuttingSim:
             ],
             device=dev,
         )
+        wp.launch(_wall_band, dim=self.n_particles, inputs=[self.x, self._band_lo, self._band_hi, self.wall_band], device=dev)
         self.time += dt
 
     def _apply_hold(self, dt: float):
@@ -1816,6 +1881,11 @@ class MPMCuttingSim:
             self._track_pre_board()
         self._drop_finished_pairs()
         span = max(self.time - t_start, 1e-12)
+        hit = int(self.wall_band.numpy()[0])  # read once per call, like the impulse, then cleared for the next call
+        self.wall_band.zero_()
+        if hit:
+            self._warn_once("wall_band", "particles reached the wall band (within "
+                                         f"{WALL_BAND_CELLS:g} dx of a side or top face of the domain): the walls act on the food")
         imp = self.knife_impulse.numpy()[0].astype(float)
         mom = self.knife_moment.numpy()[0].astype(float)
         return -imp / span, -mom / span

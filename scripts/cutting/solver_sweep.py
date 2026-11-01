@@ -305,6 +305,8 @@ def main():
         floating_max=int(max(r["floating"] for r in rows)),
         J_min=float(min(r["J_min"] for r in rows)),
         Pi=a.gc / (a.E * a.dx),
+        # The setting and run warnings (MPMCuttingSim.warnings): empty when the setup is one the design trusts.
+        warnings=list(sim.warnings),
         rows=rows,
     )
     with open(a.out, "w") as fh:
