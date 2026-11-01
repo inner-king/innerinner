@@ -1310,10 +1310,12 @@ class SimConfig:
             nearest particle surface of that side (see ``_face_p2g``), pushed out to the blade's real half-thickness
             along the blade's face normal (see ``_grid_update``).
 
-            Known limit (R3, 2026-11-02): with the faces held laterally and opened more than about 1 mm per
-            side, the particle layers next to the blade are crushed at fine grids (J < 0.5 at dx 1.25 mm) and
-            the face force is not grid-converged (a 10 mm wedge against the domain walls: +43% from 2.5 to
-            1.25 mm). The 0.95 mm blade converged (face force -12%, mean Fz -5%).
+            Known limit (R3, 2026-11-02): with the faces held laterally (domain walls at 2·dx), the face
+            force is not grid-converged once the blade opens the faces by about a millimetre per side:
+            a 2 mm blade gave +83% from dx 2.5 to 1.25 mm and a 10 mm wedge +43% (with the particle layers
+            next to the blade crushed at 1.25 mm). The 0.95 mm blade converged (−12% with walls,
+            −19% pressed only), at about half of a confined elastic estimate. Pressed only, the 10 mm
+            wedge gave +39% from how the halves tip late in the cut.
     """
 
     dx: float = 2.5e-3
