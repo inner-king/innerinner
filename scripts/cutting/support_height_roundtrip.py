@@ -7,10 +7,8 @@ when present, its ``ep_XXXXX.json``. At each tick the commanded hand pose gives 
 lowest point above the block top s), the log height u = ln(h + eps) is taken, and the hand height is solved back from u.
 The pass criterion is the error after u is rounded to float32, the dataset's dtype.
 
-The knife-in-hand transform K comes from the first source that explains the recorded edge heights:
-  episode  the episode's own JSON (a generator that writes ``knife_in_eef``);
-  setup    the setup's grasp, when its edge residual is under SETUP_TOL_MM;
-  fitted   a K fitted to the folder's first ``--fit-episodes`` episodes that the setup does not explain (once per folder).
+Reading a demonstration and choosing its knife (episode JSON, setup grasp, or a fit to the folder) live in
+simfoundry/cutting/demonstrations.py, which the converter shares; this script only checks the round trip.
 
 Usage:
     python scripts/cutting/support_height_roundtrip.py --npz PATH [PATH ...] [--out JSON]
@@ -26,150 +24,11 @@ import time
 from pathlib import Path
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import tofu_policy_episodes as G  # noqa: E402 - pose9: the 9-vector the demonstrations' cmd column is written in
+from simfoundry.cutting.demonstrations import choose_knife, edge_residual_mm, load_demo, rms
+from simfoundry.cutting.support_height import hand_z_from_log_height, log_height, support_height
 
-from simfoundry.cutting.support_height import (  # noqa: E402
-    fit_knife_in_eef,
-    hand_z_from_log_height,
-    log_height,
-    lowest_edge_z,
-    support_height,
-)
-
-# provisional: the setup grasp explains its own episode to about 7 um and the other episodes of the 10-27 demos to about
-# 100 mm, so any threshold between those two groups gives the same answer; 0.05 mm sits between them with room to spare
-SETUP_TOL_MM = 0.05
 ROUNDTRIP_TOL_M = 1e-6
-
-
-def step_match_tolerance_s(t):
-    """The largest gap a tick may have to its matched physics step [s].
-
-    The steps' times are stored as float32, so the match can be off by about that format's resolution at the episode's
-    time. The 1e-5 s this check first used holds only while that resolution is below it (up to t of about 256 s); at
-    t = 367 s one float32 step is 3.05e-5 s, and a physics step is 8.3 ms, so four of those steps still reject any wrong
-    match by a factor of about 70.
-
-    Args:
-        t: the tick times [s].
-
-    Returns:
-        The tolerance [s].
-    """
-    return 4.0 * float(np.spacing(np.float32(np.abs(t).max())))
-
-
-def hand_poses(position, xyzw):
-    """Poses (N, 4, 4) from positions (N, 3) and xyzw quaternions (N, 4), in whatever frame the inputs are in."""
-    P = np.tile(np.eye(4), (len(position), 1, 1))
-    P[:, :3, :3] = Rotation.from_quat(xyzw).as_matrix()
-    P[:, :3, 3] = position
-    return P
-
-
-def rms(values):
-    return float(np.sqrt(np.mean(np.square(values))))
-
-
-def load_demo(npz_path):
-    """The arrays of one demonstration that the round trip uses, with the hand poses in the solver's world frame.
-
-    Args:
-        npz_path: an ``ep_XXXXX.npz`` of tofu_policy_episodes.py; its folder holds ``setup.json``.
-
-    Returns:
-        A dict: the measured hand poses ``E_act`` and the commanded ones ``E_cmd`` (ticks), the recorded edge height at
-        each tick ``edge_z`` (the physics step ``j`` that matches the tick), the world commands per physics step
-        ``cmd_steps``, the block top ``s`` [m], the setup's knife ``knife_setup`` and the episode's own ``knife_episode``
-        (None when its JSON has none).
-    """
-    path = Path(npz_path)
-    setup = json.loads((path.parent / "setup.json").read_text())
-    base = np.eye(4)
-    base[:3, :3] = Rotation.from_euler("z", setup["scene_changes"]["robot_yaw_deg"], degrees=True).as_matrix()
-    base[:2, 3] = setup["scene_changes"]["robot_pos"][:2]
-    data = np.load(path)
-    t = data["t"].astype(float)
-    steps = data["steps"].astype(float)
-    j = np.abs(steps[None, :, 0] - t[:, None]).argmin(axis=1)
-    tolerance = step_match_tolerance_s(t)
-    if np.abs(steps[j, 0] - t).max() >= tolerance:
-        raise ValueError(f"{path.name}: a tick has no physics step within {tolerance:.2e} s")
-    # a step list in reverse order still matches every tick within the tolerance, so the order is checked on its own;
-    # no assumption on the tick spacing (it need not be a whole number of physics steps)
-    if np.any(np.diff(j) <= 0):
-        raise ValueError(f"{path.name}: the matched physics steps do not increase with the ticks")
-    state = data["state"].astype(float)
-    block = data["block"].astype(float)
-    episode_json = path.with_suffix(".json")
-    episode_knife = json.loads(episode_json.read_text()).get("knife_in_eef") if episode_json.exists() else None
-    return {
-        "path": path,
-        "E_act": base @ hand_poses(state[:, 9:12], state[:, 12:16]),
-        "E_cmd": base @ np.stack([G.pose9(c) for c in data["cmd"].astype(float)]),
-        "j": j,
-        "edge_z": steps[j, 6],
-        "cmd_steps": data["cmd_steps"].astype(float),
-        "s": float(block[2] - block[6] / 2.0),
-        "knife_setup": np.asarray(setup["grasp"]["knife_in_eef"], float),
-        "knife_episode": None if episode_knife is None else np.asarray(episode_knife, float),
-    }
-
-
-def edge_residual_mm(demo, knife):
-    """Predicted minus recorded knife-edge height at every tick, in mm."""
-    return 1e3 * (lowest_edge_z(demo["E_act"], knife) - demo["edge_z"])
-
-
-def fitted_knife(folder, knife_setup, fit_episodes):
-    """A knife fitted to the folder's first episodes that the setup grasp does not explain.
-
-    Args:
-        folder: the demonstration folder (holds the ``ep_XXXXX.npz`` files and ``setup.json``).
-        knife_setup: the setup's knife, which the episodes it explains are left out of the fit for.
-        fit_episodes: how many episodes, in name order, the fit uses.
-
-    Returns:
-        A dict: the fitted ``knife``, the ``episodes`` (names) it was fitted to and the fit's ``fit_rms_mm``.
-    """
-    eefs, edges, names = [], [], []
-    for npz in sorted(folder.glob("ep_*.npz")):
-        other = load_demo(npz)
-        if rms(edge_residual_mm(other, knife_setup)) < SETUP_TOL_MM:
-            continue
-        eefs.append(other["E_act"])
-        edges.append(other["edge_z"])
-        names.append(npz.name)
-        if len(names) == fit_episodes:
-            break
-    if not names:
-        raise ValueError(f"{folder}: the setup grasp explains every episode, so there is no knife to fit")
-    knife, fit_m = fit_knife_in_eef(np.concatenate(eefs), np.concatenate(edges), knife_setup)
-    return {"knife": knife, "episodes": names, "fit_rms_mm": 1e3 * fit_m}
-
-
-def choose_knife(demo, fit_episodes, cache):
-    """The knife for one demonstration, where it came from, and the fit it came from (None unless fitted).
-
-    Args:
-        demo: a dict from ``load_demo``.
-        fit_episodes: passed to ``fitted_knife``.
-        cache: the folder -> fit dict of ``fitted_knife``, shared by the demonstrations of one run.
-
-    Returns:
-        A tuple (knife, source, fit).
-    """
-    if demo["knife_episode"] is not None:
-        return demo["knife_episode"], "episode", None
-    if rms(edge_residual_mm(demo, demo["knife_setup"])) < SETUP_TOL_MM:
-        return demo["knife_setup"], "setup", None
-    folder = demo["path"].parent
-    if folder not in cache:
-        cache[folder] = fitted_knife(folder, demo["knife_setup"], fit_episodes)
-    return cache[folder]["knife"], "fitted", cache[folder]
 
 
 def round_trip(poses, knife, s, eps):
