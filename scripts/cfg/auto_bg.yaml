@@ -191,12 +191,37 @@ s5_train_bg_splat:                                # env: simfoundry — train_bg
 
 s6_bridge:                                        # env: simfoundry — bridge_bg_splat_to_og.py
   rerun: true
-  bridge_mode: single                             # options: auto, single (rigid, same-scene), umeyama (Sim(3), cross-scene)
+  bridge_mode: single                             # options: auto, single (rigid, same-scene), umeyama (Sim(3), cross-scene), appearance (cross-capture; explicit only, see appearance:)
   target_scene_name: null                         # null -> same as scene_name; set for cross-scene bridging
   anchor_row: null                                # null -> parse from s4_frame's image_<N>_cam2world.npy
   in_ply: "${auto_bg_dir}/splat/export/${scene_name}_bg.ply"
   out_ply: "${s6_bridge.in_ply}"                  # Same path -> writes only the .pose.json sidecar, no PLY byte-copy
   src_npz: null                                   # null -> Data/<scene>/s2_da/da/exports/npz/results.npz (canonical DA3)
+  appearance:                                     # bridge_mode=appearance only (cross-capture alignment); all values provisional, from one scene
+    seed_ply: null                                # null -> s4_seed_ply.out_ply (the seed cloud; its largest plane is taken as the counter)
+    scene_mesh: null                              # null -> Data/<target_scene>/s_bg_mesh/background_mesh.glb
+    scene_texture: null                           # null -> background_texture.png next to scene_mesh
+    cell_m: 0.01                                  # from the prototype (research 1's align_v4.py), one scene
+    fine_cell_m: 0.005                            # from the prototype (research 1's align_v4.py), one scene
+    band_m: 0.03                                  # from the prototype (research 1's align_v4.py), one scene
+    margin_m: 1.2                                 # from the prototype (research 1's align_v4.py), one scene
+    yaw_step_deg: 1.0                             # from the prototype (research 1's align_v4.py), one scene
+    coarse_search_cells: 10                       # from the prototype (research 1's align_v4.py), one scene
+    fine_yaw_range_deg: 1.0                       # from the prototype (research 1's align_v4.py), one scene
+    fine_yaw_step_deg: 0.1                        # from the prototype (research 1's align_v4.py), one scene
+    fine_shift_cells: 4                           # from the prototype (research 1's align_v4.py), one scene
+    pixel_stride: 2                               # from the prototype (research 1's align_v4.py), one scene
+    plane_threshold_m: 0.01                       # from the prototype (research 1's align_v4.py), one scene
+    plane_iterations: 2000                        # from the prototype (research 1's align_v4.py), one scene
+    plane_seed: 0                                 # seeds the numpy RANSAC; the prototype's open3d call had no seed
+    min_plane_share: 0.05                         # provisional, no evidence (chosen below the one real run's values, see the README)
+    min_overlap: 0.5                              # from the prototype (research 1's align_v4.py), one scene
+    min_ncc: 0.5                                  # provisional, no evidence (chosen below the one real run's values, see the README)
+    min_peak_gap: 0.05                            # provisional, no evidence (chosen below the one real run's values, see the README)
+    peak_window_deg: 10.0                         # provisional, no evidence (chosen below the one real run's values, see the README)
+    n_peaks_recorded: 8                           # how many local maxima the record keeps, highest first
+    scale_warn: 0.01                              # provisional, no evidence (chosen below the one real run's values, see the README)
+    scale_min_gain: 0.02                          # provisional, no evidence (chosen below the one real run's values, see the README)
 
 s7_build_assets:                                  # env: simfoundry — build_og_scene_assets.py
   rerun: true

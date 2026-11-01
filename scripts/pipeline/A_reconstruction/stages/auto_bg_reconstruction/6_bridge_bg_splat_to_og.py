@@ -36,6 +36,7 @@ Inputs:
                  DA3 world). Defaults to Data/<scene>/s2_da/da/exports/npz/
                  results.npz.
   --bridge-mode  single (same-scene; default) | umeyama (cross-scene) | auto
+                 | appearance (cross-capture; explicit only, see bg_align.py)
   --target-scene-name  scene whose s4_frame defines OG world (default: --scene-name)
 
 Outputs:
@@ -183,6 +184,53 @@ def main(cfg):
         M_tgtDA3_to_step4 = image_c2w @ P_anchor_tgt_w2c
         M_src_to_og = step4_to_og @ M_tgtDA3_to_step4 @ T_src_to_tgt_DA3
 
+    elif mode == "appearance":
+        # Cross-capture: the splat's world and the scene share no camera, so the clouds are aligned by the counter top's
+        # appearance instead (bg_align). Imported here, so the default modes never read the new module.
+        from plyfile import PlyData
+
+        from simfoundry.pipeline import bg_align
+
+        app = sec.appearance
+        settings = bg_align.resolve_settings(app)
+        seed_ply = Path(app.seed_ply) if app.seed_ply else Path(cfg.s4_seed_ply.out_ply)
+        scene_mesh = Path(app.scene_mesh) if app.scene_mesh else \
+            REPO_ROOT / "Data" / target_scene / "s_bg_mesh" / "background_mesh.glb"
+        scene_texture = Path(app.scene_texture) if app.scene_texture else scene_mesh.with_name("background_texture.png")
+        for label, path in (("seed PLY", seed_ply), ("scene mesh", scene_mesh), ("scene texture", scene_texture)):
+            if not path.exists():
+                sys.exit(f"missing {label} for bridge_mode=appearance: {path}")
+        seed = PlyData.read(str(seed_ply))["vertex"]
+        seed_points = np.column_stack([seed["x"], seed["y"], seed["z"]]).astype(np.float64)
+        src_points, src_colours, src_centres = bg_align.da3_world_points(s2_npz, stride=settings["pixel_stride"])
+        tgt_points, tgt_colours = bg_align.scene_points_from_background_mesh(scene_mesh, scene_texture)
+        align_result = bg_align.align_clouds(
+            tgt_points, tgt_colours, src_points, src_colours, src_centres, settings, seed_points=seed_points,
+        )
+        out_ply = Path(sec.out_ply)
+        align_record_path = out_ply.with_name(out_ply.name + ".align.json")
+        sidecar_path = out_ply.with_name(out_ply.name + ".pose.json")
+        align_result["inputs"] = {
+            "src_npz": str(s2_npz),
+            "seed_ply": str(seed_ply),
+            "scene_mesh": str(scene_mesh),
+            "scene_texture": str(scene_texture),
+        }
+        align_result["stale_sidecar_present"] = (not align_result["accepted"]) and sidecar_path.exists()
+        # The record is written whether or not the alignment is accepted: a refusal is what it has to explain.
+        out_ply.parent.mkdir(parents=True, exist_ok=True)
+        align_record_path.write_text(json.dumps(align_result, indent=2, sort_keys=True))
+        for message in align_result["warnings"]:
+            logger.warning("%s", message)
+        if not align_result["accepted"]:
+            if align_result["stale_sidecar_present"]:
+                logger.warning("An earlier pose sidecar is still at %s; it was not touched.", sidecar_path)
+            sys.exit(
+                f"appearance alignment refused ({', '.join(align_result['reasons'])}); "
+                f"no pose sidecar written; see {align_record_path}"
+            )
+        M_src_to_og = np.asarray(align_result["M_src_to_scene"], dtype=np.float64)
+
     else:
         sys.exit(f"Unknown bridge mode: {mode}")
 
@@ -236,7 +284,12 @@ def main(cfg):
         "bridge_mode": mode,
         "M_src_to_og": M_src_to_og.tolist(),
     }
+    if mode == "appearance":
+        sidecar_payload["alignment_record"] = align_record_path.name
     sidecar.write_text(json.dumps(sidecar_payload, indent=2))
+    if mode == "appearance":
+        align_result["sidecar_written"] = True
+        align_record_path.write_text(json.dumps(align_result, indent=2, sort_keys=True))
     logger.info(
         "Wrote pose sidecar -> %s  pos=%s  ori_xyzw=%s  scale=%.6f",
         sidecar, pos, q_xyzw, s,
