@@ -85,9 +85,10 @@ def write_folder(folder, *, n_eps=12, regrasp_from=1, bias_m=None, below=(), jso
     """A folder laid out like a recorded demonstration set: setup.json and ep_XXXXX.npz, some with an ep_XXXXX.json.
 
     Episodes from ``regrasp_from`` on hold K2; the others hold K1, the setup's. ``bias_m`` adds a constant error to an
-    episode's recorded edge heights. Episodes in ``below`` get a block top at the median edge height, so half their poses
-    have the edge under the support. Episodes in ``json_knife`` write their knife into their JSON. ``t0`` is the time of
-    the first tick [s]; the physics steps are stored as float32, as in the recorded files.
+    episode's recorded edge heights. Episodes in ``below`` get a support plane (the block's bottom, the solver board
+    plane) at the median edge height, so half their poses have the edge under the support. Episodes in ``json_knife``
+    write their knife into their JSON. ``t0`` is the time of the first tick [s]; the physics steps are stored as
+    float32, as in the recorded files.
     """
     folder.mkdir(parents=True, exist_ok=True)
     base = robot_base()

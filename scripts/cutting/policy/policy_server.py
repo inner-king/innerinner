@@ -99,7 +99,8 @@ def main():
                         st = np.concatenate(past)
                         obs["observation.images.wrist_past"] = torch.from_numpy(
                             hist[max(0, len(hist) - 11)][1]).permute(2, 0, 1).float() / 255.0
-                    obs["observation.state"] = torch.from_numpy(st[len(st) - n:]).float()  # the last n: the hand
+                    # the last n entries: the hand, and the support plane last when the policy was trained with it
+                    obs["observation.state"] = torch.from_numpy(st[len(st) - n:]).float()
                 if "observation.environment_state" in feats:
                     obs["observation.environment_state"] = torch.from_numpy(unpack(msg["env_state"])).float()
                 for cam in ("front", "wrist"):

@@ -125,8 +125,8 @@ def load_demo(npz_path):
     Returns:
         A dict: the measured hand poses ``E_act`` and the commanded ones ``E_cmd`` (ticks), the recorded edge height at
         each tick ``edge_z`` (the physics step ``j`` that matches the tick), the world commands per physics step
-        ``cmd_steps``, the block top ``s`` [m], the setup's knife ``knife_setup`` and the episode's own ``knife_episode``
-        (None when its JSON has none).
+        ``cmd_steps``, the support plane ``s`` [m] (the block's bottom, the solver board plane), the setup's knife
+        ``knife_setup`` and the episode's own ``knife_episode`` (None when its JSON has none).
 
     Raises:
         ValueError: If a tick has no physics step within the tolerance, or the matched steps do not increase.

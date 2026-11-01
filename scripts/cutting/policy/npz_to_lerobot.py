@@ -9,9 +9,10 @@ Action at tick i = the end-effector pose commanded at tick i+1 (base frame: posi
 rotation columns); the last tick repeats its own command. Only episodes the solver judged a success go in.
 
 --action-height log-support (the support-height target, see simfoundry/cutting/support_height.py): the action's z
-becomes u = ln(h + eps), h being the lowest point of the knife edge above the block top at the commanded pose, and the
-state gets the block top s appended. Both are the evaluation client's definitions, so a policy trained here answers in
-the same heights. The default (absolute) is unchanged and imports nothing from simfoundry.
+becomes u = ln(h + eps), h being the lowest point of the knife edge above the support plane (the block's bottom, the
+solver board plane) at the commanded pose. The state stays the hand (9); --state-support append adds the support plane
+s as its last entry too. Both are the evaluation client's definitions, so a policy trained here answers in the same
+heights. The default (absolute) is unchanged and imports nothing from simfoundry.
 
 Run in the lerobot env:  python npz_to_lerobot.py --src DIR [DIR ...] --root /content/ds
 """
@@ -55,12 +56,12 @@ def _simfoundry():
     return demonstrations, support_height
 
 
-def features(kind, img, drop=False, support=False):
+def features(kind, img, drop=False, support=False, state_support="none"):
     st = STATE[2:] if drop else STATE
     ac = ACTION_LOG if support else ACTION
     if drop:
         ac = ac[:8]
-    if support:
+    if state_support == "append":  # the support plane is constant in every demonstration, so the default leaves it out
         st = st + ["support"]
     f = {"observation.state": {"dtype": "float32", "shape": (len(st),), "names": st},
          "action": {"dtype": "float32", "shape": (len(ac),), "names": ac}}
@@ -74,7 +75,7 @@ def features(kind, img, drop=False, support=False):
 
 
 def log_support_episode(path, eps, fit_episodes, cache):
-    """The log-support action z and the block top for one demonstration. Nothing is written.
+    """The log-support action z and the support plane for one demonstration. Nothing is written.
 
     Args:
         path: an ``ep_XXXXX.npz`` of tofu_policy_episodes.py; its folder holds ``setup.json``.
@@ -84,10 +85,10 @@ def log_support_episode(path, eps, fit_episodes, cache):
 
     Returns:
         A dict. ``u`` (T,) float64 is the action's z slot, one tick ahead: u[i] is the height of command i+1, and the
-        last tick's is its own command. ``s`` [m] is the block top; ``knife_source`` is "episode", "setup" or "fitted";
-        ``resid_rms_mm`` and ``resid_max_mm`` measure the knife against the recorded edge heights; ``h_mm`` holds the
-        min, median and max of h over the ticks; ``ticks`` is T; ``path`` is the npz as given; ``fit`` is the folder's
-        fit dict when the knife was fitted, else None.
+        last tick's is its own command. ``s`` [m] is the support plane (the block's bottom, the solver board plane);
+        ``knife_source`` is "episode", "setup" or "fitted"; ``resid_rms_mm`` and ``resid_max_mm`` measure the knife
+        against the recorded edge heights; ``h_mm`` holds the min, median and max of h over the ticks; ``ticks`` is T;
+        ``path`` is the npz as given; ``fit`` is the folder's fit dict when the knife was fitted, else None.
 
     Raises:
         SystemExit: if a tick's edge is at or below the support by eps (the episode is named), or the knife has to be
@@ -129,12 +130,20 @@ def log_support_episode(path, eps, fit_episodes, cache):
     }
 
 
-def support_meta(results, cache, eps):
-    """The meta file of a log-support dataset: what the targets were, and which knife and fit each episode used."""
+def support_meta(results, cache, eps, state_support, state_dim, drop_near_constant):
+    """The meta file of a log-support dataset: what the targets were, which state layout the policy is served, and which
+    knife and fit each episode used.
+
+    ``state_dim`` is the length of the state the policy takes, which the evaluation client checks what it sends against.
+    ``drop_near_constant`` says whether the two finger entries were left out of that state.
+    """
     _, support_height = _simfoundry()
     return {
         "eps_m": float(eps),
         "action_height": "log-support",
+        "state_support": state_support,
+        "state_dim": int(state_dim),
+        "drop_near_constant": bool(drop_near_constant),
         "edge_samples": int(support_height.EDGE_SAMPLES),
         "episodes": [{"npz": r["path"], "knife_source": r["knife_source"], "resid_rms_mm": r["resid_rms_mm"],
                       "resid_max_mm": r["resid_max_mm"], "s_m": r["s"], "h_mm": r["h_mm"], "ticks": r["ticks"]}
@@ -159,14 +168,21 @@ def parse_args(argv=None):
                          "a range spanning the whole reach")
     ap.add_argument("--action-height", choices=["absolute", "log-support"], default="absolute",
                     help="log-support: the action's z is u = ln(h + eps) with h the knife edge's lowest point above the "
-                         "block top, and the state gets the block top s appended (the evaluation client's definition: "
-                         "policy_server takes the last n state entries, so n = 10 reads the hand and s)")
+                         "support plane (the block's bottom, the solver board plane); the state stays the hand (the "
+                         "evaluation client's definition: policy_server takes the last n state entries, so n = 9 reads "
+                         "the hand)")
+    ap.add_argument("--state-support", choices=["none", "append"], default=None,
+                    help="log-support: none (the default) keeps the state to the hand; append adds the support plane "
+                         "s as its last entry (n = 10), the layout of the first log-support datasets. s is the same "
+                         "number in every demonstration, so its std is 0 and the normalizer divides by 1e-8. With "
+                         "absolute, only none (or no option) is accepted.")
     ap.add_argument("--eps-mm", type=float, default=1.0,
                     help="eps of the log height [mm]; log-support needs it to equal simfoundry's EPS_M (ignored otherwise)")
     ap.add_argument("--video-mb", type=int, default=2, help="video file size limit [MB]")
     ap.add_argument("--drop-near-constant", action="store_true",
                     help="leave out the near-constant columns (action r21: std 0.0019; state fingers: std 0.0008), which "
-                         "a normalised L1 loss would otherwise weigh up; the executor refills r21 as 0 before Gram-Schmidt")
+                         "a normalised L1 loss would otherwise weigh up; the executor refills r21 as 0 before Gram-Schmidt. "
+                         "A log-support dataset records it as drop_near_constant in its meta.")
     ap.add_argument("--skip-ticks", type=int, default=0,
                     help="drop each episode's first ticks (image kind: DLSS ghosts of the last block after a reset)")
     return ap.parse_args(argv)
@@ -176,9 +192,13 @@ def check_args(args):
     """Refuses the options that cannot make a log-support dataset; simfoundry is imported only for log-support.
 
     Raises:
-        SystemExit: on delta with log-support, or an eps that differs from the evaluation client's EPS_M.
+        SystemExit: on delta with log-support, an eps that differs from the evaluation client's EPS_M, or state_support
+            append without log-support.
     """
     if args.action_height != "log-support":
+        if args.state_support == "append":
+            raise SystemExit("--state-support append needs --action-height log-support: the absolute dataset has no "
+                             "support plane to append")
         return
     if args.action == "delta":
         raise SystemExit("--action-height log-support cannot be combined with --action delta: the delta's z is a change "
@@ -195,6 +215,7 @@ def main(argv=None):
     args = parse_args(argv)
     check_args(args)
     support = args.action_height == "log-support"
+    state_support = args.state_support or "none"
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     eps = []
@@ -227,8 +248,10 @@ def main(argv=None):
 
             enc["rgb_encoder"] = RGBEncoderConfig(vcodec=args.vcodec, pix_fmt="yuv420p", preset="veryfast", crf=20)
         # Small video files: v3 appends each episode to the current chunk file, which costs more as it grows.
+        feats = features(kind, img, args.drop_near_constant, support, state_support)
+        state_dim = feats["observation.state"]["shape"][0]
         ds = LeRobotDataset.create(repo_id=f"local/tofu_{kind}", fps=args.fps, root=root, robot_type="franka",
-                                   features=features(kind, img, args.drop_near_constant, support), use_videos=kind == "image",
+                                   features=feats, use_videos=kind == "image",
                                    image_writer_threads=8,
                                    video_files_size_in_mb=args.video_mb, **enc)
         for k, (path, info) in enumerate(eps):
@@ -250,7 +273,7 @@ def main(argv=None):
                 a_i = act[i]
                 if args.drop_near_constant:
                     st_i, a_i = st_i[2:], a_i[:8]
-                if support:
+                if support and state_support == "append":
                     st_i = support_height.state_with_support(st_i, results[k]["s"])
                 fr = {"observation.state": st_i, "action": a_i, "task": TASK}
                 if kind == "state":
@@ -264,7 +287,7 @@ def main(argv=None):
             ds.finalize()
         if support:
             (root / "meta").mkdir(parents=True, exist_ok=True)
-            meta = support_meta(results, cache, eps_m)
+            meta = support_meta(results, cache, eps_m, state_support, state_dim, args.drop_near_constant)
             (root / "meta" / "support_height.json").write_text(json.dumps(meta, indent=2) + "\n")
         print(kind, root, ds.meta.total_episodes, ds.meta.total_frames)
 

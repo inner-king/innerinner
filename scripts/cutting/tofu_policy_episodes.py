@@ -50,7 +50,13 @@ from simfoundry.cutting.knife import CHEF_KNIFE  # noqa: E402
 from simfoundry.cutting.materials import PRESETS  # noqa: E402
 from simfoundry.cutting.real2sim import OBJECTS_INFO, cook_stroke, fit_food, load_reconstruction  # noqa: E402
 from simfoundry.cutting.render import CUT_RGB, tofu_look  # noqa: E402
-from simfoundry.cutting.support_height import EPS_M, hand_z_from_log_height, state_with_support  # noqa: E402
+from simfoundry.cutting.support_height import (  # noqa: E402
+    EPS_M,
+    hand_z_from_log_height,
+    state_with_support,
+    support_drop_near_constant,
+    support_state_mode,
+)
 
 
 def draw(seed, a):
@@ -322,6 +328,43 @@ def support_log_target(base, a9, knife_in_eef, support_z, eps=EPS_M):
     E = base @ pose9(a)
     E[2, 3] = float(hand_z_from_log_height(E, knife_in_eef, support_z, u, eps))
     return E
+
+
+# The tick state is the joints (7), the fingers (2), the tip position (3) and its quaternion (4). The hand is the
+# last nine, the same columns the converter takes (npz_to_lerobot.STATE_COLS).
+HAND_COLS = slice(7, 16)
+
+
+def policy_state(tick_state, state_dim, support_z=None, drop_near_constant=False):
+    """The state the policy server is sent under ``--action-mode support-log``: the hand, with the support plane
+    appended when the dataset's state carries it.
+
+    Why the length is checked: the server reads the last n entries of what it is sent, n being the checkpoint's state
+    size, so a state longer than the policy expects would give it a joint angle as an input, with no error.
+
+    Args:
+        tick_state: the tick's 16-entry state (joints, fingers, tip position, quaternion).
+        state_dim: the state length the policy was trained with, from the dataset's meta/support_height.json.
+        support_z: the support plane s [m] when the dataset's state carries it, else None.
+        drop_near_constant: whether the dataset's state leaves out the two finger entries (its meta's
+            drop_near_constant). Why: the converter's --drop-near-constant removes them because their std is 0.0008.
+
+    Returns:
+        A float32 vector of length ``state_dim``.
+
+    Raises:
+        SystemExit: if the state built here is not ``state_dim`` long.
+    """
+    st = np.asarray(tick_state, np.float32)[HAND_COLS]
+    if drop_near_constant:
+        st = st[2:]
+    if support_z is not None:
+        st = state_with_support(st, support_z)
+    if len(st) != state_dim:
+        raise SystemExit(f"the policy takes a state of {state_dim} entries but this client builds {len(st)} (the hand, "
+                         "or the pose under drop_near_constant, and the support plane under state_support append): "
+                         "the dataset's meta does not match")
+    return st
 
 
 class EpisodeRun(T.Run):
@@ -804,6 +847,9 @@ def main():
                     help="policy: the action is the hand pose to reach, or its change from the hand's pose now; "
                          "support-log: the z slot holds ln(h + eps), h = the knife edge's lowest point above the solver's "
                          "board plane [m]")
+    ap.add_argument("--support-meta", type=Path, default=None,
+                    help="support-log: the dataset's meta/support_height.json; its state_support, state_dim and "
+                         "drop_near_constant give the layout of the policy's state (absent: the hand alone, 9 entries)")
     ap.add_argument("--edge-floor-mm", type=float, default=None,
                     help="policy: a RULE, not the policy: lift any commanded pose whose knife edge would go below the "
                          "board's collider top + this [mm] (it knows the board's height; report it apart)")
@@ -878,6 +924,15 @@ def main():
     args = ap.parse_args()
     if args.action_mode == "support-log" and args.mode != "policy":
         ap.error("--action-mode support-log needs --mode policy")
+    if args.support_meta is not None and args.action_mode != "support-log":
+        ap.error("--support-meta needs --action-mode support-log")
+    # the layout of the policy's state, from the dataset it was trained on: the hand alone unless its meta says append
+    support_meta = json.loads(args.support_meta.read_text()) if args.support_meta is not None else {}
+    state_mode = support_state_mode(support_meta) if args.support_meta is not None else "none"
+    drop_near_constant = support_drop_near_constant(support_meta) if args.support_meta is not None else False
+    # a dataset from before the key has s appended and its fingers kept, so its state is ten long
+    state_dim = support_meta.get("state_dim",
+                                 (7 if drop_near_constant else 9) + (1 if state_mode == "append" else 0))
     dicing = args.mode == "dice" or args.dice_eval  # the expert dices, or a policy is judged on dicing
     os.environ.setdefault("OMNIGIBSON_HEADLESS", "1")
     out = args.out.resolve()
@@ -1267,7 +1322,11 @@ def main():
             floor_hits = 0
             for _ in range(int(round(args.episode_s * args.policy_hz))):
                 tick = run.capture()
-                state = tick["state"] if support_s is None else state_with_support(tick["state"], support_s)
+                if support_s is None:  # the other action modes send the tick state as it is
+                    state = tick["state"]
+                else:
+                    state = policy_state(tick["state"], state_dim, support_s if state_mode == "append" else None,
+                                         drop_near_constant)
                 conn.send({"cmd": "act", "state": pack(state), "env_state": pack(blk_now.astype(np.float32)),
                            "front": pack(tick["front"]), "wrist": pack(tick["wrist"]), "cuts_done": int(tick["cuts_done"])})
                 a = conn.recv()

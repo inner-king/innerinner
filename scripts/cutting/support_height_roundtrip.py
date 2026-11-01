@@ -4,7 +4,8 @@
 
 Each demonstration is an ``ep_XXXXX.npz`` written by tofu_policy_episodes.py, read with its folder's ``setup.json`` and,
 when present, its ``ep_XXXXX.json``. At each tick the commanded hand pose gives the support height h (the knife edge's
-lowest point above the block top s), the log height u = ln(h + eps) is taken, and the hand height is solved back from u.
+lowest point above the support plane s (the block's bottom, the solver board plane)), the log height u = ln(h + eps) is
+taken, and the hand height is solved back from u.
 The pass criterion is the error after u is rounded to float32, the dataset's dtype.
 
 Reading a demonstration and choosing its knife (episode JSON, setup grasp, or a fit to the folder) live in

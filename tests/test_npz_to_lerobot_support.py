@@ -24,7 +24,13 @@ import npz_to_lerobot as L  # noqa: E402
 from demo_folder import SPT, TICKS, write_folder  # noqa: E402
 
 from simfoundry.cutting.knife import CHEF_KNIFE  # noqa: E402
-from simfoundry.cutting.support_height import EPS_M, hand_z_from_log_height, lowest_edge_z  # noqa: E402
+from simfoundry.cutting.support_height import (  # noqa: E402
+    EPS_M,
+    hand_z_from_log_height,
+    lowest_edge_z,
+    support_drop_near_constant,
+    support_state_mode,
+)
 
 EPS = EPS_M
 FAKE_LEROBOT = '''
@@ -217,8 +223,8 @@ def test_features_default_is_the_absolute_layout_it_was():
     assert fi["observation.state"]["shape"] == (9,)
 
 
-def test_features_for_log_support_name_u_and_the_appended_support():
-    f = L.features("state", 224, support=True)
+def test_features_for_log_support_name_u_and_the_appended_support_under_append():
+    f = L.features("state", 224, support=True, state_support="append")
     assert f["observation.state"]["shape"] == (10,)
     assert f["observation.state"]["names"][-1] == "support"
     assert f["action"]["names"][2] == "u"
@@ -226,20 +232,34 @@ def test_features_for_log_support_name_u_and_the_appended_support():
     assert f["action"]["shape"] == (9,)
 
 
-def test_features_for_drop_and_support_have_eight_state_entries_and_eight_actions():
-    f = L.features("image", 224, drop=True, support=True)
+def test_features_for_log_support_by_default_keep_the_absolute_state_names():
+    f = L.features("state", 224, support=True)
+    absolute = L.features("state", 224)
+    assert f["observation.state"] == absolute["observation.state"]
+    assert f["observation.state"]["shape"] == (9,)
+    assert "support" not in f["observation.state"]["names"]
+    assert f["action"]["names"][2] == "u"
+
+
+def test_features_for_drop_and_support_under_append_have_eight_state_entries_and_eight_actions():
+    f = L.features("image", 224, drop=True, support=True, state_support="append")
     assert f["observation.state"]["shape"] == (8,)
     assert f["observation.state"]["names"] == L.STATE[2:] + ["support"]
     assert f["action"]["names"] == L.ACTION_LOG[:8]
     assert f["action"]["names"][2] == "u"
 
 
-def test_the_state_gets_the_block_top_as_its_last_entry_in_float32(tmp_path, fake_lerobot):
+def test_features_for_drop_and_support_by_default_have_the_seven_hand_pose_entries():
+    f = L.features("image", 224, drop=True, support=True)
+    assert f["observation.state"]["shape"] == (7,)
+    assert f["observation.state"]["names"] == L.STATE[2:]
+
+
+def test_under_append_the_state_gets_the_support_plane_as_its_last_entry_in_float32(tmp_path, fake_lerobot):
     folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
     lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
-    datasets = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support"],
-                         tmp_path / "out", fake_lerobot, tmp_path)
-    ds = datasets["tofu_state"]
+    ds = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support",
+                    "--state-support", "append"], tmp_path / "out", fake_lerobot, tmp_path)["tofu_state"]
     s = _block_top(folder / "ep_00000.npz")
     default = _run_main(["--list", str(lst), "--kinds", "state"], tmp_path / "out_default",
                         fake_lerobot, tmp_path)["tofu_state"]
@@ -251,11 +271,39 @@ def test_the_state_gets_the_block_top_as_its_last_entry_in_float32(tmp_path, fak
         np.testing.assert_array_equal(fr["observation.environment_state"], fd["observation.environment_state"])
 
 
+def test_by_default_the_state_is_the_hand_and_the_same_as_the_absolute_dataset(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
+    lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
+    log = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support"],
+                    tmp_path / "log_default", fake_lerobot, tmp_path)["tofu_state"]
+    absolute = _run_main(["--list", str(lst), "--kinds", "state"], tmp_path / "abs_default",
+                         fake_lerobot, tmp_path)["tofu_state"]
+    assert len(log.frames) == len(absolute.frames) > 0
+    for fl, fa in zip(log.frames, absolute.frames):
+        assert fl["observation.state"].dtype == np.float32
+        assert fl["observation.state"].shape == (9,)
+        np.testing.assert_array_equal(fl["observation.state"], fa["observation.state"])
+        np.testing.assert_array_equal(fl["observation.environment_state"], fa["observation.environment_state"])
+
+
+def test_append_changes_only_the_state_and_not_the_action(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
+    lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
+    none = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support"],
+                     tmp_path / "none", fake_lerobot, tmp_path)["tofu_state"]
+    appended = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support",
+                          "--state-support", "append"], tmp_path / "append", fake_lerobot, tmp_path)["tofu_state"]
+    for fn, fa in zip(none.frames, appended.frames):
+        np.testing.assert_array_equal(fa["observation.state"][:9], fn["observation.state"])
+        np.testing.assert_array_equal(fa["action"], fn["action"])
+
+
 def test_drop_near_constant_puts_the_support_on_the_eight_entries(tmp_path, fake_lerobot):
     folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
     lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
-    ds = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support", "--drop-near-constant"],
-                   tmp_path / "out", fake_lerobot, tmp_path)["tofu_state"]
+    argv = ["--list", str(lst), "--kinds", "state", "--action-height", "log-support", "--state-support", "append",
+            "--drop-near-constant"]
+    ds = _run_main(argv, tmp_path / "out", fake_lerobot, tmp_path)["tofu_state"]
     fr = ds.frames[0]
     assert fr["observation.state"].shape == (8,)
     assert fr["action"].shape == (8,)
@@ -285,6 +333,8 @@ def test_the_metadata_names_each_episode_its_knife_source_and_the_fit(tmp_path, 
     meta = json.loads((out / "tofu_state" / "meta" / "support_height.json").read_text())
     assert meta["eps_m"] == pytest.approx(EPS)
     assert meta["action_height"] == "log-support"
+    assert meta["state_support"] == "none"
+    assert meta["state_dim"] == 9
     assert meta["edge_samples"] == 100
     assert [e["knife_source"] for e in meta["episodes"]] == ["setup", "fitted"]
     assert meta["episodes"][0]["s_m"] == pytest.approx(_block_top(folder / "ep_00000.npz"), abs=1e-12)
@@ -339,6 +389,50 @@ def test_log_support_with_delta_stops_the_run():
 def test_absolute_ignores_eps_mm_and_delta_is_still_allowed():
     L.check_args(L.parse_args(["--root", "x", "--eps-mm", "2.0"]))
     L.check_args(L.parse_args(["--root", "x", "--action", "delta"]))
+
+
+def test_absolute_takes_state_support_none_or_nothing_and_refuses_append():
+    L.check_args(L.parse_args(["--root", "x", "--state-support", "none"]))
+    L.check_args(L.parse_args(["--root", "x"]))
+    with pytest.raises(SystemExit, match="log-support"):
+        L.check_args(L.parse_args(["--root", "x", "--state-support", "append"]))
+
+
+def test_the_state_support_default_is_none_for_log_support_and_append_is_explicit():
+    assert L.parse_args(["--root", "x", "--action-height", "log-support"]).state_support is None
+    args = L.parse_args(["--root", "x", "--action-height", "log-support", "--state-support", "append"])
+    assert args.state_support == "append"
+
+
+def test_absolute_with_append_stops_the_run_before_any_dataset_is_made(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
+    lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
+    with pytest.raises(SystemExit, match="log-support"):
+        L.main(["--list", str(lst), "--kinds", "state", "--state-support", "append", "--root", str(tmp_path / "x")])
+    assert fake_lerobot.made == []
+
+
+def test_a_meta_without_the_state_support_key_reads_as_append():
+    assert support_state_mode({"action_height": "log-support", "eps_m": 1e-3}) == "append"
+    assert support_state_mode({"state_support": "none", "state_dim": 9}) == "none"
+    assert support_state_mode({"state_support": "append", "state_dim": 10}) == "append"
+
+
+def test_a_state_support_value_that_is_neither_mode_stops_with_the_value_named():
+    with pytest.raises(ValueError, match="'both'"):
+        support_state_mode({"state_support": "both"})
+
+
+def test_the_append_meta_records_append_and_the_ten_entry_state(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=3, regrasp_from=1)
+    lst = _list_file(folder, ["ep_00000.npz", "ep_00001.npz"], tmp_path)
+    out = tmp_path / "append_meta"
+    _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support", "--state-support", "append"],
+              out, fake_lerobot, tmp_path)
+    meta = json.loads((out / "tofu_state" / "meta" / "support_height.json").read_text())
+    assert meta["state_support"] == "append"
+    assert meta["state_dim"] == 10
+    assert support_state_mode(meta) == "append"
 
 
 def test_the_absolute_path_never_imports_simfoundry(tmp_path, fake_lerobot):
@@ -443,3 +537,64 @@ def test_the_residual_maximum_is_the_largest_magnitude_when_every_residual_is_ne
     assert np.all(np.abs(residuals + 2.0) < 0.5)  # about the bias, with the 0.1 mm noise of write_folder
     assert res["resid_max_mm"] > 0
     assert res["resid_max_mm"] == pytest.approx(float(np.max(np.abs(residuals))), abs=1e-9)
+
+
+# ---- 7. the finger entries left out (--drop-near-constant) ------------------------------------------------------
+
+def test_drop_by_default_the_state_is_the_pose_and_the_same_as_the_absolute_drop_dataset(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
+    lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
+    log = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support", "--drop-near-constant"],
+                    tmp_path / "log_drop", fake_lerobot, tmp_path)["tofu_state"]
+    absolute = _run_main(["--list", str(lst), "--kinds", "state", "--drop-near-constant"], tmp_path / "abs_drop",
+                         fake_lerobot, tmp_path)["tofu_state"]
+    assert log.features["observation.state"]["names"] == L.STATE[2:]
+    assert len(log.frames) == len(absolute.frames) > 0
+    for fl, fa in zip(log.frames, absolute.frames):
+        assert fl["observation.state"].dtype == np.float32
+        assert fl["observation.state"].shape == (7,)
+        np.testing.assert_array_equal(fl["observation.state"], fa["observation.state"])
+
+
+def test_drop_under_append_is_the_pose_then_the_support_plane(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=2, regrasp_from=99)
+    lst = _list_file(folder, ["ep_00000.npz"], tmp_path)
+    none = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support", "--drop-near-constant"],
+                     tmp_path / "none", fake_lerobot, tmp_path)["tofu_state"]
+    appended = _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support",
+                          "--drop-near-constant", "--state-support", "append"], tmp_path / "append",
+                         fake_lerobot, tmp_path)["tofu_state"]
+    s = _block_top(folder / "ep_00000.npz")
+    assert appended.features["observation.state"]["names"] == L.STATE[2:] + ["support"]
+    for fa, fn in zip(appended.frames, none.frames):
+        assert fa["observation.state"].dtype == np.float32
+        assert fa["observation.state"].shape == (8,)
+        np.testing.assert_array_equal(fa["observation.state"][:7], fn["observation.state"])
+        assert fa["observation.state"][-1] == np.float32(s)
+        np.testing.assert_array_equal(fa["action"], fn["action"])
+
+
+def test_the_meta_records_the_drop_and_the_state_dimension_of_each_layout(tmp_path, fake_lerobot):
+    folder = _make_folder(tmp_path / "demos", n_eps=3, regrasp_from=1)
+    lst = _list_file(folder, ["ep_00000.npz", "ep_00001.npz"], tmp_path)
+    cases = [
+        (["--drop-near-constant"], "none", True, 7),
+        (["--drop-near-constant", "--state-support", "append"], "append", True, 8),
+        ([], "none", False, 9),
+    ]
+    for k, (extra, mode, drop, dim) in enumerate(cases):
+        out = tmp_path / f"meta_{k}"
+        _run_main(["--list", str(lst), "--kinds", "state", "--action-height", "log-support", *extra], out,
+                  fake_lerobot, tmp_path)
+        meta = json.loads((out / "tofu_state" / "meta" / "support_height.json").read_text())
+        assert meta["state_support"] == mode
+        assert meta["drop_near_constant"] is drop
+        assert meta["state_dim"] == dim
+        assert support_drop_near_constant(meta) is drop
+
+
+def test_a_meta_without_the_drop_key_keeps_the_fingers_and_a_non_boolean_stops_with_the_value_named():
+    assert support_drop_near_constant({"state_support": "none"}) is False
+    assert support_drop_near_constant({"drop_near_constant": True}) is True
+    with pytest.raises(ValueError, match="'yes'"):
+        support_drop_near_constant({"drop_near_constant": "yes"})

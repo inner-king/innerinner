@@ -186,6 +186,53 @@ def state_with_support(state, support_z) -> np.ndarray:
     return np.append(state.astype(np.float32), np.float32(support_z))
 
 
+#: The two layouts of a log-support dataset's state: the hand only, or the hand with the support height last.
+STATE_SUPPORT_MODES = ("none", "append")
+
+
+def support_state_mode(meta) -> str:
+    """Whether a log-support dataset's state ends with the support height s.
+
+    s is the same number in every demonstration, so its normalised std is 0 and a policy that reads it divides by
+    1e-8 at serve time. The default layout therefore leaves it out.
+
+    Args:
+        meta: The parsed ``meta/support_height.json`` of the dataset.
+
+    Returns:
+        ``"append"`` or ``"none"``. A dataset written before the key existed has s appended (the only layout it
+        could have), so a missing key reads as ``"append"``.
+
+    Raises:
+        ValueError: If the key holds neither mode.
+    """
+    mode = meta.get("state_support", "append")
+    if mode not in STATE_SUPPORT_MODES:
+        raise ValueError(f"state_support {mode!r} is neither 'none' nor 'append'")
+    return mode
+
+
+def support_drop_near_constant(meta) -> bool:
+    """Whether a log-support dataset's state leaves out the two finger entries.
+
+    The converter's --drop-near-constant removes the finger columns (their std is 0.0008), so the state is the pose
+    only: seven entries, eight with s appended.
+
+    Args:
+        meta: The parsed ``meta/support_height.json`` of the dataset.
+
+    Returns:
+        True or False. A dataset written before the key existed kept the fingers, so a missing key reads as False.
+
+    Raises:
+        ValueError: If the key holds something other than a boolean.
+    """
+    drop = meta.get("drop_near_constant", False)
+    if not isinstance(drop, bool):
+        raise ValueError(f"drop_near_constant {drop!r} is not a boolean")
+    return drop
+
+
 def fit_knife_in_eef(
     eefs,
     edge_z,

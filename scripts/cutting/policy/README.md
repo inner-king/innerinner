@@ -58,19 +58,28 @@ The dicing variants differ only in their inputs, so one set of demonstrations se
 
 ```bash
 python npz_to_lerobot.py --list <sel dir>/accepted.txt --root <ds root> --kinds state image --action-height log-support --eps-mm 1.0
-python ../tofu_policy_episodes.py --mode policy --action-mode support-log ...   # the evaluation client: the same definition
+python ../tofu_policy_episodes.py --mode policy --action-mode support-log --support-meta <ds root>/tofu_state/meta/support_height.json ...
 ```
 
-The action's z slot becomes u = ln(h + eps), where h is the knife edge's lowest point above the block top at the
-commanded pose; the state gets the block top s appended (10 entries: two fingers, hand position, quaternion, s).
+The action's z slot becomes u = ln(h + eps), where h is the knife edge's lowest point above the support plane s (the
+block's bottom, the solver board plane) at the commanded pose. By default the state is the hand alone (9 entries: two
+fingers, hand position, quaternion). `--state-support append` adds s as the last entry (10 entries).
+`--drop-near-constant` leaves out the two finger entries as well, which the pose alone (7 entries, 8 with append).
+
+The default leaves s out because s is the same number in every demonstration so far (0.0110437 m): its std is 0, and the
+normalizer divides by 1e-8, so a support plane 1 cm higher at serve time becomes an input of about 1e6.
+
 Both sides use `simfoundry/cutting/support_height.py`, and eps must be its `EPS_M` (1.0 mm), or the run stops.
-`policy_server.py` reads the last 10 state entries and needs no change. The knife is the episode's own
-`knife_in_eef` when its JSON has one, else the setup grasp when that explains the edge heights, else a knife fitted to
-the folder's first nine unexplained episodes. `meta/support_height.json` records each episode's knife source, residuals
-and h range, and each fit. Converting many demonstrations that need a fitted knife requires scipy: install it in the
-LeRobot environment (`pip install scipy`), or record new demonstrations whose episode JSON carries `knife_in_eef`.
-`s` is 0.0110437 m in every demonstration so far, so its std is 0 and the normalizer divides by 1e-8: a block top of
-0.0210437 m at serve time becomes an input of about 1e6. Serve with the same block top the policy was trained on.
+`policy_server.py` reads the last n state entries (n = 9, or 10 with append) and needs no change. The evaluation client
+takes the layout from `meta/support_height.json` (`state_support`, `state_dim`, `drop_near_constant`), so it sends exactly the state the policy
+was trained on and stops when the length it builds differs. Without `--support-meta` it sends the hand (9). A dataset
+whose meta has no `state_support` key was converted before the option existed and reads as append; a meta without
+`drop_near_constant` keeps the fingers. The knife is the
+episode's own `knife_in_eef` when its JSON has one, else the setup grasp when that explains the edge heights, else a knife
+fitted to the folder's first nine unexplained episodes. `meta/support_height.json` records each episode's knife source,
+residuals and h range, and each fit. Converting many demonstrations that need a fitted knife requires scipy: install it in
+the LeRobot environment (`pip install scipy==1.17.1`, the simfoundry environment's version), or record new demonstrations
+whose episode JSON carries `knife_in_eef`. Serve with the same support plane the policy was trained on.
 
 ## Training (on a GPU VM, nothing here starts one)
 

@@ -7,6 +7,7 @@ unchanged modes are run on their own. The unchanged modes are compared with the 
 """
 
 import ast
+import json
 import math
 import subprocess
 import sys
@@ -23,6 +24,8 @@ from simfoundry.cutting.support_height import (  # noqa: E402 - imported before 
     log_height,
     lowest_edge_z,
     state_with_support,
+    support_drop_near_constant,
+    support_state_mode,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -202,19 +205,24 @@ def test_support_s_is_the_solver_board_plane_set_after_the_inverse_and_before_th
     assert block.index(inverse[0]) < block.index(support[0]) < block.index(split)
 
 
-def test_the_act_message_carries_the_state_with_the_support_appended():
+def test_the_act_message_carries_the_policy_state_built_for_the_dataset_layout():
     main = _main(CURRENT)
-    want = "tick['state'] if support_s is None else state_with_support(tick['state'], support_s)"
+    want = "policy_state(tick['state'], state_dim, support_s if state_mode == 'append' else None, drop_near_constant)"
     assigns = [n for n in ast.walk(main)
                if isinstance(n, ast.Assign) and _text(n.targets[0]) == "state" and _text(n.value) == want]
     assert len(assigns) == 1
+    kept = [n for n in ast.walk(main)
+            if isinstance(n, ast.Assign) and _text(n.targets[0]) == "state" and _text(n.value) == "tick['state']"]
+    assert len(kept) == 1
     sends = [n for n in ast.walk(main) if isinstance(n, ast.Call) and _text(n.func) == "conn.send"
              and isinstance(_dict_value(n.args[0], "cmd"), ast.Constant) and _dict_value(n.args[0], "cmd").value == "act"]
     assert len(sends) == 1
     assert _text(_dict_value(sends[0].args[0], "state")) == "pack(state)"
-    block = _block_of(main, assigns[0])
+    (gate,) = [n for n in ast.walk(main) if isinstance(n, ast.If) and _text(n.test) == "support_s is None"]
+    assert any(child is assigns[0] for stmt in gate.orelse for child in ast.walk(stmt))
+    block = _block_of(main, gate)
     holder = next(stmt for stmt in block if _holds(stmt, sends[0]))
-    assert block.index(assigns[0]) < block.index(holder)
+    assert block.index(gate) < block.index(holder)
 
 
 def test_the_mode_split_puts_support_log_between_delta_and_absolute():
@@ -281,17 +289,145 @@ def test_absolute_and_delta_targets_are_identical_to_the_base_commit_and_support
                               G.support_log_target(B, a9, K, s))
 
 
-def test_the_state_sent_is_the_tick_state_without_a_support_and_gets_the_support_appended_with_one():
+def test_the_state_sent_is_the_tick_state_outside_support_log_and_the_policy_state_under_it():
     main = _main(CURRENT)
-    want = "tick['state'] if support_s is None else state_with_support(tick['state'], support_s)"
-    (assign,) = [n for n in ast.walk(main)
-                 if isinstance(n, ast.Assign) and _text(n.targets[0]) == "state" and _text(n.value) == want]
-    module = ast.Module(body=[assign], type_ignores=[])
+    (gate,) = [n for n in ast.walk(main) if isinstance(n, ast.If) and _text(n.test) == "support_s is None"]
+    module = ast.Module(body=[gate], type_ignores=[])
     arr = np.arange(16, dtype=np.float32)
-    env = {"tick": {"state": arr}, "support_s": None, "state_with_support": state_with_support}
+    env = {"tick": {"state": arr}, "support_s": None, "state_mode": "append", "state_dim": 10,
+           "drop_near_constant": False, "policy_state": G.policy_state}
     exec(compile(module, "<state>", "exec"), env)
     assert env["state"] is arr
-    env["support_s"] = 0.011
+    env.update(support_s=0.011, state_mode="none", state_dim=9)
     exec(compile(module, "<state>", "exec"), env)
-    assert env["state"].shape == (17,) and env["state"][-1] == np.float32(0.011)
-    np.testing.assert_array_equal(env["state"][:16], arr)
+    np.testing.assert_array_equal(env["state"], arr[7:16])
+    env.update(state_mode="append", state_dim=10)
+    exec(compile(module, "<state>", "exec"), env)
+    assert env["state"].shape == (10,) and env["state"][-1] == np.float32(0.011)
+    np.testing.assert_array_equal(env["state"][:9], arr[7:16])
+
+
+def test_the_hand_alone_is_the_policy_state_of_the_default_layout():
+    arr = np.arange(16.0)
+    out = G.policy_state(arr, 9)
+    assert out.dtype == np.float32 and out.shape == (9,)
+    np.testing.assert_array_equal(out, np.array(range(7, 16), dtype=np.float32))
+
+
+def test_the_policy_state_appends_the_support_plane_under_append_and_is_checked_against_state_dim():
+    arr = np.arange(16.0)
+    out = G.policy_state(arr, 10, 0.011)
+    assert out.dtype == np.float32 and out.shape == (10,) and out[-1] == np.float32(0.011)
+    np.testing.assert_array_equal(out[:9], np.array(range(7, 16), dtype=np.float32))
+    with pytest.raises(SystemExit, match="10 entries"):
+        G.policy_state(arr, 10)  # the policy wants s, the client has none
+    with pytest.raises(SystemExit, match="9 entries"):
+        G.policy_state(arr, 9, 0.011)  # the policy wants the hand alone, the client would add s
+
+
+def test_the_server_reads_the_same_values_the_whole_state_it_is_sent_gives_for_each_layout():
+    arr = np.arange(16.0)
+    s = 0.011
+    # policy_server.py: the last n entries of what it is sent, n being the checkpoint's state size
+    before_none = np.asarray(arr, np.float32)  # the tick state, sent whole until this change
+    np.testing.assert_array_equal(before_none[len(before_none) - 9:], G.policy_state(arr, 9))
+    before_append = state_with_support(arr, s)
+    np.testing.assert_array_equal(before_append[len(before_append) - 10:], G.policy_state(arr, 10, s))
+    for n, st in ((9, G.policy_state(arr, 9)), (10, G.policy_state(arr, 10, s))):
+        np.testing.assert_array_equal(st[len(st) - n:], st)  # what is sent is exactly what the server reads
+
+
+def test_the_client_has_the_support_meta_option_and_refuses_it_outside_support_log():
+    main = _main(CURRENT)
+    calls = [n for n in ast.walk(main)
+             if isinstance(n, ast.Call) and _text(n.func) == "ap.add_argument" and n.args
+             and isinstance(n.args[0], ast.Constant) and n.args[0].value == "--support-meta"]
+    assert len(calls) == 1
+    keywords = {k.arg: k.value for k in calls[0].keywords}
+    assert ast.literal_eval(keywords["default"]) is None
+    refusals = [n for n in ast.walk(main) if isinstance(n, ast.If)
+                and _text(n.test) == "args.support_meta is not None and args.action_mode != 'support-log'"]
+    assert len(refusals) == 1 and len(refusals[0].body) == 1 and _text(refusals[0].body[0]).startswith("ap.error(")
+
+
+def test_the_client_reads_the_layout_from_the_meta_and_takes_the_hand_alone_without_one():
+    main = _main(CURRENT)
+    layout = [n for n in ast.walk(main) if isinstance(n, ast.Assign) and _text(n.targets[0]) == "state_mode"]
+    assert len(layout) == 1
+    assert _text(layout[0].value) == ("support_state_mode(support_meta) if args.support_meta is not None else 'none'")
+    dims = [n for n in ast.walk(main) if isinstance(n, ast.Assign) and _text(n.targets[0]) == "state_dim"]
+    assert len(dims) == 1
+    assert G.support_state_mode is support_state_mode
+
+
+def test_the_layout_statements_read_the_meta_they_are_given_and_fall_back_to_the_hand_alone(tmp_path):
+    main = _main(CURRENT)
+    stmts = [next(n for n in main.body if isinstance(n, ast.Assign) and _text(n.targets[0]) == name)
+             for name in ("support_meta", "state_mode", "drop_near_constant", "state_dim")]
+    code = compile(ast.Module(body=stmts, type_ignores=[]), "<layout>", "exec")
+    env = {"json": json, "support_state_mode": support_state_mode,
+           "support_drop_near_constant": support_drop_near_constant}
+
+    env["args"] = types.SimpleNamespace(support_meta=None)
+    exec(code, env)
+    assert (env["state_mode"], env["state_dim"]) == ("none", 9)
+
+    meta = tmp_path / "support_height.json"
+    meta.write_text(json.dumps({"state_support": "append", "state_dim": 10}))
+    env["args"] = types.SimpleNamespace(support_meta=meta)
+    exec(code, env)
+    assert (env["state_mode"], env["state_dim"]) == ("append", 10)
+
+    meta.write_text(json.dumps({"state_support": "none", "state_dim": 9}))
+    exec(code, env)
+    assert (env["state_mode"], env["state_dim"]) == ("none", 9)
+
+    meta.write_text(json.dumps({"eps_m": 0.001}))  # a dataset from before the key: s appended, so ten entries
+    exec(code, env)
+    assert (env["state_mode"], env["state_dim"]) == ("append", 10)
+
+    meta.write_text(json.dumps({"state_support": "none", "drop_near_constant": True}))  # the pose alone: seven entries
+    exec(code, env)
+    assert (env["state_mode"], env["drop_near_constant"], env["state_dim"]) == ("none", True, 7)
+
+    meta.write_text(json.dumps({"state_support": "append", "drop_near_constant": True, "state_dim": 8}))
+    exec(code, env)
+    assert (env["state_mode"], env["drop_near_constant"], env["state_dim"]) == ("append", True, 8)
+
+    meta.write_text(json.dumps({"drop_near_constant": True}))  # no state_dim, no state_support: append, pose plus s
+    exec(code, env)
+    assert (env["state_mode"], env["drop_near_constant"], env["state_dim"]) == ("append", True, 8)
+
+    env["args"] = types.SimpleNamespace(support_meta=None)
+    exec(code, env)
+    assert (env["drop_near_constant"], env["state_dim"]) == (False, 9)
+
+
+def test_under_drop_the_policy_state_is_the_pose_and_the_support_plane_is_appended_under_append():
+    arr = np.arange(16.0)
+    pose = G.policy_state(arr, 7, None, True)
+    assert pose.dtype == np.float32 and pose.shape == (7,)
+    np.testing.assert_array_equal(pose, np.array(range(9, 16), dtype=np.float32))  # the pose, the fingers left out
+    out = G.policy_state(arr, 8, 0.011, True)
+    assert out.shape == (8,) and out[-1] == np.float32(0.011)
+    np.testing.assert_array_equal(out[:7], pose)
+    with pytest.raises(SystemExit, match="of 9 entries but this client builds 7"):
+        G.policy_state(arr, 9, None, True)  # the policy wants the hand, the client builds the pose
+    with pytest.raises(SystemExit, match="of 7 entries but this client builds 9"):
+        G.policy_state(arr, 7)  # the policy wants the pose, the client builds the hand
+
+
+def test_each_layout_the_converter_writes_is_sent_with_the_entries_it_has():
+    arr = np.arange(16.0)
+    s = 0.011
+    hand = np.array(range(7, 16), dtype=np.float32)
+    pose = np.array(range(9, 16), dtype=np.float32)
+    cases = [  # (drop_near_constant, support plane, what the client must send)
+        (False, None, hand),
+        (False, s, np.append(hand, np.float32(s))),
+        (True, None, pose),
+        (True, s, np.append(pose, np.float32(s))),
+    ]
+    for drop, support_z, want in cases:
+        st = G.policy_state(arr, len(want), support_z, drop)
+        np.testing.assert_array_equal(st, want)

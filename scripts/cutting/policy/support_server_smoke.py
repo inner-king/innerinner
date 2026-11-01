@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Support-height policy smoke test: starts policy_server.py on the CPU with a checkpoint, sends a reset and 12 ticks of
 made-up observations, and checks that every answer is nine finite numbers and that exp(a[2]) - EPS_M, the log-support
-height, is finite. Says nothing about a policy; it checks the wire format of a log-support state (16 hand and state
-entries with the block top s appended, 17 in all; the server reads the last n = 10 of them) and the reading of the z slot.
+height, is finite. Says nothing about a policy; it checks the wire format of a log-support state and the reading of the
+z slot. The state is what the evaluation client sends for each layout: the hand (9 entries), or the pose alone (7) under
+--drop-near-constant, with the support plane s (the block's bottom, the solver board plane) appended under append.
 
-Usage: support_server_smoke.py <checkpoint dir> <state|image> [--port 6098] [--s 0.0110437]
+Usage: support_server_smoke.py <checkpoint dir> <state|image> [--state-support none|append] [--drop-near-constant]
+                               [--port 6098] [--s 0.0110437]
 """
 import argparse
 import subprocess
@@ -27,7 +29,12 @@ def main():
     ap.add_argument("ckpt")
     ap.add_argument("kind", choices=["state", "image"])
     ap.add_argument("--port", type=int, default=6098)
-    ap.add_argument("--s", type=float, default=0.0110437, help="the block top sent as the 17th state entry [m]")
+    ap.add_argument("--state-support", choices=["none", "append"], default="none",
+                    help="the state layout the checkpoint was trained with (converter --state-support)")
+    ap.add_argument("--drop-near-constant", action="store_true",
+                    help="the checkpoint's state is the pose alone (converter --drop-near-constant)")
+    ap.add_argument("--s", type=float, default=0.0110437,
+                    help="the support plane s appended as the last state entry under append [m]")
     args = ap.parse_args()
     server = Path(__file__).with_name("policy_server.py")
     srv = subprocess.Popen([sys.executable, str(server), "--ckpt", args.ckpt, "--port", str(args.port), "--device", "cpu"],
@@ -44,7 +51,10 @@ def main():
         out = []
         for k in range(12):
             img = np.full((224, 224, 3), 20 * k, np.uint8)
-            state = np.append(np.random.rand(16), args.s).astype(np.float32)
+            hand = np.random.rand(9).astype(np.float32)
+            if args.drop_near_constant:  # the two finger entries are left out
+                hand = hand[2:]
+            state = hand if args.state_support == "none" else np.append(hand, np.float32(args.s))
             c.send({"cmd": "act", "state": pack(state), "env_state": pack(np.zeros(7, np.float32)),
                     "front": pack(img), "wrist": pack(img)})
             a = c.recv()
