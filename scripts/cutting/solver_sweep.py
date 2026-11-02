@@ -107,17 +107,23 @@ def ledger_statistics(L, gc, knife_area):
 
 
 def replay_args(a):
-    """The arguments as the JSON records them. A run without a press writes the same JSON as before the hold options
-    existed. A press always writes its band, even the default 0, so the JSON replays that press if the default changes
-    again; the pressure is written only when one was given."""
+    """The arguments as the JSON records them. A run that uses none of the new options writes the same JSON as before
+    they existed, and that JSON still replays through this script. A press always writes its band, even the default 0,
+    so the JSON replays that press if the default changes again; the pressure is written only when one was given."""
     args = dict(vars(a))
-    if args["hold"] == "none":
-        del args["hold"]
+    if args.get("hold", "none") == "none":
+        args.pop("hold", None)
+        args.pop("hold_pressure", None)
+        args.pop("hold_band", None)
+    elif args.get("hold_pressure", 0.0) is None:
         del args["hold_pressure"]
-        del args["hold_band"]
-        return args
-    if args["hold_pressure"] is None:
-        del args["hold_pressure"]
+    if args.get("face_contact", "node") == "node":
+        args.pop("face_contact", None)
+    for key in ("edge_t", "spine_t", "bevel_h", "side_margin", "top_margin"):
+        if key in args and args[key] is None:
+            del args[key]
+    if not args.get("kind_series", False):
+        args.pop("kind_series", None)
     return args
 
 
@@ -156,6 +162,22 @@ def main():
     ap.add_argument("--hold-band", type=float, default=0.0,
                     help="half-width [m] of the strip either side of the blade's plane not pressed while a knife is "
                          "set (SimConfig.hold_band; default 0, the whole top is pressed)")
+    ap.add_argument("--face-contact", default="node", choices=["node", "subgrid"],
+                    help="how a cracked face meets the blade (SimConfig.face_contact): node = the grid node's position "
+                         "(default, as before); subgrid = the material face, at the blade's real half-thickness")
+    ap.add_argument("--edge-t", type=float, default=None,
+                    help="knife thickness at the edge [m] (KnifeGeometry.edge_thickness; default 0.3 mm)")
+    ap.add_argument("--spine-t", type=float, default=None,
+                    help="knife thickness at the spine [m] (KnifeGeometry.spine_thickness; default 2 mm)")
+    ap.add_argument("--bevel-h", type=float, default=None,
+                    help="height over which the blade thickens from edge to spine [m] (KnifeGeometry.bevel_height; "
+                         "default 20 mm)")
+    ap.add_argument("--side-margin", type=float, default=None,
+                    help="free space beside the block [m] (SimConfig.side_margin; default 20 mm)")
+    ap.add_argument("--top-margin", type=float, default=None,
+                    help="free space above the block [m] (SimConfig.top_margin; default 30 mm)")
+    ap.add_argument("--kind-series", action="store_true",
+                    help="add the knife work and the side impulse by node kind, cumulative, to every sample row")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -166,10 +188,23 @@ def main():
         relaxation_time=a.tau if rr > 0 else 0.0, tensile_strength=a.E * a.sigma_ratio,
         board_friction=a.board_mu, knife_friction=a.knife_mu,
     )
-    sim = MPMCuttingSim(mat, list(a.block), knife=KnifeGeometry(),
+    knife_kw = {}
+    if a.edge_t is not None:
+        knife_kw["edge_thickness"] = a.edge_t
+    if a.spine_t is not None:
+        knife_kw["spine_thickness"] = a.spine_t
+    if a.bevel_h is not None:
+        knife_kw["bevel_height"] = a.bevel_h
+    margin_kw = {}
+    if a.side_margin is not None:
+        margin_kw["side_margin"] = a.side_margin
+    if a.top_margin is not None:
+        margin_kw["top_margin"] = a.top_margin
+    sim = MPMCuttingSim(mat, list(a.block), knife=KnifeGeometry(**knife_kw),
                         config=SimConfig(dx=a.dx, tearing=not a.no_tearing, gravity=9.81 * a.gravity_scale / a.mass_scale, cfl=a.cfl,
                                          crack_lead=a.crack_lead, dilation=a.dilation, particles_per_axis=a.ppa,
-                                         hold=a.hold, hold_pressure=a.hold_pressure, hold_band=a.hold_band),
+                                         hold=a.hold, hold_pressure=a.hold_pressure, hold_band=a.hold_band,
+                                         face_contact=a.face_contact, **margin_kw),
                         device="cpu")
     top_z = float(sim.block_max[2])
     c = 0.5 * (sim.block_min + sim.block_max)
@@ -216,6 +251,10 @@ def main():
             J_min=float(J.min()), pieces=sim.connected_pieces(), nan=bool(np.isnan(Fm).any()),
             floating=sim.floating_count(),
         ))
+        if a.kind_series:
+            rows[-1]["kind_side"] = sim.kind_side.numpy().astype(float).tolist()
+            rows[-1]["kind_work"] = sim.knife_work_by_kind().tolist()
+            rows[-1]["kind_impulse"] = sim.kind_impulse.numpy().astype(float).tolist()
         if rows[-1]["nan"] or time.time() - t_wall0 > a.max_wall:
             aborted = True
             break
@@ -305,6 +344,8 @@ def main():
         floating_max=int(max(r["floating"] for r in rows)),
         J_min=float(min(r["J_min"] for r in rows)),
         Pi=a.gc / (a.E * a.dx),
+        # The setting and run warnings (MPMCuttingSim.warnings): empty when the setup is one the design trusts.
+        warnings=list(sim.warnings),
         rows=rows,
     )
     with open(a.out, "w") as fh:

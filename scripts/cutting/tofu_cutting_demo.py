@@ -461,6 +461,8 @@ def main():
         closure_J=W_end - spent_total - U_end - K_end,
         closure_frac_of_W=(W_end - spent_total - U_end - K_end) / max(W_end, 1e-300),
     )
+    # The setting and run warnings (MPMCuttingSim.warnings): empty when the setup is one the design trusts.
+    metrics["warnings"] = list(sim.warnings)
     # The final particles, and each piece as a closed mesh for a rigid-body scene.
     np.savez_compressed(args.out / "final_particles.npz", x=x, piece=pc, particle_mass=sim.particle_mass)
     groups = sim.piece_groups()[pc]  # fields joined below a slit export as one mesh
