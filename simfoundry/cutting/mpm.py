@@ -1310,12 +1310,17 @@ class SimConfig:
             nearest particle surface of that side (see ``_face_p2g``), pushed out to the blade's real half-thickness
             along the blade's face normal (see ``_grid_update``).
 
-            Known limit (R3, 2026-11-02): with the faces held laterally (domain walls at 2·dx), the face
-            force is not grid-converged once the blade opens the faces by about a millimetre per side:
-            a 2 mm blade gave +83% from dx 2.5 to 1.25 mm and a 10 mm wedge +43% (with the particle layers
-            next to the blade crushed at 1.25 mm). The 0.95 mm blade converged (−12% with walls,
-            −19% pressed only), at about half of a confined elastic estimate. Pressed only, the 10 mm
-            wedge gave +39% from how the halves tip late in the cut.
+            Known limit (R3, 2026-11-02): with the faces held laterally (domain walls at 2·dx on all four
+            sides), the face force is not grid-converged once the blade opens the faces by about a millimetre
+            per side: a 2 mm blade gave +83% from dx 2.5 to 1.25 mm and a 10 mm wedge +43% (with the particle
+            layers next to the blade crushed at 1.25 mm). The 0.95 mm blade converged (−12% with walls, −19%
+            pressed only), at about half of a confined elastic estimate. Pressed only, the 10 mm wedge gave
+            +39% from how the halves tip late in the cut. Pressed only, a 2 mm blade converged as well (+16%
+            face force, +0.8% mean Fz). Against rigid side walls the coarse grids are too soft: with the
+            walls' inner edge held 1.25 mm inside the block at every grid (x walls only; the y walls 20 mm
+            away, which needs a separate y margin the repository does not have), the 2 mm blade gave 3.8 /
+            5.8 / 14.0 N at dx 2.5 / 1.67 / 1.25 mm, the last within a confined elastic estimate (12.9–14.6
+            N), and the faces sit at the blade's half-thickness only at 1.25 mm (1.6× it at 2.5 mm).
     """
 
     dx: float = 2.5e-3
