@@ -1,5 +1,7 @@
 # SimFoundry Pipeline Overview
 
+> The default branch is `integration`: branch from it and open pull requests against it. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and [docs/BRANCHES.md](docs/BRANCHES.md) for the branch map.
+
 SimFoundry는 real-world scene을 찍은 RGB video 한 편으로 sim-ready simulation scene을 자동으로 만들고, 이를 robot policy의 evaluation과 training에 쓰는 real-to-sim pipeline입니다. 논문은 Extraction → Generation → Augmentation의 세 stage와 Background Reconstruction으로 설명하고, 저장소는 이를 Pipeline A·B·C로 나눕니다.
 
 ## Overview
