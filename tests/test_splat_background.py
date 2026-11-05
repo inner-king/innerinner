@@ -1143,8 +1143,9 @@ def test_each_box_is_a_unit_cube_scaled_to_its_rectangle_and_thickness(tmp_path,
     entry = scene["objects_info"]["init_info"]["counter_patch_0"]
     assert entry["class_module"] == "omnigibson.objects.primitive_object" and entry["class_name"] == "PrimitiveObject"
     args = entry["args"]
-    assert list(args) == ["name", "primitive_type", "size", "scale", "rgba", "visual_only", "fixed_base"]
-    assert args["name"] == "counter_patch_0" and args["primitive_type"] == "Cube" and args["size"] == 1.0
+    # no size: OmniGibson ignores it when a scale is given (primitive_object.py 150-152)
+    assert list(args) == ["name", "primitive_type", "scale", "rgba", "visual_only", "fixed_base"]
+    assert args["name"] == "counter_patch_0" and args["primitive_type"] == "Cube"
     assert args["scale"] == pytest.approx([0.67, 0.52, 0.004], abs=1e-12)  # xmax - xmin, ymax - ymin, thickness
     assert args["rgba"] == [0.8, 0.8, 0.8, 1.0]
     assert args["visual_only"] is True and args["fixed_base"] is True
@@ -1357,3 +1358,235 @@ def test_the_module_imports_only_numpy_and_the_standard_library_at_load_time():
     everywhere |= {alias.name.split(".")[0]
                    for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     assert "omnigibson" not in everywhere
+
+
+# ------------------------------------------------------- I20: one set of checks, the reasons, and the minimum sizes
+
+
+def _built_spec(tmp_path, usdz_file, **changes):
+    """A spec built in code: the spec a file of ``_body()`` gives, with ``changes`` applied (``dataclasses.replace``)."""
+    return dataclasses.replace(sb.load_visual_background(_spec_file(tmp_path, _body())), **changes)
+
+
+@pytest.mark.parametrize("dz, reason", [
+    (float("nan"), "NaN or infinite"),
+    (float("inf"), "NaN or infinite"),
+    (1.0, "is out of range"),
+    (-0.5, "is out of range"),
+    (True, "is a bool"),
+    ("0.001", "is not a number"),
+], ids=["nan", "inf", "too_big", "too_negative", "bool", "string"])
+def test_a_hand_built_dz_that_is_not_allowed_is_refused_before_any_change(tmp_path, usdz_file, dz, reason):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    with pytest.raises(sb.SplatBackgroundError, match=reason):
+        sb.swap_visual_background(scene, _built_spec(tmp_path, usdz_file, dz_m=dz, remove=("iter_7",)))
+    assert scene == before
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")], ids=["nan", "inf"])
+def test_a_hand_built_kit_setting_that_is_not_finite_is_refused_before_any_change(tmp_path, usdz_file, value):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    spec = _built_spec(tmp_path, usdz_file, kit_settings={"/rtx/x": value}, remove=("iter_7",))
+    with pytest.raises(sb.SplatBackgroundError, match="NaN or infinite"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_a_hand_built_kit_key_that_is_not_a_string_is_a_refusal_not_an_attribute_error(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    spec = _built_spec(tmp_path, usdz_file, kit_settings={3: True}, remove=("iter_7",))
+    with pytest.raises(sb.SplatBackgroundError, match="settings path"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+@pytest.mark.parametrize("changes, reason", [
+    ({"name": ""}, "non-empty string"),
+    ({"name": None}, "non-empty string"),
+    ({"color": {"mode": "x"}}, "not implemented yet"),
+    ({"floor_plane_visible": "false"}, "true or false"),
+], ids=["empty_name", "null_name", "colour", "floor_flag"])
+def test_other_hand_built_fields_are_checked_before_any_change(tmp_path, usdz_file, changes, reason):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    spec = _built_spec(tmp_path, usdz_file, remove=("iter_7",), **changes)
+    with pytest.raises(sb.SplatBackgroundError, match=reason):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_a_hand_built_spec_with_a_missing_splat_or_pose_file_is_refused_before_any_change(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    spec = _built_spec(tmp_path, usdz_file, usdz=tmp_path / "missing.usdz", remove=("iter_7",))
+    with pytest.raises(sb.SplatBackgroundError, match="usdz not found"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+    spec = _built_spec(tmp_path, usdz_file, pose_json=tmp_path / "missing.json", remove=("iter_7",))
+    with pytest.raises(sb.SplatBackgroundError, match="pose_json not found"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_a_valid_hand_built_spec_gives_the_same_scene_and_record_as_the_loaded_one(tmp_path, usdz_file):
+    body = _body(remove=["mesh_background_0", "iter_7"], kit_settings={"/rtx/x": True, "/rtx/y": 2.5},
+                 floor_plane_visible=True, dz_m=0.002)
+    loaded = sb.load_visual_background(_spec_file(tmp_path, body))
+    built = dataclasses.replace(loaded, remove=["mesh_background_0", "iter_7"], kit_settings=dict(loaded.kit_settings))
+    a, b = _synthetic_scene(), _synthetic_scene()
+    record_a, record_b = sb.swap_visual_background(a, loaded), sb.swap_visual_background(b, built)
+    assert a == b and record_a == record_b
+
+
+def test_a_hand_built_remove_given_as_a_list_is_accepted_and_recorded_as_a_list(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    record = sb.swap_visual_background(scene, _built_spec(tmp_path, usdz_file, remove=["iter_7"]))
+    assert record["removed"] == ["iter_7"] and "iter_7" not in scene["objects_info"]["init_info"]
+
+
+PATCH_REASONS = [
+    ("rect_is_a_number", lambda p: p.update(rects=[1.0]), "must be a list of 4 numbers"),
+    ("rect_has_three_numbers", lambda p: p.update(rects=[[-0.62, 0.05, -0.62]]), "has 3 numbers; it needs 4"),
+    ("rect_bool", lambda p: p.update(rects=[[-0.62, True, -0.62, -0.10]]), "is a bool"),
+    ("rect_nan", lambda p: p.update(rects=[[float("nan"), 0.05, -0.62, -0.10]]), "NaN or infinite"),
+    ("rect_string", lambda p: p.update(rects=[["-0.62", 0.05, -0.62, -0.10]]), "is not a number"),
+    ("rect_out_of_range", lambda p: p.update(rects=[[-5.5, 0.05, -0.62, -0.10]]), "is out of range"),
+    ("rect_huge_int", lambda p: p.update(rects=[[10 ** 400, 10 ** 400 + 1, -0.62, -0.10]]), "is out of range"),
+    ("nine_rects", lambda p: p.update(rects=[[-0.5, -0.4, -0.5, -0.4] for _ in range(9)]),
+     "has 9 rectangles; it needs 1 to 8"),
+    ("rgb_has_two_numbers", lambda p: p.update(rgb=[0.8, 0.8]), "has 2 numbers; it needs 3"),
+    ("rgb_is_a_string", lambda p: p.update(rgb="0.8 0.8 0.8"), "must be a list of 3 numbers, got str"),
+    ("rgb_nan", lambda p: p.update(rgb=[0.8, float("nan"), 0.8]), "NaN or infinite"),
+    ("rgb_out_of_range", lambda p: p.update(rgb=[0.8, 0.8, 1.01]), "is out of range"),
+    ("z_top_bool", lambda p: p.update(z_top_m=False), "is a bool"),
+    ("z_top_nan", lambda p: p.update(z_top_m=float("nan")), "NaN or infinite"),
+    ("z_top_out_of_range", lambda p: p.update(z_top_m=0.021), "is out of range"),
+    ("thickness_nan", lambda p: p.update(thickness_m=float("nan")), "NaN or infinite"),
+    ("thickness_zero", lambda p: p.update(thickness_m=0.0), "is out of range"),
+]
+
+
+@pytest.mark.parametrize("name, change, reason", PATCH_REASONS, ids=[case[0] for case in PATCH_REASONS])
+def test_a_counter_patch_refusal_gives_its_reason_and_names_the_patch(tmp_path, usdz_file, name, change, reason):
+    patch = _patch()
+    change(patch)
+    with pytest.raises(sb.SplatBackgroundError, match="counter_patch") as refused:
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=patch)))
+    assert reason in str(refused.value)
+
+
+MATRIX_REASONS = [
+    ("entry_is_a_bool", lambda b: b["matrix"][0].__setitem__(3, True), "is a bool"),
+    ("entry_is_a_string", lambda b: b["matrix"][0].__setitem__(3, "1.0"), "is not a number"),
+    ("entry_is_nan", lambda b: b["matrix"][0].__setitem__(3, float("nan")), "NaN or infinite"),
+    ("entry_too_large_for_a_float", lambda b: b["matrix"][0].__setitem__(3, 10 ** 400), "is out of range"),
+]
+
+
+@pytest.mark.parametrize("name, change, reason", MATRIX_REASONS, ids=[case[0] for case in MATRIX_REASONS])
+def test_a_matrix_refusal_gives_its_reason(tmp_path, usdz_file, name, change, reason):
+    body = _body()
+    change(body)
+    with pytest.raises(sb.SplatBackgroundError, match="matrix") as refused:
+        sb.load_visual_background(_spec_file(tmp_path, body))
+    assert reason in str(refused.value)
+
+
+DZ_REASONS = [
+    ("dz_bool", lambda b: b.update(dz_m=True), "is a bool"),
+    ("dz_string", lambda b: b.update(dz_m="0.001"), "is not a number"),
+    ("dz_nan", lambda b: b.update(dz_m=float("nan")), "NaN or infinite"),
+    ("dz_too_big", lambda b: b.update(dz_m=0.021), "is out of range"),
+]
+
+
+@pytest.mark.parametrize("name, change, reason", DZ_REASONS, ids=[case[0] for case in DZ_REASONS])
+def test_a_dz_refusal_gives_its_reason(tmp_path, usdz_file, name, change, reason):
+    body = _body()
+    change(body)
+    with pytest.raises(sb.SplatBackgroundError, match="dz_m") as refused:
+        sb.load_visual_background(_spec_file(tmp_path, body))
+    assert reason in str(refused.value)
+
+
+@pytest.mark.parametrize("rect", [[0.0, 0.001, 0.0, 0.1], [0.4, 0.401, -0.5, -0.499], [-0.5, 0.5, 0.2, 0.201],
+                                  [0.008, 0.009, 0.0, 0.1], [0.0, 0.1, 0.017, 0.018]],
+                         ids=["at_zero", "at_an_offset", "at_a_negative_offset", "x_float_difference_below_1mm",
+                              "y_float_difference_below_1mm"])
+def test_a_side_of_exactly_1_mm_is_accepted_at_any_offset(tmp_path, usdz_file, rect):
+    # 0.009 - 0.008 is 0.0009999999999999992 in binary floats, so without the picometre rounding an exact millimetre is refused
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=_patch(rects=[rect]))))
+    assert spec.counter_patch.rects == (tuple(rect),)
+
+
+@pytest.mark.parametrize("rect, axis", [([0.0, 0.00099999, 0.0, 0.1], "x"), ([0.0, 0.1, 0.0, 0.00099999], "y"),
+                                        ([0.4, 0.400999, -0.5, -0.4], "x")],
+                         ids=["x_side", "y_side", "x_side_at_an_offset"])
+def test_a_side_under_1_mm_is_refused(tmp_path, usdz_file, rect, axis):
+    with pytest.raises(sb.SplatBackgroundError, match=f"too narrow in {axis}"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=_patch(rects=[rect]))))
+
+
+def test_a_thickness_of_exactly_0_1_mm_is_accepted_and_just_under_it_is_refused(tmp_path, usdz_file):
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=_patch(thickness_m=1e-4))))
+    assert spec.counter_patch.thickness_m == 1e-4
+    with pytest.raises(sb.SplatBackgroundError, match="thickness_m is out of range"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=_patch(thickness_m=9.9999e-5)), "thin.json"))
+
+
+def test_a_box_name_held_in_both_sections_is_named_with_both_sections(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    scene["objects_info"]["init_info"]["counter_patch_1"] = {"args": {}}
+    scene["state"]["registry"]["object_registry"]["counter_patch_1"] = {"root_link": {}}
+    before = copy.deepcopy(scene)
+    with pytest.raises(sb.SplatBackgroundError, match="'counter_patch_1' object in init_info and object_registry"):
+        sb.swap_visual_background(scene, _patched_spec(tmp_path))
+    assert scene == before
+
+
+def test_the_splat_name_held_only_in_the_registry_names_that_section(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    scene["state"]["registry"]["object_registry"][GS] = {"root_link": {}}
+    before = copy.deepcopy(scene)
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["iter_7"])))
+    with pytest.raises(sb.SplatBackgroundError, match="'gs_background' object in object_registry"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_a_removed_name_held_by_one_section_says_which_section_lacks_it(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    del scene["state"]["registry"]["object_registry"]["iter_7"]
+    before = copy.deepcopy(scene)
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["iter_7"])))
+    with pytest.raises(sb.SplatBackgroundError, match="'iter_7' is in init_info but not in object_registry"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_the_minimum_sizes_are_named_constants():
+    assert sb.MIN_RECT_SIDE_M == 1e-3 and sb.MIN_THICKNESS_M == 1e-4
+
+
+def test_the_loader_and_the_swap_both_run_the_same_field_checks():
+    tree = ast.parse((ROOT / "simfoundry" / "utils" / "splat_background.py").read_text(encoding="utf-8"))
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    for name in ("load_visual_background", "swap_visual_background"):
+        called = {node.func.id for node in ast.walk(functions[name])
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+        assert "_checked_spec" in called, f"{name} does not run _checked_spec"
+
+
+def test_the_swap_checks_the_spec_before_it_reads_the_scene():
+    tree = ast.parse((ROOT / "simfoundry" / "utils" / "splat_background.py").read_text(encoding="utf-8"))
+    swap = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "swap_visual_background")
+    has_docstring = isinstance(swap.body[0], ast.Expr) and isinstance(swap.body[0].value, ast.Constant)
+    first = swap.body[1] if has_docstring else swap.body[0]
+    assert isinstance(first, ast.Assign) and isinstance(first.value, ast.Call) and first.value.func.id == "_checked_spec"
+
+
+def test_the_module_docstring_says_the_boxes_are_appended_too():
+    assert "together with the counter-patch boxes when the spec has any" in " ".join(sb.__doc__.split())
