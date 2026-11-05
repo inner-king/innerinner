@@ -144,11 +144,43 @@ MAIN = _function(CURRENT, "main")
 MAIN_BASE = _function(BASE, "main")
 
 
+def _is_probe_arg(stmt):
+    call = stmt.value if isinstance(stmt, ast.Expr) else None
+    return (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "add_argument"
+            and call.args and isinstance(call.args[0], ast.Constant) and call.args[0].value in ("--probe-out", "--probe-ticks"))
+
+
+def _is_probe_if(stmt):
+    return isinstance(stmt, ast.If) and _is_test(stmt.test, "args.probe_out is not None")
+
+
+def _is_probe_assign(stmt):
+    return isinstance(stmt, ast.Assign) and any(_text(t) in ("run.probe", "run.probe_seed") for t in stmt.targets)
+
+
+def _drop_probe(stmts):
+    """``stmts`` without the --probe-out statements, at any depth (the probe's seed is set inside the episode loop)."""
+    out = []
+    for s in stmts:
+        if _is_probe_arg(s) or _is_probe_if(s) or _is_probe_assign(s):
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            if isinstance(getattr(s, field, None), list):
+                setattr(s, field, _drop_probe(getattr(s, field)))
+        out.append(s)
+    return out
+
+
 def _without_additions(main):
-    """``main`` with the statements the change may add taken out, and the floor-plane keyword read as ``True``."""
+    """``main`` with the statements the change may add taken out, and the floor-plane keyword read as ``True``.
+
+    The additions are the visual ones, and the test-only --probe-out ones (its two options, its segmentation block, and
+    the probe's attributes on ``run``).
+    """
     tree = copy.deepcopy(main)
     tree.body = [s for s in tree.body
                  if not (_is_visual_arg(s) or _is_visual_init(s) or _is_visual_if(s) or _is_kit_if(s))]
+    tree.body = _drop_probe(tree.body)
     scene = _env_scene(_env_call(tree))
     for kw in scene.keywords:
         if kw.arg == "floor_plane_visible":
@@ -230,7 +262,7 @@ def test_existing_arguments_are_the_base_ones():
     def adds(tree):
         return [ast.dump(n) for n in ast.walk(tree) if isinstance(n, ast.Call)
                 and isinstance(n.func, ast.Attribute) and n.func.attr == "add_argument"]
-    assert [d for d in adds(MAIN) if "--visual-background" not in d] == adds(MAIN_BASE)
+    assert [d for d in adds(MAIN) if "--visual-background" not in d and "--probe-" not in d] == adds(MAIN_BASE)
 
 
 def test_visual_block_content_and_place():

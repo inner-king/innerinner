@@ -50,6 +50,7 @@ from simfoundry.cutting.knife import CHEF_KNIFE  # noqa: E402
 from simfoundry.cutting.materials import PRESETS  # noqa: E402
 from simfoundry.cutting.real2sim import OBJECTS_INFO, cook_stroke, fit_food, load_reconstruction  # noqa: E402
 from simfoundry.cutting.render import CUT_RGB, tofu_look  # noqa: E402
+from simfoundry.utils.camera_probe import CameraProbe, camera_attributes, pose_record, probe_arrays  # noqa: E402
 from simfoundry.cutting.support_height import (  # noqa: E402
     EPS_M,
     hand_z_from_log_height,
@@ -303,6 +304,8 @@ class EpisodeRun(T.Run):
         self.overview_dir = None
         self.overview_n = 0
         self.tracker = None  # --track-objects
+        self.probe = None  # --probe-out: a CameraProbe that saves a tick's segmentation and poses, else None (test only)
+        self.probe_seed = None  # the episode's seed, the probe's folder name
 
     def step(self, E_cmd, gripper, K_cmd=None, extra=None):
         self.cmd = E_cmd  # before the step: Run.step records a tick inside it
@@ -368,7 +371,17 @@ class EpisodeRun(T.Run):
         t1 = time.perf_counter()
         self.og.sim.render()
         t2 = time.perf_counter()
-        imgs = {n: T.np_(c.get_obs()[0]["rgb"])[:, :, :3].astype(np.uint8) for n, c in self.cams.items()}
+        frames = {}
+        for n, c in self.cams.items():  # one read per camera: the rgb, and the segmentation channels when probed
+            frames[n] = c.get_obs()
+        imgs = {n: T.np_(frames[n][0]["rgb"])[:, :, :3].astype(np.uint8) for n in self.cams}
+        if self.probe is not None and self.probe.wants(len(self.rec)):  # test only: counted before the tick is recorded
+            for n in ("front", "wrist"):
+                obs, info = frames[n]
+                arrays, seg_info = probe_arrays(obs, info)
+                self.probe.save(self.probe_seed, len(self.rec), n, arrays,
+                                pose_record(*self.cams[n].get_position_orientation()),
+                                camera_attributes(self.cams[n].prim), seg_info)
         Eb = self.arm.base_inv @ E
         Cb = self.arm.base_inv @ self.cmd
         state = np.concatenate([self.arm.joints(), self.arm.fingers(), Eb[:3, 3], matrix_to_quat_xyzw(Eb[:3, :3])])
@@ -742,11 +755,12 @@ def dice_success(o, dz, moved_mm, a):
 
 
 def setup_args(args):
-    """The arguments as setup.json records them. --visual-background appears only when it is given, so a run without it
-    writes the same setup.json as before that option existed.
+    """The arguments as setup.json records them. --visual-background appears only when it is given, and so do the two
+    --probe- options with --probe-out, so a run without them writes the same setup.json as before those options existed.
     """
     return {k: v for k, v in vars(args).items()
-            if k != "visual_background" or getattr(args, "visual_background", None) is not None}
+            if (k != "visual_background" or getattr(args, "visual_background", None) is not None)
+            and (k not in ("probe_out", "probe_ticks") or getattr(args, "probe_out", None) is not None)}
 
 
 def main():
@@ -755,6 +769,11 @@ def main():
     ap.add_argument("--visual-background", type=Path, default=None,
                     help="spec JSON that replaces the 5c mesh background with a splat (visual only; "
                          "collision and physics stay as they are); see simfoundry/utils/splat_background.py")
+    ap.add_argument("--probe-out", type=Path, default=None,
+                    help="test only: save the front and wrist cameras' segmentation channels and poses under "
+                         "DIR/ep<seed>/ at the ticks of --probe-ticks (the cameras also render the segmentation)")
+    ap.add_argument("--probe-ticks", type=int, nargs="*", default=[0, 25, 50, 75, 99],
+                    help="the policy ticks --probe-out saves, counted before each tick is recorded")
     ap.add_argument("--photo", type=Path, default=Path("Data/tofu_reference/chefd_frame_17.9.png"))
     ap.add_argument("--mode", choices=["expert", "blind", "policy", "dice"], default="expert",
                     help="dice: the expert dices the block (--dice K1 K2 press cuts one way, then the other)")
@@ -1032,6 +1051,9 @@ def main():
                         "sensor_kwargs": {"image_height": args.overview[1], "image_width": args.overview[0],
                                           "clipping_range": [0.01, 20.0]},
                         "position": [float(x) for x in eye_o], "orientation": [float(x) for x in T.look_at(eye_o, target_o)]})
+    if args.probe_out is not None:  # test only: the probe reads the segmentation channels of every camera it may save
+        for sensor in sensors:
+            sensor["modalities"] = ["rgb", "seg_instance", "seg_semantic"]
     if visual_bg is not None and visual_bg.kit_settings:
         # og.app is set by og.launch above, and the environment is built only after these settings are in place
         applied = {}
@@ -1074,6 +1096,7 @@ def main():
     wrist[:3, :3] = np.stack([[0.0, -1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, -1.0]], axis=1)
     wrist[:3, 3] = args.wrist
     run = EpisodeRun(og, env, arm, knife, None, cams, out, args.policy_hz, set(), wrist_offset=wrist)
+    run.probe = CameraProbe(args.probe_out, args.probe_ticks) if args.probe_out is not None else None
     run.grasp_true = IsGraspingState.TRUE
     for _ in range(20):
         run.step(arm.eef(), T.OPEN)
@@ -1139,6 +1162,7 @@ def main():
     points_n = 0
     for seed in range(first, first + count):
         d = draw(seed, args)
+        run.probe_seed = seed  # the probe's folder (--probe-out); no effect without the option
         if args.dice_plan_only:  # the planning step alone: where the food goes and how the knife is held, no episode
             sim_p = new_sim()
             W_of = lambda delta: planar(centre_w, np.asarray(d["shift_m"]) + delta, math.radians(d["yaw_deg"])) @ W0  # noqa
