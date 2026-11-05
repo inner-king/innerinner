@@ -397,7 +397,7 @@ class _FakeCam:
         self.reads = 0
         self._obs = {"rgb": rgb, "seg_instance": inst, "seg_semantic": sem}
         self._info = {"seg_instance": {1: "tofu"}, "seg_semantic": {2: "food"}}
-        if not semantic:  # a read on a subset install: no semantic channel at all
+        if not semantic:  # probe_arrays treats seg_semantic as optional; OmniGibson adds it to a probed read anyway
             del self._obs["seg_semantic"], self._info["seg_semantic"]
         self.position, self.orientation = list(position), [0.0, 0.0, 0.0, 1.0]
         self.prim = _FakePrim({name: _FakeAttr(value) for name, value in lens.items()})
