@@ -1053,7 +1053,9 @@ def main():
                         "position": [float(x) for x in eye_o], "orientation": [float(x) for x in T.look_at(eye_o, target_o)]})
     if args.probe_out is not None:  # test only: the probe reads the segmentation channels of every camera it may save
         for sensor in sensors:
-            # the semantic channel needs the BEHAVIOR category list that a subset install lacks, so only instance ids are read
+            # OmniGibson adds seg_semantic whenever seg_instance is requested (vision_sensor.py:180-185), so the probe
+            # saves it when the read has it. Its class table is the object categories plus the system categories
+            # (behavior-1k-assets/systems, which a subset install lacks), so a scene class in neither (floors) fails.
             sensor["modalities"] = ["rgb", "seg_instance"]
     if visual_bg is not None and visual_bg.kit_settings:
         # og.app is set by og.launch above, and the environment is built only after these settings are in place

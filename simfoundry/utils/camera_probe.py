@@ -42,8 +42,8 @@ def probe_arrays(obs, info):
 
     Args:
         obs: the observation dict of that read: ``rgb`` (H x W x 3 or 4) and ``seg_instance`` are required, and
-            ``seg_semantic`` is read when the read has it. A subset install has no BEHAVIOR category list, so its
-            semantic channel cannot be built and the probe is run on ``seg_instance`` alone.
+            ``seg_semantic`` is read when the read has it. OmniGibson returns it together with ``seg_instance``
+            (vision_sensor.py:180-185), so a read with ``seg_instance`` has it too.
         info: the info dict of that read. Each segmentation channel has an id -> name (or label) table in it.
 
     Returns:
