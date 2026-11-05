@@ -1027,7 +1027,7 @@ def main():
     visual_bg = None
     # The splat background replaces the 5c mesh after the scene edit and before the sensors (off by default).
     if args.visual_background is not None:
-        from simfoundry.utils.splat_background import load_visual_background, swap_visual_background
+        from simfoundry.utils.splat_background import load_visual_background, swap_visual_background, apply_splat_ccm
         visual_bg = load_visual_background(args.visual_background)
         changes["visual_background"] = swap_visual_background(scene, visual_bg)
         print("[eps] visual background:", visual_bg.name, visual_bg.usdz, "dz_m", visual_bg.dz_m,
@@ -1077,6 +1077,11 @@ def main():
         sp = og.sim._physics_context.get_current_physics_scene_prim()
         print("[eps] physx enhanced determinism:", sp.GetPath(),
               PhysxSchema.PhysxSceneAPI(sp).GetEnableEnhancedDeterminismAttr().Get(), flush=True)
+    if visual_bg is not None and visual_bg.ccm is not None:  # the splat's colour matrix: the renders after this one use it (O-7b)
+        gs = env.scene.object_registry("name", "gs_background")
+        changes["visual_background"]["ccm_applied"] = apply_splat_ccm(gs.prim, visual_bg.ccm)
+        for _ in range(3):
+            og.sim.render()
     cams = {n: env.external_sensors[n] for n in ("front", "wrist") + (("overview",) if args.overview else ())}
     robot = env.robots[0]
     knife = env.scene.object_registry("name", T.KNIFE)

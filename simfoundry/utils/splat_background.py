@@ -10,6 +10,9 @@ proposal, scene sampling) must see the same objects.
 The pose formula is the one ``photo_metric/render_photo_view.py`` uses to place the splat in the OmniGibson renders
 that were checked against the photos; the entry format follows ``7_build_og_scene_assets.py``. Only numpy and the
 standard library are imported here, so the module loads in the light editor env and in every env that runs its tests.
+
+The optional colour matrix (``ccm``) is a second, run-time change: ``apply_splat_ccm`` writes it to the splat's own prims
+once they exist. A spec without one changes nothing, in the scene or in the record.
 """
 
 from __future__ import annotations
@@ -31,9 +34,12 @@ _SCALE_RANGE = (0.1, 10.0)
 _ORTHO_TOL = 1e-6
 _LAST_ROW_TOL = 1e-9
 _SPEC_KEYS = frozenset(
-    {"schema", "name", "usdz", "pose_json", "matrix", "dz_m", "floor_plane_visible", "remove", "kit_settings", "color"}
+    {"schema", "name", "usdz", "pose_json", "matrix", "dz_m", "floor_plane_visible", "remove", "kit_settings", "color",
+     "ccm"}
 )
 _DEFAULT_REMOVE = ("mesh_background_0",)
+_CCM_LIMIT = 4.0  # a larger entry is more likely a typo than a correction, so it is refused
+CCM_ATTRIBUTES = ("omni:nurec:ccmR", "omni:nurec:ccmG", "omni:nurec:ccmB")  # the rows of the splat's colour matrix
 
 
 class SplatBackgroundError(ValueError):
@@ -53,6 +59,7 @@ class SplatBackgroundSpec:
     remove: tuple[str, ...]
     kit_settings: dict[str, Any]
     color: dict | None
+    ccm: tuple[tuple[float, ...], ...] | None = None  # the splat's 3 x 4 colour matrix; None changes nothing at run time
 
 
 def load_visual_background(path) -> SplatBackgroundSpec:
@@ -146,6 +153,8 @@ def load_visual_background(path) -> SplatBackgroundSpec:
     if raw.get("color") is not None:
         raise SplatBackgroundError("\"color\" is not implemented yet: the spec must say null")
 
+    ccm = _checked_ccm(raw.get("ccm"), '"ccm"')
+
     return SplatBackgroundSpec(
         name=name,
         usdz=usdz,
@@ -156,6 +165,7 @@ def load_visual_background(path) -> SplatBackgroundSpec:
         remove=tuple(remove_raw),
         kit_settings=dict(kit_settings),
         color=None,
+        ccm=ccm,
     )
 
 
@@ -255,6 +265,7 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
         if name not in init_info or name not in registry:
             raise SplatBackgroundError(f"{name!r} must be in both init_info and object_registry of the scene")
     _checked_matrix(spec.matrix, "the spec's matrix")  # a spec built by hand is checked as well as a loaded one
+    ccm = _checked_ccm(spec.ccm, "the spec's ccm")
     try:
         md5 = md5_of_file(spec.usdz)
     except OSError as error:
@@ -268,7 +279,7 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
         del registry[name]
     init_info[GS_NAME] = entry
     registry[GS_NAME] = state
-    return {
+    record = {
         "name": spec.name,
         "usdz": str(spec.usdz),
         "md5": md5,
@@ -280,6 +291,56 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
         "floor_plane_visible": bool(spec.floor_plane_visible),
         "kit_settings": dict(spec.kit_settings),
     }
+    if ccm is not None:  # no key at all without a matrix, so the record of a plain swap is the same as before
+        record["ccm"] = [list(row) for row in ccm]
+    return record
+
+
+def apply_splat_ccm(root_prim, rows, make_vec=None) -> list[dict]:
+    """Writes the splat's 3 x 4 colour matrix to the prims under ``root_prim`` that carry it, and returns what was written.
+
+    ``rows[0]``, ``rows[1]`` and ``rows[2]`` go to ``omni:nurec:ccmR``, ``omni:nurec:ccmG`` and ``omni:nurec:ccmB``, each
+    through ``make_vec(*row)``. The default ``make_vec`` makes a ``pxr.Gf.Vec4f``, and pxr is imported only there. Every
+    check runs before the first write: a prim with some of the three attributes is refused, and so is a splat with none,
+    because a matrix written in part, or not at all, would look applied when it is not.
+
+    Returns:
+        One record per attribute written: the prim's path, the attribute's name, and the value read back, as text.
+    """
+    if len(rows) != 3 or any(len(row) != 4 for row in rows):
+        raise SplatBackgroundError("apply_splat_ccm needs 3 rows of 4 numbers")
+    targets = []
+    for prim in _prims_under(root_prim):
+        attrs = [(name, prim.GetAttribute(name)) for name in CCM_ATTRIBUTES]
+        present = [(name, attr) for name, attr in attrs if attr is not None and attr.IsValid()]
+        if not present:
+            continue
+        if len(present) != len(CCM_ATTRIBUTES):
+            absent = [name for name, attr in attrs if attr is None or not attr.IsValid()]
+            raise SplatBackgroundError(f"{prim.GetPath()} carries part of the colour matrix; missing {absent}")
+        targets.append((prim, present))
+    if not targets:
+        raise SplatBackgroundError(f"no prim under the splat carries {list(CCM_ATTRIBUTES)}: nothing would be written")
+    make = _vec4f if make_vec is None else make_vec
+    written = []
+    for prim, present in targets:
+        for (name, attr), row in zip(present, rows):
+            attr.Set(make(*row))
+            written.append({"prim": str(prim.GetPath()), "attr": name, "read_back": str(attr.Get())})
+    return written
+
+
+def _prims_under(prim):
+    """``prim`` and every prim below it, each before its children, in the order the children are listed."""
+    yield prim
+    for child in prim.GetChildren():
+        yield from _prims_under(child)
+
+
+def _vec4f(*values):
+    from pxr import Gf  # imported here, not at the top: the module is loaded by envs that have no pxr
+
+    return Gf.Vec4f(*[float(v) for v in values])
 
 
 def _resolve(spec_dir: Path, text: str) -> Path:
@@ -331,6 +392,19 @@ def _checked_matrix(value, where: str) -> np.ndarray:
     if np.max(np.abs(unit.T @ unit - np.eye(3))) > _ORTHO_TOL:
         raise SplatBackgroundError(f"{where}: the rotation part is not a similarity (A/s is not orthogonal)")
     return m
+
+
+def _checked_ccm(value, where: str):
+    """A 3 x 4 colour matrix as three tuples of floats, ``None`` for no matrix, or a refusal that names ``where``."""
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or len(value) != 3 or not all(
+            isinstance(row, (list, tuple)) and len(row) == 4 for row in value):
+        raise SplatBackgroundError(f"{where} must be null or 3 rows of 4 numbers")
+    # NaN fails the comparison, so it is refused with the infinities; a huge int is refused before any float() call
+    if not all(_is_real(v) and abs(v) <= _CCM_LIMIT for row in value for v in row):
+        raise SplatBackgroundError(f"{where} must hold only finite numbers, not bools, with |value| <= {_CCM_LIMIT}")
+    return tuple(tuple(float(v) for v in row) for row in value)
 
 
 def _quat_xyzw(rot: np.ndarray) -> np.ndarray:

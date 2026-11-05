@@ -128,6 +128,13 @@ def _drop_probe(stmts):
 def _main_without_probe(main):
     tree = copy.deepcopy(main)
     tree.body = _drop_probe(tree.body)
+    # The colour-matrix hook and the name it adds to the splat import belong to the visual background, and they are
+    # additions over the base too. Taken out here, so that this test still checks the probe's additions alone.
+    tree.body = [s for s in tree.body
+                 if not (isinstance(s, ast.If) and _is_test(s.test, "visual_bg is not None and visual_bg.ccm is not None"))]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "simfoundry.utils.splat_background":
+            node.names = [alias for alias in node.names if alias.name != "apply_splat_ccm"]
     return tree
 
 

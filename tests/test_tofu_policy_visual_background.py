@@ -45,7 +45,7 @@ VISUAL_TEST = "args.visual_background is not None"
 KIT_TEST = "visual_bg is not None and visual_bg.kit_settings"
 VISUAL_INIT = "visual_bg = None"
 VISUAL_BODY = """\
-from simfoundry.utils.splat_background import load_visual_background, swap_visual_background
+from simfoundry.utils.splat_background import load_visual_background, swap_visual_background, apply_splat_ccm
 visual_bg = load_visual_background(args.visual_background)
 changes["visual_background"] = swap_visual_background(scene, visual_bg)
 print("[eps] visual background:", visual_bg.name, visual_bg.usdz, "dz_m", visual_bg.dz_m,
@@ -61,6 +61,13 @@ for key, value in visual_bg.kit_settings.items():
         applied[key] = {"value": value, "ok": False, "error": str(error)}
         print(f"[eps] visual background: set_setting {key!r} failed: {error}", flush=True)
 changes["visual_background"]["kit_settings_applied"] = applied
+"""
+CCM_TEST = "visual_bg is not None and visual_bg.ccm is not None"
+CCM_BODY = """\
+gs = env.scene.object_registry("name", "gs_background")
+changes["visual_background"]["ccm_applied"] = apply_splat_ccm(gs.prim, visual_bg.ccm)
+for _ in range(3):
+    og.sim.render()
 """
 
 
@@ -103,6 +110,10 @@ def _is_visual_if(stmt):
 
 def _is_kit_if(stmt):
     return isinstance(stmt, ast.If) and _is_test(stmt.test, KIT_TEST)
+
+
+def _is_ccm_if(stmt):
+    return isinstance(stmt, ast.If) and _is_test(stmt.test, CCM_TEST)
 
 
 def _is_visual_init(stmt):
@@ -179,7 +190,7 @@ def _without_additions(main):
     """
     tree = copy.deepcopy(main)
     tree.body = [s for s in tree.body
-                 if not (_is_visual_arg(s) or _is_visual_init(s) or _is_visual_if(s) or _is_kit_if(s))]
+                 if not (_is_visual_arg(s) or _is_visual_init(s) or _is_visual_if(s) or _is_kit_if(s) or _is_ccm_if(s))]
     tree.body = _drop_probe(tree.body)
     scene = _env_scene(_env_call(tree))
     for kw in scene.keywords:
@@ -345,7 +356,7 @@ def test_changes_are_written_only_inside_the_visual_branches():
                     while isinstance(root, ast.Subscript):
                         root = root.value
                     if isinstance(root, ast.Name) and root.id == "changes":
-                        inside = any(_is_visual_if(s) or _is_kit_if(s) for s in _enclosing_ifs(node, parents))
+                        inside = any(_is_visual_if(s) or _is_kit_if(s) or _is_ccm_if(s) for s in _enclosing_ifs(node, parents))
                         out.append((_text(target), inside))
         return out
     now, base = writes(MAIN), writes(MAIN_BASE)
@@ -353,4 +364,38 @@ def test_changes_are_written_only_inside_the_visual_branches():
     assert sorted(t for t, inside in now if inside) == sorted([
         _text(_expr('changes["visual_background"]')),
         _text(_expr('changes["visual_background"]["kit_settings_applied"]')),
+        _text(_expr('changes["visual_background"]["ccm_applied"]')),
     ])
+
+
+# ---------------------------------------------------------------- structure: the colour-matrix hook (off unless the spec has one)
+
+
+def _ccm_index(body):
+    found = [i for i, s in enumerate(body) if _is_ccm_if(s)]
+    assert len(found) == 1, "the colour-matrix hook must be one top-level if of main, with exactly the condition in CCM_TEST"
+    return found[0]
+
+
+def test_ccm_hook_content_and_place():
+    body = MAIN.body
+    i = _ccm_index(body)
+    assert not body[i].orelse
+    assert [ast.dump(s) for s in body[i].body] == [ast.dump(s) for s in _stmts(CCM_BODY)]
+    reset = [k for k, s in enumerate(body) if isinstance(s, ast.Expr) and _text(s.value) == "env.reset()"]
+    # the runner has two physx blocks: one before the environment is built, and the one after env.reset() that counts here
+    physx = [k for k in _if_index(body, "args.physx_enhanced_determinism") if k > reset[0]]
+    cams = _assign_index(body, "cams")
+    assert len(reset) == 1 and len(physx) == 1 and len(cams) == 1
+    assert reset[0] < physx[0] < i < cams[0], "the hook comes after env.reset() and the physx block, and before cams"
+
+
+def test_ccm_is_applied_only_inside_its_branch_and_then_renders_three_times():
+    parents = _parents(CURRENT)
+    branch = MAIN.body[_ccm_index(MAIN.body)]
+    calls = [n for n in ast.walk(CURRENT) if isinstance(n, ast.Call) and _text(n.func) == "apply_splat_ccm"]
+    assert len(calls) == 1
+    assert any(s is branch for s in _enclosing_ifs(calls[0], parents))
+    loops = [s for s in branch.body if isinstance(s, ast.For)]
+    assert len(loops) == 1 and _text(loops[0].iter) == "range(3)"
+    assert [_text(s.value.func) for s in loops[0].body if isinstance(s, ast.Expr)] == ["og.sim.render"]

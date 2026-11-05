@@ -10,9 +10,11 @@ OmniGibson at module level, so it runs in the simfoundry env.
 """
 
 import copy
+import dataclasses
 import functools
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -818,3 +820,180 @@ def test_usdz_is_a_nurec_volume_whose_extent_is_the_ply_aabb():
     lo, hi = _ply_vertex_aabb(PD_PLY)
     assert np.max(np.abs(np.array(extent[0]) - lo)) <= 1e-4
     assert np.max(np.abs(np.array(extent[1]) - hi)) <= 1e-4
+
+
+# ---------------------------------------------------------------- colour matrix (ccm): run-time colour of the splat only
+
+CCM_ROWS = [[1.1, 0.0, 0.0, 0.02], [0.0, 1.0, 0.0, -0.01], [0.0, 0.0, 0.9, 0.0]]
+BAD_CCMS = [
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],  # two rows
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],  # a short row
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0, 0.0]],  # a long row
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], "0 0 1 0"],  # a row that is not a list
+    "identity",  # not a list
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, True]],  # a bool
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, None]],  # null
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, float("nan")]],  # not a number
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, float("inf")]],  # not finite
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 4.5]],  # over the limit
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, -4.5]],  # under the limit
+]
+
+
+class _Attr:
+    """Stands in for a USD attribute: the three calls ``apply_splat_ccm`` makes (``IsValid``, ``Get``, ``Set``)."""
+
+    def __init__(self, name, valid=True):
+        self.name, self.valid, self.value, self.sets = name, valid, None, []
+
+    def IsValid(self):
+        return self.valid
+
+    def Get(self):
+        return self.value
+
+    def Set(self, value):
+        self.sets.append(value)
+        self.value = value
+
+
+class _Prim:
+    """Stands in for a USD prim: a path, child prims, and attributes looked up by name (a missing one is None, as in USD)."""
+
+    def __init__(self, path, attrs=(), children=()):
+        self.path, self.children = path, list(children)
+        self.attrs = {attr.name: attr for attr in attrs}
+
+    def GetPath(self):
+        return self.path
+
+    def GetChildren(self):
+        return list(self.children)
+
+    def GetAttribute(self, name):
+        return self.attrs.get(name)
+
+
+def _carriers():
+    return [_Attr(name) for name in sb.CCM_ATTRIBUTES]
+
+
+def _tuple_vec(*values):
+    return ("vec", values)
+
+
+def test_ccm_is_none_when_the_key_is_absent_or_null(tmp_path, usdz_file):
+    assert sb.load_visual_background(_spec_file(tmp_path, _body())).ccm is None
+    assert sb.load_visual_background(_spec_file(tmp_path, _body(ccm=None), "null.json")).ccm is None
+
+
+def test_a_ccm_loads_as_three_tuples_of_four_floats(tmp_path, usdz_file):
+    ccm = sb.load_visual_background(_spec_file(tmp_path, _body(ccm=[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]))).ccm
+    assert ccm == ((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0))
+    assert all(type(v) is float for row in ccm for v in row)
+
+
+@pytest.mark.parametrize("ccm", BAD_CCMS)
+def test_a_bad_ccm_is_refused_and_named(tmp_path, usdz_file, ccm):
+    with pytest.raises(sb.SplatBackgroundError, match="ccm"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(ccm=ccm)))
+
+
+def test_a_hand_built_spec_with_a_bad_ccm_is_refused_before_any_change(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    spec = dataclasses.replace(sb.load_visual_background(_spec_file(tmp_path, _body())),
+                               ccm=((1.0, 0.0, 0.0, 9.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0)))
+    with pytest.raises(sb.SplatBackgroundError, match="ccm"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_the_record_has_a_ccm_key_only_when_the_spec_has_one(tmp_path, usdz_file):
+    plain = sb.swap_visual_background(_synthetic_scene(), sb.load_visual_background(_spec_file(tmp_path, _body())))
+    assert set(plain) == RECORD_KEYS
+    with_ccm = sb.swap_visual_background(
+        _synthetic_scene(), sb.load_visual_background(_spec_file(tmp_path, _body(ccm=CCM_ROWS), "ccm.json")))
+    assert set(with_ccm) == RECORD_KEYS | {"ccm"}
+    assert with_ccm["ccm"] == CCM_ROWS
+    json.dumps(with_ccm)
+
+
+@pytest.mark.parametrize("depth", [0, 1, 2])
+def test_apply_writes_row_i_to_attribute_i_of_the_prim_that_carries_them(depth):
+    attrs = _carriers()
+    carrier = _Prim("/World/gauss/gauss/emissive_color_field", attrs)
+    root = carrier
+    for _ in range(depth):  # the splat root can be the carrier, or sit above it
+        root = _Prim("/World/wrapper", children=[root])
+    written = sb.apply_splat_ccm(root, CCM_ROWS, make_vec=_tuple_vec)
+    assert [a.sets for a in attrs] == [[_tuple_vec(*row)] for row in CCM_ROWS]
+    assert written == [{"prim": carrier.path, "attr": name, "read_back": str(_tuple_vec(*row))}
+                       for name, row in zip(sb.CCM_ATTRIBUTES, CCM_ROWS)]
+
+
+def test_a_splat_with_no_colour_matrix_is_refused_and_nothing_is_written():
+    root = _Prim("/World/gauss", children=[_Prim("/World/gauss/gauss")])
+    with pytest.raises(sb.SplatBackgroundError, match="ccm"):
+        sb.apply_splat_ccm(root, CCM_ROWS, make_vec=_tuple_vec)
+
+
+def test_an_attribute_that_is_not_valid_counts_as_absent():
+    attrs = [_Attr(sb.CCM_ATTRIBUTES[0]), _Attr(sb.CCM_ATTRIBUTES[1]), _Attr(sb.CCM_ATTRIBUTES[2], valid=False)]
+    with pytest.raises(sb.SplatBackgroundError, match="ccmB"):
+        sb.apply_splat_ccm(_Prim("/World/gauss", attrs), CCM_ROWS, make_vec=_tuple_vec)
+    assert all(a.sets == [] for a in attrs)
+
+
+def test_a_partial_prim_is_refused_before_a_complete_one_is_written():
+    full, partial = _carriers(), [_Attr(sb.CCM_ATTRIBUTES[0]), _Attr(sb.CCM_ATTRIBUTES[1])]
+    root = _Prim("/World/gauss", children=[_Prim("/World/gauss/a", full), _Prim("/World/gauss/b", partial)])
+    with pytest.raises(sb.SplatBackgroundError):
+        sb.apply_splat_ccm(root, CCM_ROWS, make_vec=_tuple_vec)
+    assert all(a.sets == [] for a in full + partial)
+
+
+@pytest.mark.parametrize("rows", [CCM_ROWS[:2], [row[:3] for row in CCM_ROWS]])
+def test_apply_refuses_rows_that_are_not_three_by_four(rows):
+    attrs = _carriers()
+    with pytest.raises(sb.SplatBackgroundError):
+        sb.apply_splat_ccm(_Prim("/World/gauss", attrs), rows, make_vec=_tuple_vec)
+    assert all(a.sets == [] for a in attrs)
+
+
+def test_the_default_vector_is_a_pxr_gf_vec4f_of_plain_floats(monkeypatch):
+    made = []
+
+    def vec4f(*values):
+        made.append(values)
+        return ("Gf.Vec4f", values)
+
+    monkeypatch.setitem(sys.modules, "pxr", SimpleNamespace(Gf=SimpleNamespace(Vec4f=vec4f)))
+    attrs = _carriers()
+    written = sb.apply_splat_ccm(_Prim("/World/gauss", attrs), [[1, 0, 0, 0.5], [0, 1, 0, 0], [0, 0, 1, 0]])
+    assert made == [(1.0, 0.0, 0.0, 0.5), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0)]
+    assert all(type(v) is float for values in made for v in values)
+    assert [a.value for a in attrs] == [("Gf.Vec4f", values) for values in made]
+    assert written[0]["read_back"] == str(("Gf.Vec4f", (1.0, 0.0, 0.0, 0.5)))
+
+
+def test_loading_the_module_does_not_load_pxr():
+    code = "import sys, simfoundry.utils.splat_background; print('pxr' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"
+
+
+def test_apply_on_a_real_usd_stage_writes_the_matrix_and_reads_it_back():
+    pytest.importorskip("pxr")  # usd-core: the simfoundry-editor env has it, the simfoundry env does not
+    from pxr import Gf, Sdf, Usd
+
+    stage = Usd.Stage.CreateInMemory()
+    splat = stage.DefinePrim("/World/gauss", "Xform")
+    emissive = stage.DefinePrim("/World/gauss/gauss/emissive_color_field", "Scope")
+    for name in sb.CCM_ATTRIBUTES:
+        emissive.CreateAttribute(name, Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(0, 0, 0, 0))
+    written = sb.apply_splat_ccm(splat, CCM_ROWS)  # the default make_vec: real Gf.Vec4f values
+    assert written == [{"prim": "/World/gauss/gauss/emissive_color_field", "attr": name, "read_back": str(Gf.Vec4f(*row))}
+                       for name, row in zip(sb.CCM_ATTRIBUTES, CCM_ROWS)]
+    for name, row in zip(sb.CCM_ATTRIBUTES, CCM_ROWS):
+        assert emissive.GetAttribute(name).Get() == Gf.Vec4f(*row)
