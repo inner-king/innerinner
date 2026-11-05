@@ -1164,6 +1164,17 @@ def test_each_box_state_is_centred_on_its_rectangle_with_its_top_at_z_top(tmp_pa
     assert all(type(v) is float for v in root["pos"] + root["ori"])
 
 
+def test_each_box_state_has_the_keys_that_loading_a_cube_reads(tmp_path, usdz_file):
+    # Restoring the initial state calls PrimitiveObject._load_state, which reads state["size"] for a Cube, and serialize
+    # reads radius and height too (primitive_object.py 369-396). Every box has the keys _dump_state writes, for any rectangles.
+    scene = _synthetic_scene()
+    sb.swap_visual_background(scene, _patched_spec(tmp_path))
+    for name in ("counter_patch_0", "counter_patch_1"):
+        state = scene["state"]["registry"]["object_registry"][name]
+        assert set(state) == {"is_asleep", "non_kin", "root_link", "radius", "height", "size"}
+        assert (state["radius"], state["height"], state["size"]) == (-1, -1, 1.0)
+
+
 def test_an_asymmetric_colour_reaches_the_box_in_the_order_it_was_given(tmp_path, usdz_file):
     # The three channels differ, so a swapped channel shows in the box and in the record.
     body = _body(counter_patch=_patch(rgb=[0.1, 0.5, 0.9]), remove=["iter_7"])
@@ -1282,6 +1293,8 @@ def test_golden_two_boxes_on_the_p3_scene_match_the_hand_computed_values(tmp_pat
         assert init[name]["args"]["scale"] == pytest.approx(scale, abs=1e-12)
         assert init[name]["args"]["rgba"] == [0.8, 0.8, 0.8, 1.0]
         assert registry[name]["root_link"]["pos"] == pytest.approx(centre, abs=1e-12)
+        assert set(registry[name]) == {"is_asleep", "non_kin", "root_link", "radius", "height", "size"}
+        assert (registry[name]["radius"], registry[name]["height"], registry[name]["size"]) == (-1, -1, 1.0)
     for key in kept:  # the other objects are as they were
         assert init[key] == before["objects_info"]["init_info"][key]
         assert registry[key] == before["state"]["registry"]["object_registry"][key]

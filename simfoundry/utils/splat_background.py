@@ -290,10 +290,19 @@ def counter_patch_entry(index: int, rect, thickness_m: float, rgb) -> dict:
 
 
 def counter_patch_state(rect, z_top_m: float, thickness_m: float) -> dict:
-    """The ``object_registry`` state of one counter-patch box: centred on its rectangle, its top face at ``z_top_m``."""
+    """The ``object_registry`` state of one counter-patch box: centred on its rectangle, its top face at ``z_top_m``.
+
+    The three keys beyond a plain splat state are the ones OmniGibson's ``PrimitiveObject`` needs for a Cube. Restoring a
+    scene's initial state calls ``_load_state``, which reads ``state["size"]`` for a Cube (primitive_object.py 369-377, with
+    VALID_SIZE_OBJECTS on line 20); a missing key is a KeyError. ``_dump_state`` (361-367) writes -1 for the radius and the
+    height of a Cube, and the size, which is 1.0. The size setter with 1.0 leaves the geometry as it is (312-343): its scale
+    factor is 1.0, because the box's size is its prim scale, not its extent.
+    """
     xmin, xmax, ymin, ymax = (float(v) for v in rect)
     pos = ((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, float(z_top_m) - float(thickness_m) / 2.0)
-    return gs_background_state(pos, [0.0, 0.0, 0.0, 1.0])
+    state = gs_background_state(pos, [0.0, 0.0, 0.0, 1.0])
+    state.update({"radius": -1, "height": -1, "size": 1.0})  # appended after the three keys of a plain splat state
+    return state
 
 
 def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
