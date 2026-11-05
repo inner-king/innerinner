@@ -305,11 +305,11 @@ def gs_background_state(pos, quat_xyzw) -> dict:
 def counter_patch_entry(index: int, rect, thickness_m: float, rgb) -> dict:
     """The ``init_info`` entry of one counter-patch box: a Cube, scaled to the rectangle.
 
-    OmniGibson's default Cube is 1 m on a side (``create_primitive_mesh`` with extents 1.0, omnigibson/utils/usd_utils.py
-    1668-1710), so ``scale`` is the box's size in metres: x and y from the rectangle, z the thickness. ``size`` is not
-    passed. With a custom ``scale`` OmniGibson ignores ``size`` (omnigibson/objects/primitive_object.py 150-152) and logs
-    one warning for each box, which is expected. The box is visual only and fixed, so it adds nothing to collision or
-    to the dynamics.
+    OmniGibson's default Cube is 1 m on a side (``create_primitive_mesh`` in omnigibson/utils/usd_utils.py, with extents
+    1.0), so ``scale`` is the box's size in metres: x and y from the rectangle, z the thickness. ``size`` is not
+    passed. With a custom ``scale`` OmniGibson ignores ``size`` (``PrimitiveObject._post_load`` in
+    omnigibson/objects/primitive_object.py) and logs one warning for each box, which is expected. The box is visual only
+    and fixed, so it adds nothing to collision or to the dynamics.
     """
     xmin, xmax, ymin, ymax = (float(v) for v in rect)
     r, g, b = (float(v) for v in rgb)
@@ -331,10 +331,10 @@ def counter_patch_state(rect, z_top_m: float, thickness_m: float) -> dict:
     """The ``object_registry`` state of one counter-patch box: centred on its rectangle, its top face at ``z_top_m``.
 
     The three keys beyond a plain splat state are the ones OmniGibson's ``PrimitiveObject`` needs for a Cube. Restoring a
-    scene's initial state calls ``_load_state``, which reads ``state["size"]`` for a Cube (primitive_object.py 369-377, with
-    VALID_SIZE_OBJECTS on line 20); a missing key is a KeyError. ``_dump_state`` (361-367) writes -1 for the radius and the
-    height of a Cube, and the size, which is 1.0. The size setter with 1.0 leaves the geometry as it is (312-343): its scale
-    factor is 1.0, because the box's size is its prim scale, not its extent.
+    scene's initial state calls ``_load_state`` (omnigibson/objects/primitive_object.py), which reads ``state["size"]`` for a
+    Cube (``VALID_SIZE_OBJECTS`` in the same file lists Cube); a missing key is a KeyError. ``_dump_state`` (same file)
+    writes -1 for the radius and the height of a Cube, and the size, which is 1.0. The ``size`` setter of that class, with
+    1.0, leaves the geometry as it is: its scale factor is 1.0, because the box's size is its prim scale, not its extent.
     """
     xmin, xmax, ymin, ymax = (float(v) for v in rect)
     pos = ((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, float(z_top_m) - float(thickness_m) / 2.0)
