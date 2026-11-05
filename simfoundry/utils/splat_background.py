@@ -13,6 +13,10 @@ standard library are imported here, so the module loads in the light editor env 
 
 The optional colour matrix (``ccm``) is a second, run-time change: ``apply_splat_ccm`` writes it to the splat's own prims
 once they exist. A spec without one changes nothing, in the scene or in the record.
+
+The optional ``counter_patch`` adds opaque, visual-only boxes just below the splat's countertop, one per rectangle. They
+follow the splat in both sections, so where the splat draws nothing they show instead of the sky. A spec without one
+changes nothing either: no entry, and no key in the record.
 """
 
 from __future__ import annotations
@@ -35,15 +39,34 @@ _ORTHO_TOL = 1e-6
 _LAST_ROW_TOL = 1e-9
 _SPEC_KEYS = frozenset(
     {"schema", "name", "usdz", "pose_json", "matrix", "dz_m", "floor_plane_visible", "remove", "kit_settings", "color",
-     "ccm"}
+     "ccm", "counter_patch"}
 )
 _DEFAULT_REMOVE = ("mesh_background_0",)
 _CCM_LIMIT = 4.0  # a larger entry is more likely a typo than a correction, so it is refused
 CCM_ATTRIBUTES = ("omni:nurec:ccmR", "omni:nurec:ccmG", "omni:nurec:ccmB")  # the rows of the splat's colour matrix
+PATCH_NAME_PREFIX = "counter_patch_"  # a box is named by this prefix and its rectangle's index
+_PATCH_KEYS = frozenset({"rects", "z_top_m", "thickness_m", "rgb"})
+_PATCH_MAX_RECTS = 8
+_PATCH_MAX_ABS_M = 5.0  # a corner further out is more likely a typo than a patch, so it is refused
+_PATCH_MAX_THICKNESS_M = 0.05
 
 
 class SplatBackgroundError(ValueError):
     """A spec or a scene that cannot take the swap. It is raised before anything is changed."""
+
+
+@dataclasses.dataclass(frozen=True)
+class CounterPatch:
+    """A checked counter patch: one opaque box per rectangle, just under the splat's countertop.
+
+    ``rects`` are ``(xmin, xmax, ymin, ymax)`` in the scene frame. Each box's top face is at ``z_top_m`` and it is
+    ``thickness_m`` thick. ``rgb`` is its colour, each channel in [0, 1]. The boxes are visual only and add no collision.
+    """
+
+    rects: tuple[tuple[float, float, float, float], ...]
+    z_top_m: float
+    thickness_m: float
+    rgb: tuple[float, float, float]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,6 +83,7 @@ class SplatBackgroundSpec:
     kit_settings: dict[str, Any]
     color: dict | None
     ccm: tuple[tuple[float, ...], ...] | None = None  # the splat's 3 x 4 colour matrix; None changes nothing at run time
+    counter_patch: CounterPatch | None = None  # None adds no boxes to the scene
 
 
 def load_visual_background(path) -> SplatBackgroundSpec:
@@ -154,6 +178,7 @@ def load_visual_background(path) -> SplatBackgroundSpec:
         raise SplatBackgroundError("\"color\" is not implemented yet: the spec must say null")
 
     ccm = _checked_ccm(raw.get("ccm"), '"ccm"')
+    patch = _checked_counter_patch(raw.get("counter_patch"), '"counter_patch"')
 
     return SplatBackgroundSpec(
         name=name,
@@ -166,6 +191,7 @@ def load_visual_background(path) -> SplatBackgroundSpec:
         kit_settings=dict(kit_settings),
         color=None,
         ccm=ccm,
+        counter_patch=patch,
     )
 
 
@@ -240,12 +266,42 @@ def gs_background_state(pos, quat_xyzw) -> dict:
     }
 
 
+def counter_patch_entry(index: int, rect, thickness_m: float, rgb) -> dict:
+    """The ``init_info`` entry of one counter-patch box: a unit cube that ``scale`` stretches to the rectangle.
+
+    ``size`` is 1.0, so ``scale`` is the box's size in metres. The box is visual only and fixed, so it adds nothing to
+    collision or to the dynamics.
+    """
+    xmin, xmax, ymin, ymax = (float(v) for v in rect)
+    r, g, b = (float(v) for v in rgb)
+    return {
+        "class_module": "omnigibson.objects.primitive_object",
+        "class_name": "PrimitiveObject",
+        "args": {
+            "name": f"{PATCH_NAME_PREFIX}{index}",
+            "primitive_type": "Cube",
+            "size": 1.0,
+            "scale": [xmax - xmin, ymax - ymin, float(thickness_m)],
+            "rgba": [r, g, b, 1.0],
+            "visual_only": True,
+            "fixed_base": True,
+        },
+    }
+
+
+def counter_patch_state(rect, z_top_m: float, thickness_m: float) -> dict:
+    """The ``object_registry`` state of one counter-patch box: centred on its rectangle, its top face at ``z_top_m``."""
+    xmin, xmax, ymin, ymax = (float(v) for v in rect)
+    pos = ((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, float(z_top_m) - float(thickness_m) / 2.0)
+    return gs_background_state(pos, [0.0, 0.0, 0.0, 1.0])
+
+
 def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
     """Puts the splat in place of the spec's ``remove`` objects, in ``scene`` (changed in place).
 
-    Every check runs before the first change, so a refused swap leaves ``scene`` as it was. Each removed name must be
-    in both ``init_info`` and ``object_registry``. A name in only one of them would leave the scene half changed, so the
-    swap is refused instead.
+    The spec's counter-patch boxes, if it has any, follow the splat in both sections. Every check runs before the first
+    change, so a refused swap leaves ``scene`` as it was. Each removed name must be in both ``init_info`` and
+    ``object_registry``. A name in only one of them would leave the scene half changed, so the swap is refused instead.
 
     Returns:
         A record of the change that can go into ``setup.json`` as it is (plain strings, numbers, lists and dicts).
@@ -266,6 +322,11 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
             raise SplatBackgroundError(f"{name!r} must be in both init_info and object_registry of the scene")
     _checked_matrix(spec.matrix, "the spec's matrix")  # a spec built by hand is checked as well as a loaded one
     ccm = _checked_ccm(spec.ccm, "the spec's ccm")
+    patch = _checked_counter_patch(spec.counter_patch, "the spec's counter_patch")
+    patch_names = [f"{PATCH_NAME_PREFIX}{index}" for index in range(len(patch.rects))] if patch is not None else []
+    for name in patch_names:
+        if name in init_info or name in registry:
+            raise SplatBackgroundError(f"the scene already has a {name!r} object")
     try:
         md5 = md5_of_file(spec.usdz)
     except OSError as error:
@@ -279,6 +340,10 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
         del registry[name]
     init_info[GS_NAME] = entry
     registry[GS_NAME] = state
+    if patch is not None:  # the boxes come after the splat, in rectangle order, in both sections
+        for index, rect in enumerate(patch.rects):
+            init_info[patch_names[index]] = counter_patch_entry(index, rect, patch.thickness_m, patch.rgb)
+            registry[patch_names[index]] = counter_patch_state(rect, patch.z_top_m, patch.thickness_m)
     record = {
         "name": spec.name,
         "usdz": str(spec.usdz),
@@ -293,6 +358,14 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
     }
     if ccm is not None:  # no key at all without a matrix, so the record of a plain swap is the same as before
         record["ccm"] = [list(row) for row in ccm]
+    if patch is not None:  # no key at all without boxes, for the same reason
+        record["counter_patch"] = {
+            "names": patch_names,
+            "rects": [list(rect) for rect in patch.rects],
+            "z_top_m": patch.z_top_m,
+            "thickness_m": patch.thickness_m,
+            "rgb": list(patch.rgb),
+        }
     return record
 
 
@@ -405,6 +478,54 @@ def _checked_ccm(value, where: str):
     if not all(_is_real(v) and abs(v) <= _CCM_LIMIT for row in value for v in row):
         raise SplatBackgroundError(f"{where} must hold only finite numbers, not bools, with |value| <= {_CCM_LIMIT}")
     return tuple(tuple(float(v) for v in row) for row in value)
+
+
+def _checked_counter_patch(value, where: str):
+    """A ``counter_patch`` as a ``CounterPatch`` of plain floats, ``None`` for no patch, or a refusal that names ``where``.
+
+    ``value`` is the spec's object or a ``CounterPatch`` built in code, so a hand-built spec is checked as well. Each bound
+    is a comparison that is False for NaN and for infinities, so none needs a test of its own. The comparisons come before
+    any ``float()`` call, because a huge int overflows ``float``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, CounterPatch):
+        value = {"rects": value.rects, "z_top_m": value.z_top_m, "thickness_m": value.thickness_m, "rgb": value.rgb}
+    if not isinstance(value, dict):
+        raise SplatBackgroundError(
+            f"{where} must be null or an object with \"rects\", \"z_top_m\", \"thickness_m\" and \"rgb\"")
+    unknown = sorted(set(value) - _PATCH_KEYS)
+    if unknown:
+        raise SplatBackgroundError(f"{where} has unknown key(s): {unknown}")
+    missing = sorted(_PATCH_KEYS - set(value))
+    if missing:
+        raise SplatBackgroundError(f"{where} is missing key(s): {missing}")
+    rects = value["rects"]
+    if not isinstance(rects, (list, tuple)) or not 1 <= len(rects) <= _PATCH_MAX_RECTS:
+        raise SplatBackgroundError(f"{where}: rects must be a list of 1 to {_PATCH_MAX_RECTS} rectangles")
+    checked = []
+    for index, rect in enumerate(rects):
+        if not isinstance(rect, (list, tuple)) or len(rect) != 4 or not all(
+                _is_real(v) and abs(v) <= _PATCH_MAX_ABS_M for v in rect):
+            raise SplatBackgroundError(
+                f"{where}: rects[{index}] must be 4 numbers [xmin, xmax, ymin, ymax], "
+                f"each with |value| <= {_PATCH_MAX_ABS_M} m")
+        xmin, xmax, ymin, ymax = (float(v) for v in rect)
+        if not (xmin < xmax and ymin < ymax):
+            raise SplatBackgroundError(f"{where}: rects[{index}] needs xmin < xmax and ymin < ymax, got {list(rect)}")
+        checked.append((xmin, xmax, ymin, ymax))
+    z_top = value["z_top_m"]
+    if not _is_real(z_top) or not abs(z_top) <= MAX_ABS_DZ_M:
+        raise SplatBackgroundError(
+            f"{where}: z_top_m must be a finite number with |z_top_m| <= {MAX_ABS_DZ_M} m, got {z_top!r}")
+    thickness = value["thickness_m"]
+    if not _is_real(thickness) or not 0.0 < thickness <= _PATCH_MAX_THICKNESS_M:
+        raise SplatBackgroundError(f"{where}: thickness_m must be in (0, {_PATCH_MAX_THICKNESS_M}] m, got {thickness!r}")
+    rgb = value["rgb"]
+    if not isinstance(rgb, (list, tuple)) or len(rgb) != 3 or not all(_is_real(v) and 0.0 <= v <= 1.0 for v in rgb):
+        raise SplatBackgroundError(f"{where}: rgb must be 3 numbers in [0, 1], got {rgb!r}")
+    return CounterPatch(rects=tuple(checked), z_top_m=float(z_top), thickness_m=float(thickness),
+                        rgb=tuple(float(v) for v in rgb))
 
 
 def _quat_xyzw(rot: np.ndarray) -> np.ndarray:

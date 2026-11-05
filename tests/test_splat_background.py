@@ -9,6 +9,7 @@ runs in simfoundry-editor. The ``edit_scene`` test imports ``scripts/cutting/tof
 OmniGibson at module level, so it runs in the simfoundry env.
 """
 
+import ast
 import copy
 import dataclasses
 import functools
@@ -1008,3 +1009,318 @@ def test_apply_on_a_real_usd_stage_writes_the_matrix_and_reads_it_back():
                        for name, row in zip(sb.CCM_ATTRIBUTES, CCM_ROWS)]
     for name, row in zip(sb.CCM_ATTRIBUTES, CCM_ROWS):
         assert emissive.GetAttribute(name).Get() == Gf.Vec4f(*row)
+
+
+# ---------------------------------------------- counter patch (I12): opaque boxes under the countertop
+
+PATCH_RECTS = [[-0.62, 0.05, -0.62, -0.10], [-0.34, 0.005, -0.08, 0.28]]  # two rectangles, as a spec gives them
+
+
+def _patch(**changes):
+    """A valid counter_patch object with one rectangle, with ``changes`` applied."""
+    body = {"rects": [[-0.62, 0.05, -0.62, -0.10]], "z_top_m": -0.0005, "thickness_m": 0.004, "rgb": [0.8, 0.8, 0.8]}
+    body.update(changes)
+    return body
+
+
+def _patched_spec(tmp_path, patch=None, remove=("mesh_background_0", "iter_7")):
+    """A spec with two boxes, unless ``patch`` is given. The spec file is written and loaded at once."""
+    body = _body(remove=list(remove), counter_patch=_patch(rects=PATCH_RECTS) if patch is None else patch)
+    return sb.load_visual_background(_spec_file(tmp_path, body, name="patched.json"))
+
+
+PATCH_REFUSALS = {
+    "missing_rects": lambda p: p.pop("rects"),
+    "missing_z_top": lambda p: p.pop("z_top_m"),
+    "missing_thickness": lambda p: p.pop("thickness_m"),
+    "missing_rgb": lambda p: p.pop("rgb"),
+    "unknown_key": lambda p: p.update(alpha=1.0),
+    "no_rects": lambda p: p.update(rects=[]),
+    "nine_rects": lambda p: p.update(rects=[[-0.5, -0.4, -0.5, -0.4] for _ in range(9)]),
+    "rect_three_numbers": lambda p: p.update(rects=[[-0.62, 0.05, -0.62]]),
+    "rect_five_numbers": lambda p: p.update(rects=[[-0.62, 0.05, -0.62, -0.10, 0.0]]),
+    "rects_flat_numbers": lambda p: p.update(rects=[-0.62, 0.05, -0.62, -0.10]),
+    "rect_is_a_number": lambda p: p.update(rects=[1.0]),
+    "rect_xmin_equal_xmax": lambda p: p.update(rects=[[0.05, 0.05, -0.62, -0.10]]),
+    "rect_xmin_above_xmax": lambda p: p.update(rects=[[0.10, 0.05, -0.62, -0.10]]),
+    "rect_ymin_above_ymax": lambda p: p.update(rects=[[-0.62, 0.05, -0.10, -0.62]]),
+    "rect_corner_over_5_m": lambda p: p.update(rects=[[-5.5, 0.05, -0.62, -0.10]]),
+    # a bool must be refused where its value would make the rectangle valid, or the order test refuses it instead
+    "rect_bool_as_xmax": lambda p: p.update(rects=[[-0.62, True, -0.62, -0.10]]),
+    "rect_bool_as_ymin": lambda p: p.update(rects=[[-0.62, 0.05, False, 0.5]]),
+    "rect_nan": lambda p: p.update(rects=[[float("nan"), 0.05, -0.62, -0.10]]),
+    "rect_inf": lambda p: p.update(rects=[[-0.62, float("inf"), -0.62, -0.10]]),
+    "rect_string": lambda p: p.update(rects=[["-0.62", 0.05, -0.62, -0.10]]),
+    "z_top_too_high": lambda p: p.update(z_top_m=0.021),
+    "z_top_too_low": lambda p: p.update(z_top_m=-0.021),
+    "z_top_nan": lambda p: p.update(z_top_m=float("nan")),
+    "z_top_bool": lambda p: p.update(z_top_m=False),
+    "thickness_zero": lambda p: p.update(thickness_m=0.0),
+    "thickness_negative": lambda p: p.update(thickness_m=-0.004),
+    "thickness_over_5_cm": lambda p: p.update(thickness_m=0.051),
+    "thickness_inf": lambda p: p.update(thickness_m=float("inf")),
+    "rgb_above_1": lambda p: p.update(rgb=[0.8, 0.8, 1.01]),
+    "rgb_below_0": lambda p: p.update(rgb=[-0.01, 0.8, 0.8]),
+    "rgb_two_numbers": lambda p: p.update(rgb=[0.8, 0.8]),
+    "rgb_bool": lambda p: p.update(rgb=[True, 0.8, 0.8]),
+    "rgb_nan": lambda p: p.update(rgb=[0.8, float("nan"), 0.8]),
+    "rgb_is_a_string": lambda p: p.update(rgb="0.8 0.8 0.8"),
+}
+
+ACCEPTED_PATCHES = {
+    "one_box": {},
+    "eight_boxes": {"rects": [[-1.0 + 0.1 * i, -0.9 + 0.1 * i, -0.5, 0.5] for i in range(8)]},
+    "z_top_at_plus_limit": {"z_top_m": 0.02},
+    "z_top_at_minus_limit": {"z_top_m": -0.02},
+    "thickness_at_limit": {"thickness_m": 0.05},
+    "rgb_at_0_and_1": {"rgb": [0.0, 1.0, 0.0]},
+    "corner_at_5_m": {"rects": [[-5.0, 5.0, -5.0, 5.0]]},
+    "overlapping_boxes": {"rects": [[-0.5, 0.0, -0.5, 0.0], [-0.2, 0.3, -0.2, 0.3]]},
+    "whole_numbers": {"rects": [[-1, 1, -1, 1]], "z_top_m": 0, "thickness_m": 0.05, "rgb": [0, 1, 0]},
+}
+
+
+def test_an_absent_or_null_counter_patch_is_none(tmp_path, usdz_file):
+    assert sb.load_visual_background(_spec_file(tmp_path, _body())).counter_patch is None
+    assert sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=None), "null.json")).counter_patch is None
+
+
+@pytest.mark.parametrize("name", list(PATCH_REFUSALS))
+def test_a_bad_counter_patch_is_refused_and_named(tmp_path, usdz_file, name):
+    patch = _patch()
+    PATCH_REFUSALS[name](patch)
+    with pytest.raises(sb.SplatBackgroundError, match="counter_patch"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=patch)))
+
+
+@pytest.mark.parametrize("value", [[], "on", 1, True, {}], ids=["list", "string", "number", "bool", "empty_object"])
+def test_a_counter_patch_that_is_not_an_object_or_is_empty_is_refused(tmp_path, usdz_file, value):
+    with pytest.raises(sb.SplatBackgroundError, match="counter_patch"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=value)))
+
+
+def test_an_unknown_key_inside_the_patch_is_named(tmp_path, usdz_file):
+    with pytest.raises(sb.SplatBackgroundError, match="'alpha'"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=_patch(alpha=1.0))))
+
+
+def test_a_missing_key_inside_the_patch_is_named(tmp_path, usdz_file):
+    patch = _patch()
+    patch.pop("rgb")
+    with pytest.raises(sb.SplatBackgroundError, match="'rgb'"):
+        sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=patch)))
+
+
+@pytest.mark.parametrize("name", list(ACCEPTED_PATCHES))
+def test_a_counter_patch_at_a_limit_or_with_whole_numbers_loads_as_plain_floats(tmp_path, usdz_file, name):
+    body = _patch(**ACCEPTED_PATCHES[name])
+    patch = sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=body))).counter_patch
+    assert patch.rects == tuple(tuple(float(v) for v in rect) for rect in body["rects"])
+    assert patch.z_top_m == float(body["z_top_m"]) and patch.thickness_m == float(body["thickness_m"])
+    assert patch.rgb == tuple(float(v) for v in body["rgb"])
+    assert all(type(v) is float for rect in patch.rects for v in rect)
+    assert all(type(v) is float for v in (patch.z_top_m, patch.thickness_m, *patch.rgb))
+
+
+def test_a_counter_patch_survives_a_spec_file_round_trip(tmp_path, usdz_file):
+    path = _spec_file(tmp_path, _body(counter_patch=_patch(rects=PATCH_RECTS)))
+    assert json.loads(path.read_text(encoding="utf-8"))["counter_patch"] == _patch(rects=PATCH_RECTS)
+    assert sb.load_visual_background(path).counter_patch == sb.CounterPatch(
+        rects=((-0.62, 0.05, -0.62, -0.10), (-0.34, 0.005, -0.08, 0.28)), z_top_m=-0.0005, thickness_m=0.004,
+        rgb=(0.8, 0.8, 0.8))
+
+
+def test_the_counter_patch_object_is_frozen(tmp_path, usdz_file):
+    patch = sb.load_visual_background(_spec_file(tmp_path, _body(counter_patch=_patch()))).counter_patch
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        patch.z_top_m = 0.0
+
+
+def test_each_box_is_a_unit_cube_scaled_to_its_rectangle_and_thickness(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    sb.swap_visual_background(scene, _patched_spec(tmp_path))
+    entry = scene["objects_info"]["init_info"]["counter_patch_0"]
+    assert entry["class_module"] == "omnigibson.objects.primitive_object" and entry["class_name"] == "PrimitiveObject"
+    args = entry["args"]
+    assert list(args) == ["name", "primitive_type", "size", "scale", "rgba", "visual_only", "fixed_base"]
+    assert args["name"] == "counter_patch_0" and args["primitive_type"] == "Cube" and args["size"] == 1.0
+    assert args["scale"] == pytest.approx([0.67, 0.52, 0.004], abs=1e-12)  # xmax - xmin, ymax - ymin, thickness
+    assert args["rgba"] == [0.8, 0.8, 0.8, 1.0]
+    assert args["visual_only"] is True and args["fixed_base"] is True
+    assert all(type(v) is float for v in args["scale"] + args["rgba"])
+
+
+def test_each_box_state_is_centred_on_its_rectangle_with_its_top_at_z_top(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    sb.swap_visual_background(scene, _patched_spec(tmp_path))
+    state = scene["state"]["registry"]["object_registry"]["counter_patch_0"]
+    assert state["is_asleep"] is True and state["non_kin"] == {}
+    root = state["root_link"]
+    # the centre of the rectangle in x and y; in z the centre is half a thickness below the top, z_top_m
+    assert root["pos"] == pytest.approx([-0.285, -0.36, -0.0025], abs=1e-12)
+    assert root["ori"] == [0.0, 0.0, 0.0, 1.0]
+    assert root["lin_vel"] == [0.0, 0.0, 0.0] and root["ang_vel"] == [0.0, 0.0, 0.0]
+    assert all(type(v) is float for v in root["pos"] + root["ori"])
+
+
+def test_the_boxes_follow_the_splat_in_rectangle_order_in_both_sections(tmp_path, usdz_file):
+    scene = _synthetic_scene()
+    sb.swap_visual_background(scene, _patched_spec(tmp_path))
+    order = ["robot0", "iter_1", "iter_3", GS, "counter_patch_0", "counter_patch_1"]
+    assert list(scene["objects_info"]["init_info"]) == order
+    assert list(scene["state"]["registry"]["object_registry"]) == order
+    assert scene["objects_info"]["init_info"]["counter_patch_1"]["args"]["scale"] == pytest.approx(
+        [0.345, 0.36, 0.004], abs=1e-12)
+
+
+def test_the_box_entries_do_not_depend_on_which_objects_are_removed(tmp_path, usdz_file):
+    kept, dropped = _synthetic_scene(), _synthetic_scene()
+    sb.swap_visual_background(kept, _patched_spec(tmp_path, remove=("iter_7",)))
+    sb.swap_visual_background(dropped, _patched_spec(tmp_path, remove=("mesh_background_0", "iter_7")))
+    for name in ("counter_patch_0", "counter_patch_1"):
+        assert kept["objects_info"]["init_info"][name] == dropped["objects_info"]["init_info"][name]
+        assert kept["state"]["registry"]["object_registry"][name] == dropped["state"]["registry"]["object_registry"][name]
+
+
+@pytest.mark.parametrize("section", ["init_info", "registry"])
+def test_a_scene_that_already_has_a_box_name_is_refused_and_unchanged(tmp_path, usdz_file, section):
+    scene = _synthetic_scene()
+    target = scene["objects_info"]["init_info"] if section == "init_info" else scene["state"]["registry"]["object_registry"]
+    target["counter_patch_1"] = {"args": {}}
+    before = copy.deepcopy(scene)
+    with pytest.raises(sb.SplatBackgroundError, match="already has a 'counter_patch_1' object"):
+        sb.swap_visual_background(scene, _patched_spec(tmp_path))
+    assert scene == before
+
+
+HAND_BUILT_GOOD = {"rects": ((-0.62, 0.05, -0.62, -0.10),), "z_top_m": -0.0005, "thickness_m": 0.004, "rgb": (0.8, 0.8, 0.8)}
+HAND_BUILT_BAD = [
+    {"rects": ((0.1, 0.1, -0.6, -0.1),)},  # xmin == xmax
+    {"rects": ((0.0, 1.0, 0.0, 1.0),) * 9},  # nine boxes
+    {"z_top_m": 0.5},
+    {"thickness_m": 0.0},
+    {"rgb": (0.8, 0.8, 1.5)},
+]
+
+
+@pytest.mark.parametrize("changes", HAND_BUILT_BAD)
+def test_a_hand_built_patch_is_checked_before_any_change(tmp_path, usdz_file, changes):
+    scene = _synthetic_scene()
+    before = copy.deepcopy(scene)
+    base = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["iter_7"])))
+    spec = dataclasses.replace(base, counter_patch=sb.CounterPatch(**{**HAND_BUILT_GOOD, **changes}))
+    with pytest.raises(sb.SplatBackgroundError, match="counter_patch"):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_a_hand_built_patch_gives_the_same_scene_and_record_as_a_loaded_one(tmp_path, usdz_file):
+    loaded = _patched_spec(tmp_path)
+    built = dataclasses.replace(loaded, counter_patch=sb.CounterPatch(
+        rects=((-0.62, 0.05, -0.62, -0.10), (-0.34, 0.005, -0.08, 0.28)), z_top_m=-0.0005, thickness_m=0.004,
+        rgb=(0.8, 0.8, 0.8)))
+    a, b = _synthetic_scene(), _synthetic_scene()
+    record_a, record_b = sb.swap_visual_background(a, loaded), sb.swap_visual_background(b, built)
+    assert a == b and record_a == record_b
+
+
+def test_the_record_has_a_counter_patch_key_only_when_the_spec_has_boxes(tmp_path, usdz_file):
+    plain = sb.swap_visual_background(_synthetic_scene(), sb.load_visual_background(_spec_file(tmp_path, _body())))
+    assert set(plain) == RECORD_KEYS and "counter_patch" not in plain
+    patched = sb.swap_visual_background(_synthetic_scene(), _patched_spec(tmp_path))
+    assert set(patched) == RECORD_KEYS | {"counter_patch"}
+    assert patched["counter_patch"] == {
+        "names": ["counter_patch_0", "counter_patch_1"],
+        "rects": [[-0.62, 0.05, -0.62, -0.10], [-0.34, 0.005, -0.08, 0.28]],
+        "z_top_m": -0.0005,
+        "thickness_m": 0.004,
+        "rgb": [0.8, 0.8, 0.8],
+    }
+    json.dumps(patched)
+
+
+def test_the_record_keeps_the_ccm_and_the_patch_keys_side_by_side(tmp_path, usdz_file):
+    body = _body(ccm=CCM_ROWS, counter_patch=_patch(), remove=["iter_7"])
+    spec = sb.load_visual_background(_spec_file(tmp_path, body, "both.json"))
+    record = sb.swap_visual_background(_synthetic_scene(), spec)
+    assert set(record) == RECORD_KEYS | {"ccm", "counter_patch"}
+    assert record["ccm"] == CCM_ROWS and record["counter_patch"]["names"] == ["counter_patch_0"]
+
+
+def test_golden_two_boxes_on_the_p3_scene_match_the_hand_computed_values(tmp_path, usdz_file):
+    _need(SCENE_JSON)
+    scene = json.loads(SCENE_JSON.read_text())
+    before = copy.deepcopy(scene)
+    spec = sb.load_visual_background(_spec_file(
+        tmp_path, _body(remove=["mesh_background_0", "iter_7"], counter_patch=_patch(rects=PATCH_RECTS))))
+    sb.swap_visual_background(scene, spec)
+    # Worked out by hand from the rectangles, not with the module's helpers:
+    # centre = ((xmin + xmax) / 2, (ymin + ymax) / 2, z_top - thickness / 2); scale = (xmax - xmin, ymax - ymin, thickness).
+    boxes = {
+        "counter_patch_0": ([-0.285, -0.36, -0.0025], [0.67, 0.52, 0.004]),  # rectangle [-0.62, 0.05, -0.62, -0.10]
+        "counter_patch_1": ([-0.1675, 0.1, -0.0025], [0.345, 0.36, 0.004]),  # rectangle [-0.34, 0.005, -0.08, 0.28]
+    }
+    init, registry = scene["objects_info"]["init_info"], scene["state"]["registry"]["object_registry"]
+    kept = [k for k in before["objects_info"]["init_info"] if k not in ("mesh_background_0", "iter_7")]
+    order = [*kept, GS, *boxes]
+    assert list(init) == order and list(registry) == order
+    for name, (centre, scale) in boxes.items():
+        assert init[name]["args"]["scale"] == pytest.approx(scale, abs=1e-12)
+        assert init[name]["args"]["rgba"] == [0.8, 0.8, 0.8, 1.0]
+        assert registry[name]["root_link"]["pos"] == pytest.approx(centre, abs=1e-12)
+    for key in kept:  # the other objects are as they were
+        assert init[key] == before["objects_info"]["init_info"][key]
+        assert registry[key] == before["state"]["registry"]["object_registry"][key]
+
+
+def test_a_plain_swap_record_has_the_keys_in_the_order_it_always_had(tmp_path, usdz_file):
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["mesh_background_0", "iter_7"])))
+    record = sb.swap_visual_background(_synthetic_scene(), spec)
+    assert list(record) == ["name", "usdz", "md5", "removed", "pos", "ori_xyzw", "scale", "dz_m", "floor_plane_visible",
+                            "kit_settings"]
+    assert record["removed"] == ["mesh_background_0", "iter_7"]
+    assert record["md5"] == hashlib.md5(usdz_file.read_bytes()).hexdigest()
+    assert record["pos"] == pytest.approx([0.1, 0.2, 0.3], abs=1e-12)
+    assert record["ori_xyzw"] == pytest.approx(Rotation.from_rotvec([0.3, -0.2, 0.5]).as_quat().tolist(), abs=1e-12)
+    assert record["scale"] == pytest.approx(1.0, abs=1e-12) and record["dz_m"] == 0.0
+
+
+def test_without_boxes_the_p3_swap_adds_no_box_entries_and_no_record_key(tmp_path, usdz_file):
+    _need(SCENE_JSON)
+    scene = json.loads(SCENE_JSON.read_text())
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["mesh_background_0", "iter_7"])))
+    record = sb.swap_visual_background(scene, spec)
+    for section in (scene["objects_info"]["init_info"], scene["state"]["registry"]["object_registry"]):
+        assert not [name for name in section if name.startswith("counter_patch_")]
+    assert "counter_patch" not in record
+
+
+def test_the_box_helpers_convert_numpy_values_and_give_plain_floats():
+    rect = np.array([-1.0, 0.5, -0.25, 0.25])
+    entry = sb.counter_patch_entry(3, rect, np.float64(0.004), np.array([0.5, 0.5, 0.5]))
+    assert entry["args"]["name"] == "counter_patch_3"
+    assert entry["args"]["scale"] == pytest.approx([1.5, 0.5, 0.004], abs=1e-12)
+    assert all(type(v) is float for v in entry["args"]["scale"] + entry["args"]["rgba"])
+    json.dumps(entry)
+    state = sb.counter_patch_state(rect, np.float64(-0.0005), np.float64(0.004))
+    assert state["root_link"]["pos"] == pytest.approx([-0.25, 0.0, -0.0025], abs=1e-12)
+    assert all(type(v) is float for v in state["root_link"]["pos"] + state["root_link"]["ori"])
+    json.dumps(state)
+
+
+def test_the_module_imports_only_numpy_and_the_standard_library_at_load_time():
+    # A check on the code as written: the module must load where pxr and omnigibson are absent. The one pxr import,
+    # in _vec4f, is inside a function, so it is not in the module body; omnigibson is not imported anywhere.
+    tree = ast.parse((ROOT / "simfoundry" / "utils" / "splat_background.py").read_text(encoding="utf-8"))
+    loaded = set()
+    for node in tree.body:  # module level only
+        if isinstance(node, ast.Import):
+            loaded.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            loaded.add(node.module.split(".")[0])
+    outside = loaded - set(sys.stdlib_module_names) - {"numpy"}
+    assert not outside, f"module-level import(s) beyond numpy and the standard library: {sorted(outside)}"
+    everywhere = {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+    everywhere |= {alias.name.split(".")[0]
+                   for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    assert "omnigibson" not in everywhere
