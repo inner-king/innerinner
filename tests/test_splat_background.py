@@ -932,6 +932,17 @@ def test_apply_writes_row_i_to_attribute_i_of_the_prim_that_carries_them(depth):
                        for name, row in zip(sb.CCM_ATTRIBUTES, CCM_ROWS)]
 
 
+def test_every_prim_that_carries_the_matrix_is_written_not_only_the_first():
+    # Two carriers, as a splat with several volumes would have: each must get all three rows, in order.
+    first, second = _carriers(), _carriers()
+    a = _Prim("/World/gauss/a/emissive_color_field", first)
+    b = _Prim("/World/gauss/b/emissive_color_field", second)
+    written = sb.apply_splat_ccm(_Prim("/World/gauss", children=[a, b]), CCM_ROWS, make_vec=_tuple_vec)
+    assert [x.sets for x in first] == [[_tuple_vec(*row)] for row in CCM_ROWS]
+    assert [x.sets for x in second] == [[_tuple_vec(*row)] for row in CCM_ROWS]
+    assert [w["prim"] for w in written] == [a.path] * 3 + [b.path] * 3
+
+
 def test_a_splat_with_no_colour_matrix_is_refused_and_nothing_is_written():
     root = _Prim("/World/gauss", children=[_Prim("/World/gauss/gauss")])
     with pytest.raises(sb.SplatBackgroundError, match="ccm"):
