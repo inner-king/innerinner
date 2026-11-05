@@ -1044,6 +1044,7 @@ PATCH_REFUSALS = {
     "rect_xmin_equal_xmax": lambda p: p.update(rects=[[0.05, 0.05, -0.62, -0.10]]),
     "rect_xmin_above_xmax": lambda p: p.update(rects=[[0.10, 0.05, -0.62, -0.10]]),
     "rect_ymin_above_ymax": lambda p: p.update(rects=[[-0.62, 0.05, -0.10, -0.62]]),
+    "rect_ymin_equal_ymax": lambda p: p.update(rects=[[-0.62, 0.05, -0.10, -0.10]]),
     "rect_corner_over_5_m": lambda p: p.update(rects=[[-5.5, 0.05, -0.62, -0.10]]),
     # a bool must be refused where its value would make the rectangle valid, or the order test refuses it instead
     "rect_bool_as_xmax": lambda p: p.update(rects=[[-0.62, True, -0.62, -0.10]]),
@@ -1161,6 +1162,19 @@ def test_each_box_state_is_centred_on_its_rectangle_with_its_top_at_z_top(tmp_pa
     assert root["ori"] == [0.0, 0.0, 0.0, 1.0]
     assert root["lin_vel"] == [0.0, 0.0, 0.0] and root["ang_vel"] == [0.0, 0.0, 0.0]
     assert all(type(v) is float for v in root["pos"] + root["ori"])
+
+
+def test_an_asymmetric_colour_reaches_the_box_in_the_order_it_was_given(tmp_path, usdz_file):
+    # The three channels differ, so a swapped channel shows in the box and in the record.
+    body = _body(counter_patch=_patch(rgb=[0.1, 0.5, 0.9]), remove=["iter_7"])
+    path = _spec_file(tmp_path, body)
+    assert json.loads(path.read_text(encoding="utf-8"))["counter_patch"]["rgb"] == [0.1, 0.5, 0.9]
+    spec = sb.load_visual_background(path)
+    assert spec.counter_patch.rgb == (0.1, 0.5, 0.9)
+    scene = _synthetic_scene()
+    record = sb.swap_visual_background(scene, spec)
+    assert scene["objects_info"]["init_info"]["counter_patch_0"]["args"]["rgba"] == [0.1, 0.5, 0.9, 1.0]
+    assert record["counter_patch"]["rgb"] == [0.1, 0.5, 0.9]
 
 
 def test_the_boxes_follow_the_splat_in_rectangle_order_in_both_sections(tmp_path, usdz_file):
@@ -1293,6 +1307,12 @@ def test_without_boxes_the_p3_swap_adds_no_box_entries_and_no_record_key(tmp_pat
     for section in (scene["objects_info"]["init_info"], scene["state"]["registry"]["object_registry"]):
         assert not [name for name in section if name.startswith("counter_patch_")]
     assert "counter_patch" not in record
+
+
+def test_counter_patch_entry_keeps_the_colour_channels_in_order():
+    # 0.1, 0.5 and 0.9 are all different, so reversing or permuting the channels changes the colour.
+    entry = sb.counter_patch_entry(0, (-0.62, 0.05, -0.62, -0.10), 0.004, (0.1, 0.5, 0.9))
+    assert entry["args"]["rgba"] == [0.1, 0.5, 0.9, 1.0]
 
 
 def test_the_box_helpers_convert_numpy_values_and_give_plain_floats():
