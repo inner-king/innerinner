@@ -215,6 +215,34 @@ def test_missing_name_tables_are_empty(info):
     assert seg_info == {"instance": {}, "semantic": {}}
 
 
+def _obs_without_semantic(seed=0):
+    obs = _obs(seed=seed)
+    del obs["seg_semantic"]
+    return obs
+
+
+def test_without_seg_semantic_the_probe_reads_rgb_and_instance_only():
+    obs = _obs_without_semantic()
+    arrays, _ = cp.probe_arrays(obs, {})
+    assert set(arrays) == {"rgb", "seg_instance"}
+    assert np.array_equal(arrays["rgb"], obs["rgb"][:, :, :3])
+    assert arrays["seg_instance"].dtype == np.uint32 and np.array_equal(arrays["seg_instance"], obs["seg_instance"])
+
+
+def test_without_seg_semantic_the_semantic_names_stay_empty_even_when_a_table_is_given():
+    info = {"seg_instance": {3: "tofu"}, "seg_semantic": {np.int64(1): "food"}}
+    _, seg_info = cp.probe_arrays(_obs_without_semantic(), info)
+    assert seg_info == {"instance": {"3": "tofu"}, "semantic": {}}
+
+
+@pytest.mark.parametrize("missing", ["rgb", "seg_instance"])
+def test_the_probe_still_needs_rgb_and_instance(missing):
+    obs = _obs()
+    del obs[missing]
+    with pytest.raises(ValueError, match=missing):
+        cp.probe_arrays(obs, {})
+
+
 def test_pose_record_gives_plain_lists_and_refuses_the_wrong_lengths():
     pose = cp.pose_record(np.array([0.5, -1.0, 2.0]), np.array([0.0, 0.0, 0.0, 1.0]))
     assert pose == {"position": [0.5, -1.0, 2.0], "orientation_xyzw": [0.0, 0.0, 0.0, 1.0]}
@@ -295,6 +323,16 @@ def test_write_probe_json_has_the_pose_size_lens_and_names(tmp_path):
     assert record["seg_info"] == {"instance": {"1": "tofu", "0": "floor"}, "semantic": {"2": "food"}}
 
 
+def test_write_probe_without_seg_semantic_writes_two_arrays_and_an_empty_semantic_table(tmp_path):
+    arrays, pose, camera_info, seg_info = _probe_payload()
+    del arrays["seg_semantic"]  # the read had no semantic channel, although the table is given
+    npz_path, json_path = cp.write_probe(tmp_path, 7, 0, "front", arrays, pose, camera_info, seg_info)
+    with np.load(npz_path) as stored:
+        assert set(stored.files) == {"rgb", "seg_instance"}
+    record = json.loads(json_path.read_text())
+    assert record["seg_info"] == {"instance": {"1": "tofu", "0": "floor"}, "semantic": {}}
+
+
 def test_the_default_ticks_are_the_documented_five():
     assert cp.CameraProbe("unused").ticks == frozenset({0, 25, 50, 75, 99})
     assert cp.DEFAULT_TICKS == (0, 25, 50, 75, 99)
@@ -348,10 +386,12 @@ def test_setup_args_with_the_probe_off_matches_the_base_runner():
 class _FakeCam:
     """A camera whose get_obs reads count, whose lens is its own, and whose pose the capture can set."""
 
-    def __init__(self, rgb, inst, sem, position, lens):
+    def __init__(self, rgb, inst, sem, position, lens, semantic=True):
         self.reads = 0
         self._obs = {"rgb": rgb, "seg_instance": inst, "seg_semantic": sem}
         self._info = {"seg_instance": {1: "tofu"}, "seg_semantic": {2: "food"}}
+        if not semantic:  # a read on a subset install: no semantic channel at all
+            del self._obs["seg_semantic"], self._info["seg_semantic"]
         self.position, self.orientation = list(position), [0.0, 0.0, 0.0, 1.0]
         self.prim = _FakePrim({name: _FakeAttr(value) for name, value in lens.items()})
 
@@ -371,7 +411,7 @@ FRONT_LENS = {"focalLength": 17.0, "horizontalAperture": 20.955, "verticalApertu
 WRIST_LENS = {"focalLength": 12.0, "horizontalAperture": 14.4, "verticalAperture": 10.8, "horizontalApertureOffset": 0.5}
 
 
-def _cams():
+def _cams(semantic=True):
     """Two cameras with different images and different lenses, so that a mix-up between them shows."""
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(0)
@@ -379,7 +419,7 @@ def _cams():
     def cam(position, lens):
         return _FakeCam(torch.from_numpy(rng.integers(0, 256, (6, 8, 4), dtype=np.uint8)),
                         torch.from_numpy(rng.integers(0, 5, (6, 8), dtype=np.int64)),
-                        torch.from_numpy(rng.integers(0, 3, (6, 8), dtype=np.int64)), position, lens)
+                        torch.from_numpy(rng.integers(0, 3, (6, 8), dtype=np.int64)), position, lens, semantic)
     return {"front": cam([0.5, 0.0, 0.5], FRONT_LENS), "wrist": cam([0.0, 0.0, 0.0], WRIST_LENS)}
 
 
@@ -422,6 +462,19 @@ def test_capture_reads_each_camera_once_with_the_probe_on_and_saves_only_the_pro
             assert np.array_equal(stored["rgb"], obs["rgb"].numpy()[:, :, :3]), name
             assert np.array_equal(stored["seg_instance"], obs["seg_instance"].numpy()), name
             assert np.array_equal(stored["seg_semantic"], obs["seg_semantic"].numpy()), name
+
+
+def test_capture_with_the_probe_on_and_no_seg_semantic_saves_two_arrays_per_camera(tmp_path):
+    cams = _cams(semantic=False)
+    run = _episode_run(cams, probe=cp.CameraProbe(tmp_path, ticks=[0]), seed=7)
+    run.capture()
+    assert [c.reads for c in cams.values()] == [1, 1]
+    for name in ("front", "wrist"):
+        with np.load(tmp_path / "ep00007" / f"t0000_{name}.npz") as stored:
+            assert set(stored.files) == {"rgb", "seg_instance"}
+            assert np.array_equal(stored["seg_instance"], cams[name]._obs["seg_instance"].numpy()), name
+        record = json.loads((tmp_path / "ep00007" / f"t0000_{name}.json").read_text())
+        assert record["seg_info"] == {"instance": {"1": "tofu"}, "semantic": {}}
 
 
 def test_the_probe_leaves_the_recorded_ticks_unchanged(tmp_path):
@@ -503,7 +556,7 @@ def test_the_segmentation_channels_are_added_only_under_the_option():
     assert [s for s in loops[0].body if isinstance(s, ast.Assign)] == assigns, "the assignment is the loop's body"
     subscript = assigns[0].targets[0]
     assert isinstance(subscript, ast.Subscript) and _text(subscript.value) == "sensor"
-    assert ast.literal_eval(assigns[0].value) == ["rgb", "seg_instance", "seg_semantic"]
+    assert ast.literal_eval(assigns[0].value) == ["rgb", "seg_instance"]
     for node in assigns:
         assert any(s is blocks[0] for s in _enclosing(node, parents, ast.If))
     literals = [ast.literal_eval(v) for n in ast.walk(MAIN) if isinstance(n, ast.Dict)

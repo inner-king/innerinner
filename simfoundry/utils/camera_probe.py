@@ -41,20 +41,28 @@ def probe_arrays(obs, info):
     """The probe's arrays and segmentation names, from one ``get_obs()`` read of one camera.
 
     Args:
-        obs: the observation dict of that read: ``rgb`` (H x W x 3 or 4), ``seg_instance`` and ``seg_semantic``.
+        obs: the observation dict of that read: ``rgb`` (H x W x 3 or 4) and ``seg_instance`` are required, and
+            ``seg_semantic`` is read when the read has it. A subset install has no BEHAVIOR category list, so its
+            semantic channel cannot be built and the probe is run on ``seg_instance`` alone.
         info: the info dict of that read. Each segmentation channel has an id -> name (or label) table in it.
 
     Returns:
-        ``({"rgb": uint8 (H, W, 3), "seg_instance": uint32 (H, W), "seg_semantic": uint32 (H, W)},
-        {"instance": {id: name}, "semantic": {id: label}})``. The ids are string keys.
+        ``({"rgb": uint8 (H, W, 3), "seg_instance": uint32 (H, W)[, "seg_semantic": uint32 (H, W)]},
+        {"instance": {id: name}, "semantic": {id: label}})``. The ids are string keys. Without ``seg_semantic`` the
+        arrays have no such key and the ``semantic`` table is empty.
 
     Raises:
-        ValueError: a segmentation channel whose shape is not the rgb's, or a negative id.
+        ValueError: ``rgb`` or ``seg_instance`` is missing, a segmentation channel whose shape is not the rgb's, or a
+            negative id.
     """
+    if "rgb" not in obs or "seg_instance" not in obs:
+        raise ValueError(f"the probe needs rgb and seg_instance, the read has {sorted(obs)}")
     rgb = _numpy(obs["rgb"])[:, :, :3].astype(np.uint8)
     height, width = rgb.shape[:2]
     arrays = {"rgb": rgb}
     for key in ("seg_instance", "seg_semantic"):
+        if key not in obs:  # seg_semantic is optional: a read without it has no semantic channel
+            continue
         seg = _numpy(obs[key])
         if seg.ndim == 3 and seg.shape[-1] == 1:
             seg = seg[:, :, 0]
@@ -64,7 +72,8 @@ def probe_arrays(obs, info):
             raise ValueError(f"{key} has a negative id")
         arrays[key] = seg.astype(np.uint32)
     tables = info or {}
-    seg_info = {"instance": _names(tables.get("seg_instance")), "semantic": _names(tables.get("seg_semantic"))}
+    semantic = _names(tables.get("seg_semantic")) if "seg_semantic" in arrays else {}
+    seg_info = {"instance": _names(tables.get("seg_instance")), "semantic": semantic}
     return arrays, seg_info
 
 
@@ -94,15 +103,19 @@ def camera_attributes(prim):
 def write_probe(out_dir, seed, tick, cam, arrays, pose, camera_info, seg_info):
     """Writes one camera's probe at one tick, and returns the two paths written.
 
-    The files are ``DIR/ep{seed:05d}/t{tick:04d}_{cam}.npz``, with the arrays ``rgb`` (uint8), ``seg_instance`` and
-    ``seg_semantic`` (uint32), and the same stem with ``.json``: the pose, the image size (taken from the arrays), the
-    lens attributes (null where the prim has none) and the segmentation names.
+    The files are ``DIR/ep{seed:05d}/t{tick:04d}_{cam}.npz``, with the arrays ``rgb`` (uint8) and ``seg_instance``
+    (uint32), and ``seg_semantic`` (uint32) only when ``arrays`` has it; and the same stem with ``.json``: the pose, the
+    image size (taken from the arrays), the lens attributes (null where the prim has none) and the segmentation names
+    (``seg_info["semantic"]`` is empty without ``seg_semantic``).
     """
     folder = Path(out_dir) / f"ep{int(seed):05d}"
     folder.mkdir(parents=True, exist_ok=True)
     stem = f"t{int(tick):04d}_{cam}"
     npz_path, json_path = folder / f"{stem}.npz", folder / f"{stem}.json"
-    np.savez(npz_path, rgb=arrays["rgb"], seg_instance=arrays["seg_instance"], seg_semantic=arrays["seg_semantic"])
+    saved = {"rgb": arrays["rgb"], "seg_instance": arrays["seg_instance"]}
+    if "seg_semantic" in arrays:
+        saved["seg_semantic"] = arrays["seg_semantic"]
+    np.savez(npz_path, **saved)
     height, width = arrays["rgb"].shape[:2]
     record = {
         "position": [float(v) for v in pose["position"]],
@@ -113,7 +126,8 @@ def write_probe(out_dir, seed, tick, cam, arrays, pose, camera_info, seg_info):
     for key in CAMERA_ATTRIBUTES:
         value = camera_info.get(key)
         record[key] = None if value is None else float(value)
-    record["seg_info"] = {"instance": _names(seg_info["instance"]), "semantic": _names(seg_info["semantic"])}
+    semantic = _names(seg_info.get("semantic")) if "seg_semantic" in arrays else {}
+    record["seg_info"] = {"instance": _names(seg_info["instance"]), "semantic": semantic}
     json_path.write_text(json.dumps(record, indent=1), encoding="utf-8")
     return npz_path, json_path
 
