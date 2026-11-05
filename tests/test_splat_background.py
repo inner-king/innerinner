@@ -322,7 +322,7 @@ def test_defaults_are_the_documented_ones(tmp_path, usdz_file):
     assert spec.kit_settings == {}
     assert spec.color is None
     assert spec.pose_json is None
-    assert spec.usdz == usdz_file.resolve()
+    assert spec.usdz == usdz_file
     assert np.array_equal(spec.matrix, _rigid())
     assert spec.matrix.dtype == np.float64
 
@@ -336,8 +336,9 @@ def test_relative_paths_are_taken_from_the_spec_folder(tmp_path):
     spec = sb.load_visual_background(
         _spec_file(folder, {"schema": 1, "name": "PD", "usdz": "../b/PD_bg.usdz", "pose_json": "../b/align.json"})
     )
-    assert spec.usdz == (other / "PD_bg.usdz").resolve()
-    assert spec.pose_json == (other / "align.json").resolve()
+    assert spec.usdz == folder / "../b/PD_bg.usdz"  # as spelled: the .. is left for the OS
+    assert spec.pose_json == folder / "../b/align.json"
+    assert spec.usdz.resolve() == (other / "PD_bg.usdz").resolve()
     assert np.array_equal(spec.matrix, _rigid())
 
 
@@ -347,8 +348,61 @@ def test_absolute_paths_are_kept(tmp_path, usdz_file):
     spec = sb.load_visual_background(
         _spec_file(elsewhere, _body(usdz=str(usdz_file)))
     )
-    assert spec.usdz == usdz_file.resolve()
+    assert spec.usdz == usdz_file
     assert spec.usdz.is_absolute()
+
+
+def test_symlinks_keep_the_name_the_spec_gives(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    real_usdz = store / "PD_bg.usdz"
+    real_usdz.write_bytes(b"splat bytes")
+    real_align = store / "align.json"
+    real_align.write_text(json.dumps({"M_da3_to_scene": _rigid().tolist()}))
+    links = tmp_path / "links"
+    links.mkdir()
+    link_usdz = links / "PD_link.usdz"
+    link_usdz.symlink_to(real_usdz)
+    link_align = links / "align_link.json"
+    link_align.symlink_to(real_align)
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    body = {"schema": 1, "name": "PD", "usdz": str(link_usdz), "pose_json": str(link_align), "remove": ["iter_7"]}
+    spec = sb.load_visual_background(_spec_file(specs, body))
+    assert spec.usdz == link_usdz  # the link's name, not the file it points to
+    assert spec.pose_json == link_align
+    scene = _synthetic_scene()
+    record = sb.swap_visual_background(scene, spec)
+    assert record["usdz"] == str(link_usdz)
+    assert scene["objects_info"]["init_info"][GS]["args"]["usd_path"] == str(link_usdz)
+    assert record["md5"] == hashlib.md5(real_usdz.read_bytes()).hexdigest()  # the content behind the link
+
+
+def test_a_relative_symlink_keeps_its_spelling(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "PD_bg.usdz").write_bytes(b"splat bytes")
+    links = tmp_path / "links"
+    links.mkdir()
+    (links / "PD_link.usdz").symlink_to(store / "PD_bg.usdz")
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    spec = sb.load_visual_background(_spec_file(specs, _body(usdz="../links/PD_link.usdz")))
+    assert spec.usdz == specs / "../links/PD_link.usdz"
+    assert spec.usdz.is_file()
+    assert spec.usdz.resolve() == (store / "PD_bg.usdz").resolve()
+
+
+def test_dotdot_after_a_symlinked_folder_is_left_for_the_os(tmp_path):
+    # folder_link -> store/sub, so from inside it .. is store. A text collapse would give tmp_path/PD_bg.usdz instead.
+    store = tmp_path / "store"
+    (store / "sub").mkdir(parents=True)
+    (store / "PD_bg.usdz").write_bytes(b"splat bytes")
+    folder_link = tmp_path / "folder_link"
+    folder_link.symlink_to(store / "sub", target_is_directory=True)
+    spec = sb.load_visual_background(_spec_file(folder_link, _body(usdz="../PD_bg.usdz")))
+    assert spec.usdz.is_file()
+    assert spec.usdz.resolve() == (store / "PD_bg.usdz").resolve()
 
 
 def test_tilde_is_not_expanded(tmp_path, usdz_file):
@@ -362,7 +416,7 @@ def test_pose_json_is_read_and_recorded_as_an_absolute_path(tmp_path, usdz_file)
     body.pop("matrix")
     body["pose_json"] = "align.json"
     spec = sb.load_visual_background(_spec_file(tmp_path, body))
-    assert spec.pose_json == (tmp_path / "align.json").resolve()
+    assert spec.pose_json == tmp_path / "align.json"
     assert np.array_equal(spec.matrix, _rigid())
 
 
@@ -462,7 +516,7 @@ def test_golden_on_the_p3_scene_keeps_the_key_order_and_writes_the_expected_valu
     entry = scene["objects_info"]["init_info"][GS]
     assert entry["class_module"] == "omnigibson.objects.usd_object" and entry["class_name"] == "USDObject"
     assert list(entry["args"]) == ["name", "usd_path", "scale", "fixed_base", "visual_only", "expected_file_hash"]
-    assert entry["args"]["usd_path"] == str(PD_USDZ.resolve())
+    assert entry["args"]["usd_path"] == str(PD_USDZ)
     assert entry["args"]["expected_file_hash"] == _pd_md5()
     assert entry["args"]["scale"] == pytest.approx([float(np.cbrt(np.linalg.det(m[:3, :3])))] * 3, abs=1e-12)
     state = scene["state"]["registry"]["object_registry"][GS]
@@ -550,7 +604,7 @@ def test_the_record_is_complete_and_json_serialisable(tmp_path, usdz_file):
     assert set(record) == RECORD_KEYS
     json.dumps(record)  # no numpy scalars or arrays
     assert record["name"] == "PD"
-    assert record["usdz"] == str(usdz_file.resolve())
+    assert record["usdz"] == str(usdz_file)
     assert record["md5"] == hashlib.md5(usdz_file.read_bytes()).hexdigest()
     assert record["removed"] == ["mesh_background_0", "iter_7"]
     assert record["dz_m"] == pytest.approx(0.002)

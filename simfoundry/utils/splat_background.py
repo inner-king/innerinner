@@ -61,6 +61,7 @@ def load_visual_background(path) -> SplatBackgroundSpec:
     Relative paths in the spec (``usdz``, ``pose_json``) are taken from the folder of the spec file, so a spec moves
     together with its splat. ``~`` is not expanded. Unknown keys are refused: a misspelt key such as ``dz`` would
     otherwise be ignored and its default kept, and the swap would run cleanly with the splat in the wrong place.
+    Paths are kept as spelled, symlinks included (see ``_resolve``).
     """
     spec_path = Path(path).absolute()
     spec_dir = spec_path.parent
@@ -282,11 +283,14 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
 
 
 def _resolve(spec_dir: Path, text: str) -> Path:
-    """An absolute path: a relative ``text`` is taken from ``spec_dir``, and ``..`` is collapsed (symlinks are kept)."""
+    """The path a spec gives, made absolute by joining a relative one to ``spec_dir``, and otherwise left as written.
+
+    Nothing is resolved. A symlink keeps the name the spec gives, so the scene records that name. ``..`` is not collapsed
+    as text either: after a symlink, ``link/..`` is the parent of the link's target, and collapsing it would name a file
+    that the OS would not open.
+    """
     candidate = Path(text)
-    if not candidate.is_absolute():
-        candidate = spec_dir / candidate
-    return candidate.resolve()
+    return candidate if candidate.is_absolute() else spec_dir / candidate
 
 
 def _is_real(value) -> bool:
