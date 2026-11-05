@@ -741,9 +741,20 @@ def dice_success(o, dz, moved_mm, a):
     return basic, strict
 
 
+def setup_args(args):
+    """The arguments as setup.json records them. --visual-background appears only when it is given, so a run without it
+    writes the same setup.json as before that option existed.
+    """
+    return {k: v for k, v in vars(args).items()
+            if k != "visual_background" or getattr(args, "visual_background", None) is not None}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scene", type=Path, default=Path("Data/tofu_chefd"))
+    ap.add_argument("--visual-background", type=Path, default=None,
+                    help="spec JSON that replaces the 5c mesh background with a splat (visual only; "
+                         "collision and physics stay as they are); see simfoundry/utils/splat_background.py")
     ap.add_argument("--photo", type=Path, default=Path("Data/tofu_reference/chefd_frame_17.9.png"))
     ap.add_argument("--mode", choices=["expert", "blind", "policy", "dice"], default="expert",
                     help="dice: the expert dices the block (--dice K1 K2 press cuts one way, then the other)")
@@ -994,6 +1005,14 @@ def main():
             "pos": [float(x) for x in board_pose[0]], "ori": [float(x) for x in board_pose[1]],
             "lin_vel": [0.0, 0.0, 0.0], "ang_vel": [0.0, 0.0, 0.0]}
         changes["board_levelled_by_shape"] = {"pos": [float(x) for x in board_pose[0]], "scale": scale0}
+    visual_bg = None
+    # The splat background replaces the 5c mesh after the scene edit and before the sensors (off by default).
+    if args.visual_background is not None:
+        from simfoundry.utils.splat_background import load_visual_background, swap_visual_background
+        visual_bg = load_visual_background(args.visual_background)
+        changes["visual_background"] = swap_visual_background(scene, visual_bg)
+        print("[eps] visual background:", visual_bg.name, visual_bg.usdz, "dz_m", visual_bg.dz_m,
+              "remove", visual_bg.remove, flush=True)
     # Cameras: one fixed on the board (where tofu_og_cut.py puts its close-up, a little further back, aimed
     # at the block's nominal centre and never moved), one carried by the hand (posed every tick).
     az, el = math.radians(-50.0), math.radians(32.0)
@@ -1013,10 +1032,22 @@ def main():
                         "sensor_kwargs": {"image_height": args.overview[1], "image_width": args.overview[0],
                                           "clipping_range": [0.01, 20.0]},
                         "position": [float(x) for x in eye_o], "orientation": [float(x) for x in T.look_at(eye_o, target_o)]})
+    if visual_bg is not None and visual_bg.kit_settings:
+        # og.app is set by og.launch above, and the environment is built only after these settings are in place
+        applied = {}
+        for key, value in visual_bg.kit_settings.items():
+            try:
+                og.app.set_setting(key, value)
+                applied[key] = {"value": value, "ok": True, "error": None}
+            except Exception as error:  # noqa: BLE001 - a missing setting must not stop the run
+                applied[key] = {"value": value, "ok": False, "error": str(error)}
+                print(f"[eps] visual background: set_setting {key!r} failed: {error}", flush=True)
+        changes["visual_background"]["kit_settings_applied"] = applied
     hz = args.physics_hz
     env = og.Environment(configs=dict(
         env=dict(action_frequency=hz, rendering_frequency=hz, physics_frequency=hz, external_sensors=sensors),
-        scene=dict(type="Scene", scene_file=scene, use_floor_plane=True, floor_plane_visible=True, use_skybox=True,
+        scene=dict(type="Scene", scene_file=scene, use_floor_plane=True,
+                   floor_plane_visible=(True if visual_bg is None else visual_bg.floor_plane_visible), use_skybox=True,
                    include_robots=True)))
     env.reset()
     if args.physx_enhanced_determinism:  # still set once the scene is loaded and playing?
@@ -1052,7 +1083,7 @@ def main():
     print("[eps] grasp:", json.dumps({k: v for k, v in grasp.items() if k != "knife_in_eef"}), flush=True)
     if not grasp["held"]:
         raise SystemExit("the gripper did not take the knife")
-    (out / "setup.json").write_text(json.dumps({"scene_changes": changes, "grasp": grasp, "args": vars(args),
+    (out / "setup.json").write_text(json.dumps({"scene_changes": changes, "grasp": grasp, "args": setup_args(args),
                                                 "robot_pos": robot_pos.tolist(), "dx": args.dx,
                                                 "block_size": place.block_size.tolist(),
                                                 "food_volume_cm3": 1e6 * food_volume, "food_params": food_params,
