@@ -346,12 +346,14 @@ def test_setup_args_with_the_probe_off_matches_the_base_runner():
 
 
 class _FakeCam:
-    def __init__(self, rgb, inst, sem, position):
+    """A camera whose get_obs reads count, whose lens is its own, and whose pose the capture can set."""
+
+    def __init__(self, rgb, inst, sem, position, lens):
         self.reads = 0
         self._obs = {"rgb": rgb, "seg_instance": inst, "seg_semantic": sem}
         self._info = {"seg_instance": {1: "tofu"}, "seg_semantic": {2: "food"}}
         self.position, self.orientation = list(position), [0.0, 0.0, 0.0, 1.0]
-        self.prim = _FakePrim({"focalLength": _FakeAttr(17.0)})
+        self.prim = _FakePrim({name: _FakeAttr(value) for name, value in lens.items()})
 
     def get_obs(self):
         self.reads += 1
@@ -365,15 +367,20 @@ class _FakeCam:
         return torch.tensor(self.position), torch.tensor(self.orientation)
 
 
+FRONT_LENS = {"focalLength": 17.0, "horizontalAperture": 20.955, "verticalAperture": 15.2}
+WRIST_LENS = {"focalLength": 12.0, "horizontalAperture": 14.4, "verticalAperture": 10.8, "horizontalApertureOffset": 0.5}
+
+
 def _cams():
+    """Two cameras with different images and different lenses, so that a mix-up between them shows."""
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(0)
 
-    def cam(position):
+    def cam(position, lens):
         return _FakeCam(torch.from_numpy(rng.integers(0, 256, (6, 8, 4), dtype=np.uint8)),
                         torch.from_numpy(rng.integers(0, 5, (6, 8), dtype=np.int64)),
-                        torch.from_numpy(rng.integers(0, 3, (6, 8), dtype=np.int64)), position)
-    return {"front": cam([0.5, 0.0, 0.5]), "wrist": cam([0.0, 0.0, 0.0])}
+                        torch.from_numpy(rng.integers(0, 3, (6, 8), dtype=np.int64)), position, lens)
+    return {"front": cam([0.5, 0.0, 0.5], FRONT_LENS), "wrist": cam([0.0, 0.0, 0.0], WRIST_LENS)}
 
 
 def _episode_run(cams, probe=None, seed=7):
@@ -406,10 +413,15 @@ def test_capture_reads_each_camera_once_with_the_probe_on_and_saves_only_the_pro
     assert [c.reads for c in cams.values()] == [2, 2]
     assert sorted(p.name for p in (tmp_path / "ep00007").iterdir()) == [
         "t0000_front.json", "t0000_front.npz", "t0000_wrist.json", "t0000_wrist.npz"]
-    with np.load(tmp_path / "ep00007" / "t0000_front.npz") as stored:
-        assert stored["seg_instance"].dtype == np.uint32
-        assert np.array_equal(stored["seg_instance"], cams["front"]._obs["seg_instance"].numpy())
-        assert np.array_equal(stored["rgb"], cams["front"]._obs["rgb"].numpy()[:, :, :3])
+    assert not np.array_equal(cams["front"]._obs["seg_instance"].numpy(), cams["wrist"]._obs["seg_instance"].numpy())
+    for name in ("front", "wrist"):  # each file holds its own camera's arrays, not the other camera's
+        with np.load(tmp_path / "ep00007" / f"t0000_{name}.npz") as stored:
+            obs = cams[name]._obs
+            assert stored["rgb"].dtype == np.uint8 and stored["seg_instance"].dtype == np.uint32
+            assert stored["seg_semantic"].dtype == np.uint32
+            assert np.array_equal(stored["rgb"], obs["rgb"].numpy()[:, :, :3]), name
+            assert np.array_equal(stored["seg_instance"], obs["seg_instance"].numpy()), name
+            assert np.array_equal(stored["seg_semantic"], obs["seg_semantic"].numpy()), name
 
 
 def test_the_probe_leaves_the_recorded_ticks_unchanged(tmp_path):
@@ -421,14 +433,37 @@ def test_the_probe_leaves_the_recorded_ticks_unchanged(tmp_path):
         assert np.array_equal(np.asarray(run_off.rec[-1][key]), np.asarray(run_on.rec[-1][key])), key
 
 
-def test_the_probe_pose_is_the_camera_pose_of_the_tick(tmp_path):
+def test_each_probe_json_holds_its_own_camera_pose_and_lens(tmp_path):
     cams = _cams()
     run = _episode_run(cams, probe=cp.CameraProbe(tmp_path, ticks=[0]), seed=2)
     run.capture()
-    record = json.loads((tmp_path / "ep00002" / "t0000_wrist.json").read_text())
-    assert record["position"] == pytest.approx(cams["wrist"].position)
-    assert record["orientation_xyzw"] == [0.0, 0.0, 0.0, 1.0]
-    assert record["focal_length"] == 17.0 and record["vertical_aperture"] is None
+    front = json.loads((tmp_path / "ep00002" / "t0000_front.json").read_text())
+    wrist = json.loads((tmp_path / "ep00002" / "t0000_wrist.json").read_text())
+    assert front["position"] == pytest.approx(cams["front"].position)
+    assert wrist["position"] == pytest.approx(cams["wrist"].position)
+    assert front["orientation_xyzw"] == [0.0, 0.0, 0.0, 1.0] and wrist["orientation_xyzw"] == [0.0, 0.0, 0.0, 1.0]
+    assert front["focal_length"] == 17.0 and front["horizontal_aperture"] == 20.955
+    assert front["vertical_aperture"] == 15.2 and front["horizontal_aperture_offset"] is None
+    assert wrist["focal_length"] == 12.0 and wrist["horizontal_aperture"] == 14.4
+    assert wrist["vertical_aperture"] == 10.8 and wrist["horizontal_aperture_offset"] == 0.5
+    assert wrist["vertical_aperture_offset"] is None
+
+
+def test_probe_arrays_keep_segmentation_ids_above_float32_precision():
+    big = 16777217  # 2**24 + 1, the first integer a float32 cannot hold
+    obs = _obs()
+    obs["seg_instance"][0, 0] = big
+    arrays, _ = cp.probe_arrays(obs, {})
+    assert arrays["seg_instance"].dtype == np.uint32 and arrays["seg_instance"][0, 0] == big
+
+
+def test_numpy_keeps_integer_dtypes_and_values_above_float32_precision():
+    values = np.array([16777217, 4294967295], dtype=np.int64)
+    out = cp._numpy(values)
+    assert out.dtype == np.int64 and np.array_equal(out, values)
+    torch = pytest.importorskip("torch")
+    out_torch = cp._numpy(torch.tensor([16777217], dtype=torch.int64))
+    assert out_torch.dtype == np.int64 and out_torch[0] == 16777217
 
 
 # ----------------------------------------------------- structure: the syntax tree
@@ -439,6 +474,12 @@ def test_the_runner_hands_the_probe_its_two_options():
     call = creates[0].value.body
     assert isinstance(call, ast.Call) and _text(call.func) == "CameraProbe"
     assert [_text(a) for a in call.args] == ["args.probe_out", "args.probe_ticks"]
+
+
+def test_the_probe_import_follows_the_other_simfoundry_imports_in_order():
+    names = [n.module for n in CURRENT.body if isinstance(n, ast.ImportFrom) and n.module and n.module.startswith("simfoundry")]
+    assert "simfoundry.utils.camera_probe" in names
+    assert names == sorted(names), "the simfoundry imports are in alphabetical order"
 
 
 def test_probe_options_are_optional_with_the_stated_defaults():
@@ -456,6 +497,12 @@ def test_the_segmentation_channels_are_added_only_under_the_option():
     assert len(blocks) == 1
     assigns = [n for n in ast.walk(blocks[0]) if isinstance(n, ast.Assign)]
     assert len(assigns) == 1 and _text(assigns[0].targets[0]) == "sensor['modalities']"
+    loops = [s for s in blocks[0].body if isinstance(s, ast.For)]
+    assert len(loops) == 1 and _text(loops[0].target) == "sensor" and _text(loops[0].iter) == "sensors", \
+        "the probe's modalities are set on every sensor, not on a slice of them"
+    assert [s for s in loops[0].body if isinstance(s, ast.Assign)] == assigns, "the assignment is the loop's body"
+    subscript = assigns[0].targets[0]
+    assert isinstance(subscript, ast.Subscript) and _text(subscript.value) == "sensor"
     assert ast.literal_eval(assigns[0].value) == ["rgb", "seg_instance", "seg_semantic"]
     for node in assigns:
         assert any(s is blocks[0] for s in _enclosing(node, parents, ast.If))

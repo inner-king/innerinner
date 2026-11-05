@@ -50,7 +50,6 @@ from simfoundry.cutting.knife import CHEF_KNIFE  # noqa: E402
 from simfoundry.cutting.materials import PRESETS  # noqa: E402
 from simfoundry.cutting.real2sim import OBJECTS_INFO, cook_stroke, fit_food, load_reconstruction  # noqa: E402
 from simfoundry.cutting.render import CUT_RGB, tofu_look  # noqa: E402
-from simfoundry.utils.camera_probe import CameraProbe, camera_attributes, pose_record, probe_arrays  # noqa: E402
 from simfoundry.cutting.support_height import (  # noqa: E402
     EPS_M,
     hand_z_from_log_height,
@@ -58,6 +57,7 @@ from simfoundry.cutting.support_height import (  # noqa: E402
     support_drop_near_constant,
     support_state_mode,
 )
+from simfoundry.utils.camera_probe import CameraProbe, camera_attributes, pose_record, probe_arrays  # noqa: E402
 
 
 def draw(seed, a):
