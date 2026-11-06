@@ -19,7 +19,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GEN = ROOT / "scripts/cutting/tofu_policy_episodes.py"
-BASE_COMMIT = "5b05fe3"
+# integration's runner before this option (the port's base): no DART block, and setup.json writes vars(args)
+BASE_COMMIT = "6cb6ad5"
 sys.path.insert(0, str(ROOT / "scripts/cutting"))
 try:
     import tofu_policy_episodes as G  # noqa: E402 - the runner's own imports need the simulator's packages in some envs
@@ -182,13 +183,23 @@ def _drop_probe(stmts):
     return out
 
 
+class _WriterAsBase(ast.NodeTransformer):
+    """setup.json's ``setup_args(args)`` read as the base's ``vars(args)``: with the option off the two are the same dict."""
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if _text(node.func) == "setup_args" and [_text(a) for a in node.args] == ["args"]:
+            return _expr("vars(args)")
+        return node
+
+
 def _without_additions(main):
     """``main`` with the statements the change may add taken out, and the floor-plane keyword read as ``True``.
 
     The additions are the visual ones, and the test-only --probe-out ones (its two options, its segmentation block, and
     the probe's attributes on ``run``).
     """
-    tree = copy.deepcopy(main)
+    tree = _WriterAsBase().visit(copy.deepcopy(main))
     tree.body = [s for s in tree.body
                  if not (_is_visual_arg(s) or _is_visual_init(s) or _is_visual_if(s) or _is_kit_if(s) or _is_ccm_if(s))]
     tree.body = _drop_probe(tree.body)
@@ -199,16 +210,8 @@ def _without_additions(main):
     return tree
 
 
-def _base_function(name):
-    node = _function(BASE, name)
-    namespace = {}
-    exec(compile(ast.Module(body=[node], type_ignores=[]), "<base>", "exec"), namespace)  # noqa: S102 - compiles the base's own source
-    return namespace[name]
-
-
 def _args(**over):
-    values = {"scene": Path("Data/x"), "visual_background": None, "mode": "expert", "seed": 3,
-              "dart_sigma_mm": 0.0, "dart_tau_s": 0.1, "dart_clip_mm": 2.0}
+    values = {"scene": Path("Data/x"), "visual_background": None, "mode": "expert", "seed": 3}
     values.update(over)
     return Namespace(**values)
 
@@ -220,22 +223,20 @@ def _eval(node, visual):
 
 # ---------------------------------------------------------------- behaviour: the plain pieces, run on their own
 
-@pytest.mark.parametrize("dart_sigma_mm", [0.0, 2.5])
 @pytest.mark.parametrize("visual", [None, Path("spec.json")])
-def test_setup_args_keeps_keys_order_and_values(dart_sigma_mm, visual):
-    args = _args(dart_sigma_mm=dart_sigma_mm, visual_background=visual)
+def test_setup_args_keeps_keys_order_and_values(visual):
+    args = _args(visual_background=visual)
     out = _runner().setup_args(args)
-    expected = [k for k in vars(args)
-                if (dart_sigma_mm > 0 or not k.startswith("dart_")) and (k != "visual_background" or visual is not None)]
+    expected = [k for k in vars(args) if k != "visual_background" or visual is not None]
     assert list(out) == expected
     assert all(out[k] is vars(args)[k] for k in out)
 
 
-@pytest.mark.parametrize("dart_sigma_mm", [0.0, 2.5])
-def test_setup_args_with_option_off_matches_the_base_runner(dart_sigma_mm):
-    base_args = _args(dart_sigma_mm=dart_sigma_mm)
-    del base_args.visual_background  # the base runner has no such option
-    assert _runner().setup_args(_args(dart_sigma_mm=dart_sigma_mm)) == _base_function("setup_args")(base_args)
+def test_setup_args_with_option_off_matches_the_base_runner():
+    # the base runner writes vars(args) and has no such option: with it off, setup.json gets the same dict
+    base_args = _args()
+    del base_args.visual_background
+    assert _runner().setup_args(_args()) == vars(base_args)
 
 
 @pytest.mark.parametrize(("visual", "expect"), [
