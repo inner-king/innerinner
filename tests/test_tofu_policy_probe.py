@@ -24,7 +24,8 @@ from simfoundry.utils import camera_probe as cp
 
 ROOT = Path(__file__).resolve().parents[1]
 GEN = ROOT / "scripts/cutting/tofu_policy_episodes.py"
-BASE_COMMIT = "b76779e"  # the integration tip before the probe: the probe's own additions are the only difference
+# the port of b76779e (9eae527), the integration tip before the probe: the probe's own additions are the only difference
+BASE_COMMIT = "9eae527"
 sys.path.insert(0, str(ROOT / "scripts/cutting"))
 try:
     import tofu_policy_episodes as G  # noqa: E402 - the runner's own imports need the simulator's packages in some envs
@@ -364,7 +365,7 @@ def test_an_unprobed_tick_creates_no_folder(tmp_path):
 
 def _args(**over):
     values = {"scene": Path("Data/x"), "visual_background": None, "probe_out": None, "probe_ticks": DEFAULT_TICKS,
-              "mode": "expert", "seed": 3, "dart_sigma_mm": 0.0, "dart_tau_s": 0.1, "dart_clip_mm": 2.0}
+              "mode": "expert", "seed": 3}
     values.update(over)
     return Namespace(**values)
 
@@ -438,7 +439,7 @@ def _episode_run(cams, probe=None, seed=7):
     run.wrist_offset, run.cmd, run.points = np.eye(4), np.eye(4), None
     run.og = SimpleNamespace(sim=SimpleNamespace(render=lambda: None))
     run.rec, run.frame_times, run.overview = [], [], []
-    run.k, run.dt, run.phase, run.dart = 0, 0.1, "policy", None
+    run.k, run.dt, run.phase = 0, 0.1, "policy"
     run.cuts_done = lambda: 0
     run.probe, run.probe_seed = probe, seed
     return run
