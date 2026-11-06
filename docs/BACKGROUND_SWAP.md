@@ -3,7 +3,7 @@
 For people who run the tofu policy runner (`scripts/cutting/tofu_policy_episodes.py`) with the splat-background options.
 `--visual-background SPEC.json` replaces the 5c mesh background with a 3D Gaussian splat (USDZ), changing only what the
 spec names; collision and physics stay as they are. The code is `simfoundry/utils/splat_background.py`. Everything here was
-checked against that module, the runner and the tests at commit `938df9a`. Notes cited as `E<n>`
+checked against that module, the runner and the tests on this branch. Notes cited as `E<n>`
 (`background_video/bgswap/DESIGN_ERRATA_ko.md`) are in Korean and live outside this repository; numbers taken from them carry
 their date and seed.
 
@@ -78,7 +78,7 @@ on), builds the environment with the spec's `floor_plane_visible`, and, when the
 renders three times.
 
 `--probe-out DIR` (with `--probe-ticks`, default `0 25 50 75 99`) is a test-only probe. It saves the front and wrist frames of
-those ticks as `DIR/ep<seed:05d>/t<tick:04d>_<camera>.npz`, with `rgb` and `seg_instance` (`CameraProbe`). The arrays come from
+those ticks as `DIR/ep<seed:05d>/t<tick:04d>_<camera>.npz`, with `rgb` and `seg_instance`, and `seg_semantic` when the read has it (`CameraProbe`). The arrays come from
 the same `get_obs()` read as the policy's images (`EpisodeRun.capture`); the probe never reads a camera again.
 
 ## What the scene and the record get
@@ -87,7 +87,7 @@ the same `get_obs()` read as the policy's images (`EpisodeRun.capture`); the pro
   with the splat's path, scale and MD5 (`gs_background_entry`).
 - Each box follows the splat, in rectangle order, in both sections, named `counter_patch_<i>`. A name the scene already has is
   refused.
-- `setup.json` gets `scene_changes.visual_background` (name, `usdz`, `md5`, `removed`, pose, `scale`, `dz_m`,
+- `setup.json` gets `scene_changes.visual_background` (name, `usdz`, `md5`, `removed`, `pos`, `ori_xyzw`, `scale`, `dz_m`,
   `floor_plane_visible`, `kit_settings`, and `kit_settings_applied` and `ccm_applied` when they run). The `ccm` and
   `counter_patch` keys appear only when the spec has them.
 - `setup.json`'s `args` lists `visual_background`, and `probe_out` and `probe_ticks`, only when given (`setup_args`).
@@ -113,7 +113,7 @@ with alpha 1. The box's state (`counter_patch_state`) adds the keys OmniGibson w
 -1, and `size` set to 1.0.
 
 OmniGibson's `PrimitiveObject._dump_state` writes these keys, and `_load_state` reads `size` for a Cube. A state without `size`
-makes a scene restore raise `KeyError`; the keys were added in `aaa36a5` (`E30`, 18:53). Expected warning, once per box: `Custom
+makes a scene restore raise `KeyError`; the keys were added with the commit "Counter-patch boxes: give the scene state the keys a Cube needs" (`E30`, 18:53). Expected warning, once per box: `Custom
 scale specified for primitive object, so ignoring radius, height, and size arguments!` It comes from `PrimitiveObject._post_load`
 whenever a box has a scale. The seed-1000 run printed it five times, once per box (`E30`).
 
@@ -142,7 +142,8 @@ python -B -m pytest -p no:cacheprovider -q \
   tests/test_splat_background.py tests/test_tofu_policy_visual_background.py tests/test_tofu_policy_probe.py
 ```
 
-At `938df9a` this gives `315 passed, 2 skipped`. The skips are `test_usdz_is_a_nurec_volume_whose_extent_is_the_ply_aabb` and
+On this branch this gives `312 passed, 2 skipped`. The skips are `test_usdz_is_a_nurec_volume_whose_extent_is_the_ply_aabb` and
 `test_apply_on_a_real_usd_stage_writes_the_matrix_and_reads_it_back`, which need `pxr` (not in the `simfoundry` environment). The
-two runner test files compare the runner's syntax tree with the base commit named by their `BASE_COMMIT` (`5b05fe3`, `b76779e`);
-they skip when that commit is not in the clone.
+two runner test files compare the runner's syntax tree with the base commit named by their `BASE_COMMIT`: `6cb6ad5` for
+`tests/test_tofu_policy_visual_background.py` and `9eae527` for `tests/test_tofu_policy_probe.py`. They skip when that commit is
+not in the clone.
