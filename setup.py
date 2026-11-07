@@ -12,7 +12,7 @@ setup(
     install_requires=[
     ],
     # configs/ holds data, not code, so it is not a package; ship its contents explicitly.
-    package_data={"simfoundry": ["configs/*.yaml", "configs/modality/*.json"]},
+    package_data={"simfoundry": ["configs/*.yaml", "configs/modality/*.json", "configs/visual_background/*.json"]},
     include_package_data=True,
     python_requires='>=3.10',
     description="SimFoundry: Modular and Automated Scene Generation for Policy Learning and Evaluation",

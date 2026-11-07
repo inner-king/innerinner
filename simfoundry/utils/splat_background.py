@@ -334,6 +334,15 @@ def packaged_visual_background_root(option=None, environ=None) -> Path:
     return _CHECKOUT_DIR / "Data" / "visual_background"
 
 
+def packaged_spec_path() -> Path:
+    """The spec a run uses when no ``--visual-background`` is given: ``configs/visual_background/p1.json`` in the package.
+
+    It is found from this module's own location, not from the working directory, so a checkout, an editable install and
+    an installed copy all name the same file.
+    """
+    return Path(__file__).resolve().parents[1] / "configs" / "visual_background" / "p1.json"
+
+
 def pose_from_similarity(matrix, dz_m: float = 0.0) -> tuple[np.ndarray, np.ndarray, float]:
     """Position, xyzw quaternion and scale of a similarity transform, with ``dz_m`` added in world z.
 

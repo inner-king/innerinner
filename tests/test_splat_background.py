@@ -16,6 +16,7 @@ import functools
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -481,6 +482,97 @@ def test_a_bad_scene_requires_is_refused_at_load(tmp_path, usdz_file, requires):
 def test_the_guard_adds_nothing_to_the_record(tmp_path, usdz_file):
     record = sb.swap_visual_background(_guarded_scene(), _guarded_spec(tmp_path, usdz_file))
     assert set(record) == RECORD_KEYS
+
+
+# ------------------------------------------------- the packaged spec
+
+
+def test_the_packaged_spec_is_in_the_package_and_is_found_from_the_module():
+    expected = Path(sb.__file__).resolve().parents[1] / "configs" / "visual_background" / "p1.json"
+    assert sb.packaged_spec_path() == expected
+    assert expected.is_file()
+
+
+def test_the_packaged_spec_has_relative_names_and_no_machine_path():
+    text = sb.packaged_spec_path().read_text(encoding="utf-8")
+    spec = json.loads(text)
+    assert spec["usdz"] == "PD_slab4_bg.usdz"
+    assert spec["pose_json"] == "align_v4b.json"
+    assert f"{os.sep}home{os.sep}" not in text  # no home-directory component, however the spec spells it
+
+    def strings(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                yield key
+                yield from strings(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from strings(item)
+        elif isinstance(value, str):
+            yield value
+
+    assert not [s for s in strings(spec) if s.startswith("/")]
+
+
+def test_the_packaged_spec_pins_its_reflectance_its_guard_and_its_removals():
+    spec = json.loads(sb.packaged_spec_path().read_text(encoding="utf-8"))
+    assert spec["schema"] == 1 and spec["name"] == "P1"
+    assert spec["counter_patch"]["rgb"] == [0.1875, 0.1825, 0.185]
+    assert spec["scene_requires"] == GUARD
+    assert spec["remove"] == ["mesh_background_0", "iter_7"]
+
+
+def test_the_packaged_spec_loads_with_stand_in_files_from_a_root(tmp_path):
+    root = tmp_path / "root"
+    _root_with_files(root, usdz_name="PD_slab4_bg.usdz", pose_name="align_v4b.json")
+    spec = sb.load_visual_background(sb.packaged_spec_path(), root=root)
+    assert spec.name == "P1"
+    assert spec.usdz == root / "PD_slab4_bg.usdz"
+    assert spec.pose_json == root / "align_v4b.json"
+    assert spec.scene_requires == GUARD
+    assert spec.remove == ("mesh_background_0", "iter_7")
+    assert spec.counter_patch.rgb == (0.1875, 0.1825, 0.185)
+    assert spec.ccm is not None
+
+
+def test_without_its_files_the_packaged_spec_names_both_and_the_folder(tmp_path):
+    root = tmp_path / "empty"
+    root.mkdir()
+    with pytest.raises(sb.MissingAssetError) as caught:
+        sb.load_visual_background(sb.packaged_spec_path(), root=root)
+    assert caught.value.names == ("PD_slab4_bg.usdz", "align_v4b.json")
+    assert caught.value.folder == root
+
+
+def test_the_packaged_spec_path_is_the_same_from_another_working_directory(tmp_path):
+    # the checkout is put on the path, as an editable install would, and the child starts in an empty folder
+    code = "from simfoundry.utils import splat_background as sb; print(sb.packaged_spec_path())"
+    env = dict(os.environ, PYTHONPATH=str(ROOT))
+    done = subprocess.run([sys.executable, "-B", "-c", code], cwd=tmp_path, env=env, capture_output=True, text=True,
+                          timeout=300)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert Path(done.stdout.strip()) == sb.packaged_spec_path()
+
+
+def test_a_build_ships_the_packaged_spec(tmp_path):
+    # built from a copy of setup.py and the package's own files, so the checkout is not written
+    shutil.copy(ROOT / "setup.py", tmp_path / "setup.py")
+    config = tmp_path / "simfoundry" / "configs" / "visual_background"
+    config.mkdir(parents=True)
+    shutil.copy(ROOT / "simfoundry" / "__init__.py", tmp_path / "simfoundry" / "__init__.py")
+    shutil.copy(sb.packaged_spec_path(), config / "p1.json")
+    done = subprocess.run([sys.executable, "setup.py", "-q", "build_py", "--build-lib", "build"], cwd=tmp_path,
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stderr[-2000:]
+    shipped = tmp_path / "build" / "simfoundry" / "configs" / "visual_background" / "p1.json"
+    assert shipped.read_bytes() == sb.packaged_spec_path().read_bytes()
+
+
+def test_the_packaged_guard_matches_the_real_scene_json():
+    _need(SCENE_JSON, SCENE_ENV)
+    requires = json.loads(sb.packaged_spec_path().read_text(encoding="utf-8"))["scene_requires"]
+    scene = json.loads(SCENE_JSON.read_text(encoding="utf-8"))
+    sb.check_scene_requires(scene, requires, label="the scene JSON")
 
 
 # ------------------------------------------------- spec reading and defaults
