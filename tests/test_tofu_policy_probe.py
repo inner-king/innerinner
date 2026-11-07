@@ -24,8 +24,9 @@ from simfoundry.utils import camera_probe as cp
 
 ROOT = Path(__file__).resolve().parents[1]
 GEN = ROOT / "scripts/cutting/tofu_policy_episodes.py"
-# the port of b76779e (9eae527), the integration tip before the probe: the probe's own additions are the only difference
-BASE_COMMIT = "9eae527"
+# the integration tip before the probe (9eae527 before the branch was rewritten; c06e04d now): the probe's own additions
+# are the difference, and the visual background's statements are taken out of both sides (the visual test file pins them)
+BASE_COMMIT = "c06e04d"
 sys.path.insert(0, str(ROOT / "scripts/cutting"))
 try:
     import tofu_policy_episodes as G  # noqa: E402 - the runner's own imports need the simulator's packages in some envs
@@ -40,11 +41,13 @@ def _runner():
     return G
 
 
-try:
-    BASE = ast.parse(subprocess.run(["git", "show", f"{BASE_COMMIT}:scripts/cutting/tofu_policy_episodes.py"], cwd=ROOT,
-                                    capture_output=True, text=True, check=True).stdout)
-except (OSError, subprocess.CalledProcessError) as error:
-    pytest.skip(f"the base commit {BASE_COMMIT} is not in this clone: {error}", allow_module_level=True)
+# A missing base is a failure, not a skip: a skipped file would drop this coverage without a word. The commit is looked up
+# by its name here, because a copy of the history may carry a different SHA for the same commit.
+if subprocess.run(["git", "cat-file", "-e", f"{BASE_COMMIT}^{{commit}}"], cwd=ROOT, capture_output=True).returncode != 0:
+    pytest.fail(f"the base commit {BASE_COMMIT} is not in this clone, so the probe tests cannot compare the runner with it; "
+                "fetch the history and run again", pytrace=False)
+BASE = ast.parse(subprocess.run(["git", "show", f"{BASE_COMMIT}:scripts/cutting/tofu_policy_episodes.py"], cwd=ROOT,
+                                capture_output=True, text=True, check=True).stdout)
 CURRENT = ast.parse(GEN.read_text())
 PROBE_FLAGS = ("--probe-out", "--probe-ticks")
 PROBE_TEST = "args.probe_out is not None"
@@ -126,16 +129,28 @@ def _drop_probe(stmts):
     return out
 
 
+VISUAL_FLAGS = ("--visual-background", "--visual-background-root")
+VISUAL_TESTS = ("args.visual_background is not None", "visual_bg is not None",
+                "visual_bg is not None and visual_bg.kit_settings", "visual_bg is not None and visual_bg.ccm is not None")
+VISUAL_TARGETS = ("visual_bg", ast.unparse(ast.parse('changes["visual_background"]', mode="eval").body))
+
+
+def _is_visual_stmt(stmt):
+    """A top-level statement of main that belongs to the visual background, on either side of the comparison."""
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) and isinstance(stmt.value.func, ast.Attribute) \
+            and stmt.value.func.attr == "add_argument" and stmt.value.args and isinstance(stmt.value.args[0], ast.Constant):
+        return stmt.value.args[0].value in VISUAL_FLAGS
+    if isinstance(stmt, ast.Assign):
+        return any(_text(t) in VISUAL_TARGETS for t in stmt.targets)
+    if isinstance(stmt, ast.If):
+        return any(_is_test(stmt.test, text) for text in VISUAL_TESTS)
+    return False
+
+
 def _main_without_probe(main):
+    """main without the probe's statements, and without the visual background's (which the visual test file pins)."""
     tree = copy.deepcopy(main)
-    tree.body = _drop_probe(tree.body)
-    # The colour-matrix hook and the name it adds to the splat import belong to the visual background, and they are
-    # additions over the base too. Taken out here, so that this test still checks the probe's additions alone.
-    tree.body = [s for s in tree.body
-                 if not (isinstance(s, ast.If) and _is_test(s.test, "visual_bg is not None and visual_bg.ccm is not None"))]
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "simfoundry.utils.splat_background":
-            node.names = [alias for alias in node.names if alias.name != "apply_splat_ccm"]
+    tree.body = [s for s in _drop_probe(tree.body) if not _is_visual_stmt(s)]
     return tree
 
 
@@ -377,15 +392,17 @@ def test_setup_args_has_the_probe_options_only_with_probe_out(visual, probe):
     out = _runner().setup_args(args)
     assert ("probe_out" in out) is (probe is not None)
     assert ("probe_ticks" in out) is (probe is not None)
-    assert ("visual_background" in out) is (visual is not None)
+    assert out["visual_background"] == ("none" if visual is None else visual)
     assert list(out) == [k for k in vars(args) if k in out], "the keys keep the order of the namespace"
     if probe is not None:
         assert out["probe_out"] is args.probe_out and out["probe_ticks"] is args.probe_ticks
 
 
 def test_setup_args_with_the_probe_off_matches_the_base_runner():
+    # the base runner has no visual option: with the probe off and the background "none", setup.json differs from the
+    # base's by that one key
     base_args = Namespace(**{k: v for k, v in vars(_args()).items() if k not in ("probe_out", "probe_ticks", "visual_background")})
-    assert _runner().setup_args(_args()) == _base_function("setup_args")(base_args)
+    assert _runner().setup_args(_args()) == dict(_base_function("setup_args")(base_args), visual_background="none")
 
 
 # -------------------------------------------- behaviour: capture on fake cameras (one read each)
@@ -607,4 +624,4 @@ def test_capture_matches_the_base_outside_the_read_and_the_probe_block():
 
 
 def test_main_matches_the_base_outside_the_probe_additions():
-    assert ast.dump(_main_without_probe(MAIN)) == ast.dump(MAIN_BASE)
+    assert ast.dump(_main_without_probe(MAIN)) == ast.dump(_main_without_probe(MAIN_BASE))

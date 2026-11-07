@@ -26,6 +26,13 @@ pose commanded at that tick. At the end the solver judges the cut. Outputs in --
   ep_<seed>.json  the draw and the outcome, the episode's place in its process, the knife in the hand
   episodes.jsonl  one outcome line per episode
 
+The background: by default the packaged P1 spec replaces the 5c mesh background with a 3DGS splat. The swap is visual
+only; collision and physics do not change. The spec's two files, PD_slab4_bg.usdz and align_v4b.json, are not in the
+repository. They are read from --visual-background-root, else SIMFOUNDRY_VISUAL_BACKGROUND_ROOT, else
+Data/visual_background. --visual-background none runs the old 5c mesh background, and another spec JSON may be given.
+The run stops before Isaac Sim starts when a file is missing or the scene is not the one the spec was aligned to
+(simfoundry/utils/splat_background.py, docs/BACKGROUND_SWAP.md).
+
 Example (repository root, Isaac Sim boots; see tofu_og_cut.py for the data path):
     PYTHONPATH=$PWD python scripts/cutting/tofu_policy_episodes.py --mode expert --seeds 0 5 --out results/eps
 """
@@ -58,6 +65,7 @@ from simfoundry.cutting.support_height import (  # noqa: E402
     support_state_mode,
 )
 from simfoundry.utils.camera_probe import CameraProbe, camera_attributes, pose_record, probe_arrays  # noqa: E402
+from simfoundry.utils.splat_background import packaged_spec_path  # noqa: E402
 
 
 def draw(seed, a):
@@ -754,21 +762,69 @@ def dice_success(o, dz, moved_mm, a):
     return basic, strict
 
 
-def setup_args(args):
-    """The arguments as setup.json records them. --visual-background appears only when it is given, and so do the two
-    --probe- options with --probe-out, so a run without them writes the same setup.json as before those options existed.
+def load_run_visual_background(args):
+    """The splat background the run uses, read and checked before Isaac Sim starts; None for ``--visual-background none``.
+
+    A spec whose files are not there, a spec the loader refuses, and a scene that is not the one the spec was aligned to
+    all stop the run here, with the reason and both ways out. The packaged spec's files are read from
+    ``--visual-background-root``, else ``SIMFOUNDRY_VISUAL_BACKGROUND_ROOT``, else ``Data/visual_background``. A spec of
+    your own reads them from its own folder unless ``--visual-background-root`` says otherwise.
     """
-    return {k: v for k, v in vars(args).items()
-            if (k != "visual_background" or getattr(args, "visual_background", None) is not None)
-            and (k not in ("probe_out", "probe_ticks") or getattr(args, "probe_out", None) is not None)}
+    if args.visual_background == "none":
+        return None
+    from simfoundry.utils.splat_background import (MissingAssetError, SplatBackgroundError, check_scene_requires,
+                                                   load_visual_background, missing_assets_message,
+                                                   packaged_visual_background_root)
+    spec_path = Path(args.visual_background)
+    packaged = spec_path.resolve() == packaged_spec_path().resolve()
+    root = packaged_visual_background_root(args.visual_background_root) if packaged else args.visual_background_root
+    try:
+        spec = load_visual_background(spec_path, root=root)
+    except MissingAssetError as error:
+        raise SystemExit(missing_assets_message(error, packaged)) from None
+    except SplatBackgroundError as error:
+        raise SystemExit(f"the visual background spec {spec_path} is refused: {error}") from None
+    if spec.scene_requires is not None:
+        scene_path = args.scene / T.SCENE_JSON
+        try:
+            scene = json.loads(scene_path.read_text())
+        except (OSError, ValueError) as error:
+            raise SystemExit(f"cannot read scene {scene_path}, which the visual background spec checks: {error}") from None
+        try:
+            check_scene_requires(scene, spec.scene_requires, label=f"scene {scene_path}")
+        except SplatBackgroundError as error:
+            raise SystemExit(str(error)) from None
+    return spec
+
+
+def setup_args(args):
+    """The arguments as setup.json records them. --visual-background is always recorded: its spelling, or "none". The
+    spec root appears only when it is given, and so do the two --probe- options with --probe-out, so a run without them
+    writes the same setup.json as before those options existed.
+    """
+    record = {}
+    for k, v in vars(args).items():
+        if k == "visual_background":
+            record[k] = "none" if v is None else v
+        elif k == "visual_background_root" and v is None:
+            continue
+        elif k in ("probe_out", "probe_ticks") and getattr(args, "probe_out", None) is None:
+            continue
+        else:
+            record[k] = v
+    return record
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scene", type=Path, default=Path("Data/tofu_chefd"))
-    ap.add_argument("--visual-background", type=Path, default=None,
-                    help="spec JSON that replaces the 5c mesh background with a splat (visual only; "
-                         "collision and physics stay as they are); see simfoundry/utils/splat_background.py")
+    ap.add_argument("--visual-background", default=str(packaged_spec_path()), metavar="SPEC|none",
+                    help="spec JSON that replaces the 5c mesh background with a splat (visual only; collision and physics "
+                         "stay as they are). 'none' runs the old 5c mesh background. Default: the packaged P1 spec; "
+                         "see simfoundry/utils/splat_background.py and docs/BACKGROUND_SWAP.md")
+    ap.add_argument("--visual-background-root", type=Path, default=None,
+                    help="folder of the usdz and pose_json that the spec names. For the packaged spec the default is "
+                         "SIMFOUNDRY_VISUAL_BACKGROUND_ROOT, then Data/visual_background in the checkout")
     ap.add_argument("--probe-out", type=Path, default=None,
                     help="test only: save the front and wrist cameras' segmentation channels and poses under "
                          "DIR/ep<seed>/ at the ticks of --probe-ticks (the cameras also render the segmentation)")
@@ -872,6 +928,8 @@ def main():
         ap.error("--action-mode support-log needs --mode policy")
     if args.support_meta is not None and args.action_mode != "support-log":
         ap.error("--support-meta needs --action-mode support-log")
+    # read and checked here, before Isaac Sim starts: a missing file or a scene that is not the spec's stops the run now
+    visual_bg = load_run_visual_background(args)
     # the layout of the policy's state, from the dataset it was trained on: the hand alone unless its meta says append
     support_meta = json.loads(args.support_meta.read_text()) if args.support_meta is not None else {}
     state_mode = support_state_mode(support_meta) if args.support_meta is not None else "none"
@@ -1024,12 +1082,12 @@ def main():
             "pos": [float(x) for x in board_pose[0]], "ori": [float(x) for x in board_pose[1]],
             "lin_vel": [0.0, 0.0, 0.0], "ang_vel": [0.0, 0.0, 0.0]}
         changes["board_levelled_by_shape"] = {"pos": [float(x) for x in board_pose[0]], "scale": scale0}
-    visual_bg = None
-    # The splat background replaces the 5c mesh after the scene edit and before the sensors (off by default).
-    if args.visual_background is not None:
-        from simfoundry.utils.splat_background import load_visual_background, swap_visual_background, apply_splat_ccm
-        visual_bg = load_visual_background(args.visual_background)
-        changes["visual_background"] = swap_visual_background(scene, visual_bg)
+    # The splat background replaces the 5c mesh after the scene edit and before the sensors. setup.json always names it:
+    # "none" for a run without one, and the swap's record otherwise.
+    changes["visual_background"] = {"name": "none"}
+    if visual_bg is not None:
+        from simfoundry.utils.splat_background import apply_splat_ccm, swap_visual_background
+        changes["visual_background"] = swap_visual_background(scene, visual_bg, label=f"scene {args.scene / T.SCENE_JSON}")
         print("[eps] visual background:", visual_bg.name, visual_bg.usdz, "dz_m", visual_bg.dz_m,
               "remove", visual_bg.remove, flush=True)
     # Cameras: one fixed on the board (where tofu_og_cut.py puts its close-up, a little further back, aimed
