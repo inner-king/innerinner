@@ -15,6 +15,7 @@ import dataclasses
 import functools
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,19 +28,36 @@ from scipy.spatial.transform import Rotation
 from simfoundry.utils import splat_background as sb
 
 ROOT = Path(__file__).resolve().parents[1]
-SCENE_JSON = Path(
-    "/path/to/reconstructed_og_scene.json"
-)
-ALIGN_JSON = Path("/path/to/align_v4b.json")
-PD_USDZ = Path("/path/to/PD_bg.usdz")
-PD_PLY = Path("/path/to/splat.ply")
+# The tests that need the real files read their paths from these variables and skip when one is unset, so no machine path
+# is written here. The variables are read only: a test opens the file and never writes it.
+SCENE_ENV, ALIGN_ENV = "SIMFOUNDRY_TEST_SCENE_JSON", "SIMFOUNDRY_TEST_ALIGN_JSON"
+PD_USDZ_ENV, PD_PLY_ENV = "SIMFOUNDRY_TEST_PD_USDZ", "SIMFOUNDRY_TEST_PD_PLY"
+
+
+def _path_from_env(name):
+    value = os.environ.get(name, "")
+    return Path(value) if value else None
+
+
+SCENE_JSON = _path_from_env(SCENE_ENV)
+ALIGN_JSON = _path_from_env(ALIGN_ENV)
+PD_USDZ = _path_from_env(PD_USDZ_ENV)
+PD_PLY = _path_from_env(PD_PLY_ENV)
 GS = "gs_background"
 RECORD_KEYS = {"name", "usdz", "md5", "removed", "pos", "ori_xyzw", "scale", "dz_m", "floor_plane_visible", "kit_settings"}
 
 
-def _need(path):
-    if not Path(path).exists():
-        pytest.skip(f"{path} is not on this machine")
+def _present(path):
+    return path is not None and path.exists()
+
+
+def _skip_reason(env):
+    return f"set {env} to an existing file to run this test (it is read only)"
+
+
+def _need(path, env):
+    if not _present(path):
+        pytest.skip(_skip_reason(env))
 
 
 def _rigid(rotvec=(0.3, -0.2, 0.5), t=(0.1, 0.2, 0.3), scale=1.0):
@@ -128,7 +146,7 @@ def _pd_md5():
 # ---------------------------------------------------------------- pose (CPU-2)
 
 
-@pytest.mark.skipif(not ALIGN_JSON.exists(), reason="align_v4b.json is not on this machine")
+@pytest.mark.skipif(not _present(ALIGN_JSON), reason=_skip_reason(ALIGN_ENV))
 def test_pose_on_align_v4b_matches_scipy_including_sign():
     m = np.array(json.loads(ALIGN_JSON.read_text())["M_da3_to_scene"], float)
     pos, quat, scale = sb.pose_from_similarity(m)
@@ -314,6 +332,157 @@ def test_refusal_is_a_value_error():
     assert issubclass(sb.SplatBackgroundError, ValueError)
 
 
+# ------------------------------------------------- the root, the guard and the missing-file message
+
+
+GUARD = {"mesh_background_0": "98ea90c59155fa834fd340d64ebc19b2", "iter_7": "db7a0f67450bd93abbc1c04f1a9b4306"}
+
+
+def _root_with_files(root, usdz_name="PD_slab.usdz", pose_name="align.json"):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / usdz_name).write_bytes(b"a splat file, read for its md5 only")
+    (root / pose_name).write_text(json.dumps({"M_da3_to_scene": _rigid().tolist()}))
+
+
+def test_a_root_gives_the_relative_names_and_the_spec_folder_is_not_searched(tmp_path):
+    spec_folder, root = tmp_path / "spec_here", tmp_path / "root_there"
+    spec_folder.mkdir()
+    _root_with_files(root)
+    path = _spec_file(spec_folder, {"schema": 1, "name": "P1", "usdz": "PD_slab.usdz", "pose_json": "align.json"})
+    spec = sb.load_visual_background(path, root=root)
+    assert spec.usdz == root / "PD_slab.usdz"
+    assert spec.pose_json == root / "align.json"
+
+
+def test_without_a_root_the_names_are_read_from_the_spec_folder(tmp_path):
+    _root_with_files(tmp_path)
+    path = _spec_file(tmp_path, {"schema": 1, "name": "P1", "usdz": "PD_slab.usdz", "pose_json": "align.json"})
+    assert sb.load_visual_background(path).usdz == tmp_path / "PD_slab.usdz"
+
+
+def test_missing_files_are_named_together_with_the_folder_searched(tmp_path):
+    root = tmp_path / "empty_root"
+    root.mkdir()
+    path = _spec_file(tmp_path, {"schema": 1, "name": "P1", "usdz": "PD_slab.usdz", "pose_json": "align.json"})
+    with pytest.raises(sb.MissingAssetError) as caught:
+        sb.load_visual_background(path, root=root)
+    assert caught.value.names == ("PD_slab.usdz", "align.json")
+    assert caught.value.folder == root
+    assert "PD_slab.usdz, align.json" in str(caught.value)
+
+
+def test_the_missing_message_gives_both_ways_out_and_names_the_variable_only_for_the_packaged_spec(tmp_path):
+    error = sb.MissingAssetError(["PD_slab.usdz", "align.json"], tmp_path)
+    packaged = sb.missing_assets_message(error, packaged=True)
+    for text in ("PD_slab.usdz", "align.json", str(tmp_path), "--visual-background-root DIR",
+                 "SIMFOUNDRY_VISUAL_BACKGROUND_ROOT", "--visual-background none", "docs/BACKGROUND_SWAP.md"):
+        assert text in packaged
+    own = sb.missing_assets_message(error, packaged=False)
+    assert "--visual-background-root DIR" in own and "--visual-background none" in own
+    assert "SIMFOUNDRY_VISUAL_BACKGROUND_ROOT" not in own
+
+
+def test_the_packaged_root_is_the_option_then_the_environment_then_the_checkout_default(tmp_path):
+    env = {sb.VISUAL_BACKGROUND_ROOT_ENV: str(tmp_path / "from_env")}
+    default = sb._CHECKOUT_DIR / "Data" / "visual_background"
+    assert sb.packaged_visual_background_root(str(tmp_path / "from_option"), environ=env) == tmp_path / "from_option"
+    assert sb.packaged_visual_background_root(None, environ=env) == tmp_path / "from_env"
+    assert sb.packaged_visual_background_root(None, environ={}) == default
+
+
+def test_an_empty_environment_variable_is_no_root():
+    default = sb._CHECKOUT_DIR / "Data" / "visual_background"
+    assert sb.packaged_visual_background_root(None, environ={sb.VISUAL_BACKGROUND_ROOT_ENV: ""}) == default
+
+
+def test_the_checkout_default_does_not_depend_on_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert sb._CHECKOUT_DIR == Path(sb.__file__).resolve().parents[2]
+    assert sb.packaged_visual_background_root(None, environ={}) == sb._CHECKOUT_DIR / "Data" / "visual_background"
+
+
+def test_the_environment_variable_names_for_the_real_file_tests_are_fixed():
+    # the names are the interface the run is made with, so a rename is a change to the tests' documentation too
+    assert (SCENE_ENV, ALIGN_ENV, PD_USDZ_ENV, PD_PLY_ENV) == (
+        "SIMFOUNDRY_TEST_SCENE_JSON", "SIMFOUNDRY_TEST_ALIGN_JSON", "SIMFOUNDRY_TEST_PD_USDZ", "SIMFOUNDRY_TEST_PD_PLY")
+    assert "SIMFOUNDRY_TEST_SCENE_JSON" in _skip_reason(SCENE_ENV)
+
+
+def _guarded_scene():
+    scene = _synthetic_scene()
+    scene["objects_info"]["init_info"]["iter_7"]["args"]["expected_file_hash"] = GUARD["iter_7"]
+    return scene
+
+
+def _guarded_spec(tmp_path, usdz_file, requires=GUARD):
+    return sb.load_visual_background(_spec_file(tmp_path, _body(remove=["iter_7"], scene_requires=requires)))
+
+
+def test_the_guard_passes_when_every_recorded_hash_matches(tmp_path, usdz_file):
+    spec = _guarded_spec(tmp_path, usdz_file)
+    assert spec.scene_requires == GUARD
+    sb.swap_visual_background(_guarded_scene(), spec)
+
+
+def test_the_guard_refuses_a_mismatch_and_names_the_scene_the_object_and_both_hashes(tmp_path, usdz_file):
+    spec = _guarded_spec(tmp_path, usdz_file)
+    scene = _guarded_scene()
+    scene["objects_info"]["init_info"]["iter_7"]["args"]["expected_file_hash"] = "0" * 32
+    with pytest.raises(sb.SplatBackgroundError) as caught:
+        sb.swap_visual_background(scene, spec, label="scene Data/tofu_chefd/x.json")
+    message = str(caught.value)
+    for text in ("scene Data/tofu_chefd/x.json", "'iter_7'", "0" * 32, GUARD["iter_7"], "--visual-background none"):
+        assert text in message
+
+
+def test_the_guard_refuses_a_missing_object(tmp_path, usdz_file):
+    spec = _guarded_spec(tmp_path, usdz_file)
+    scene = _guarded_scene()
+    del scene["objects_info"]["init_info"]["iter_7"]
+    with pytest.raises(sb.SplatBackgroundError, match="no object 'iter_7'"):
+        sb.swap_visual_background(scene, spec)
+
+
+def test_a_scene_that_records_no_hash_is_cannot_verify_not_a_pass(tmp_path, usdz_file):
+    spec = _guarded_spec(tmp_path, usdz_file)
+    scene = _guarded_scene()
+    del scene["objects_info"]["init_info"]["iter_7"]["args"]["expected_file_hash"]
+    with pytest.raises(sb.SplatBackgroundError, match="cannot verify"):
+        sb.swap_visual_background(scene, spec)
+
+
+def test_the_guard_refuses_before_anything_is_changed(tmp_path, usdz_file):
+    spec = _guarded_spec(tmp_path, usdz_file)
+    scene = _guarded_scene()
+    scene["objects_info"]["init_info"]["iter_7"]["args"]["expected_file_hash"] = "0" * 32
+    before = copy.deepcopy(scene)
+    with pytest.raises(sb.SplatBackgroundError):
+        sb.swap_visual_background(scene, spec)
+    assert scene == before
+
+
+def test_a_spec_without_the_key_is_not_guarded_and_loads_as_before(tmp_path, usdz_file):
+    spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["iter_7"])))
+    assert spec.scene_requires is None
+    scene = _guarded_scene()
+    scene["objects_info"]["init_info"]["iter_7"]["args"]["expected_file_hash"] = "0" * 32
+    sb.swap_visual_background(scene, spec)  # no guard, so the swap runs
+
+
+@pytest.mark.parametrize("requires", [{}, {"iter_7": "DB7A0F67450BD93ABBC1C04F1A9B4306"}, {"iter_7": "db7a"},
+                                      {"iter_7": 5}, {"": GUARD["iter_7"]}, None, GUARD["iter_7"]])
+def test_a_bad_scene_requires_is_refused_at_load(tmp_path, usdz_file, requires):
+    body = _body(remove=["iter_7"])
+    body["scene_requires"] = requires
+    with pytest.raises(sb.SplatBackgroundError, match="scene_requires"):
+        sb.load_visual_background(_spec_file(tmp_path, body))
+
+
+def test_the_guard_adds_nothing_to_the_record(tmp_path, usdz_file):
+    record = sb.swap_visual_background(_guarded_scene(), _guarded_spec(tmp_path, usdz_file))
+    assert set(record) == RECORD_KEYS
+
+
 # ------------------------------------------------- spec reading and defaults
 
 
@@ -482,7 +651,7 @@ def test_swap_leaves_every_other_entry_as_it_was(tmp_path, usdz_file):
 
 
 def test_swap_on_the_p3_scene_changes_only_the_background_entries(tmp_path, usdz_file):
-    _need(SCENE_JSON)
+    _need(SCENE_JSON, SCENE_ENV)
     scene = json.loads(SCENE_JSON.read_text())
     before = copy.deepcopy(scene)
     spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["mesh_background_0", "iter_7"])))
@@ -498,9 +667,9 @@ def test_swap_on_the_p3_scene_changes_only_the_background_entries(tmp_path, usdz
 
 
 def test_golden_on_the_p3_scene_keeps_the_key_order_and_writes_the_expected_values(tmp_path, usdz_file):
-    _need(SCENE_JSON)
-    _need(ALIGN_JSON)
-    _need(PD_USDZ)
+    _need(SCENE_JSON, SCENE_ENV)
+    _need(ALIGN_JSON, ALIGN_ENV)
+    _need(PD_USDZ, PD_USDZ_ENV)
     scene = json.loads(SCENE_JSON.read_text())
     before = copy.deepcopy(scene)
     remove = ["mesh_background_0", "iter_7"]
@@ -675,7 +844,7 @@ def test_expected_file_hash_is_the_md5_of_the_file_on_disk(tmp_path, usdz_file):
     assert entry["args"]["expected_file_hash"] == hashlib.md5(usdz_file.read_bytes()).hexdigest()
 
 
-@pytest.mark.skipif(not PD_USDZ.exists(), reason="PD_bg.usdz is not on this machine")
+@pytest.mark.skipif(not _present(PD_USDZ), reason=_skip_reason(PD_USDZ_ENV))
 def test_md5_of_the_real_usdz_matches_hashlib():
     assert sb.md5_of_file(PD_USDZ) == _pd_md5()
 
@@ -745,7 +914,7 @@ def _without_background(scene):
 
 
 def test_edit_scene_gives_the_same_result_and_scene_with_and_without_the_swap(tmp_path):
-    _need(SCENE_JSON)
+    _need(SCENE_JSON, SCENE_ENV)
     tofu = _import_tofu_og_cut()
     usdz = tmp_path / "PD_bg.usdz"
     usdz.write_bytes(b"stand-in: the edit does not read it, the swap only hashes it")
@@ -806,8 +975,8 @@ def _ply_vertex_aabb(path):
 
 def test_usdz_is_a_nurec_volume_whose_extent_is_the_ply_aabb():
     pytest.importorskip("pxr")  # usd-core: the simfoundry-editor env has it, the simfoundry env does not
-    _need(PD_USDZ)
-    _need(PD_PLY)
+    _need(PD_USDZ, PD_USDZ_ENV)
+    _need(PD_PLY, PD_PLY_ENV)
     from pxr import Usd, UsdGeom
 
     stage = Usd.Stage.Open(str(PD_USDZ))
@@ -1274,7 +1443,7 @@ def test_the_record_keeps_the_ccm_and_the_patch_keys_side_by_side(tmp_path, usdz
 
 
 def test_golden_two_boxes_on_the_p3_scene_match_the_hand_computed_values(tmp_path, usdz_file):
-    _need(SCENE_JSON)
+    _need(SCENE_JSON, SCENE_ENV)
     scene = json.loads(SCENE_JSON.read_text())
     before = copy.deepcopy(scene)
     spec = sb.load_visual_background(_spec_file(
@@ -1314,7 +1483,7 @@ def test_a_plain_swap_record_has_the_keys_in_the_order_it_always_had(tmp_path, u
 
 
 def test_without_boxes_the_p3_swap_adds_no_box_entries_and_no_record_key(tmp_path, usdz_file):
-    _need(SCENE_JSON)
+    _need(SCENE_JSON, SCENE_ENV)
     scene = json.loads(SCENE_JSON.read_text())
     spec = sb.load_visual_background(_spec_file(tmp_path, _body(remove=["mesh_background_0", "iter_7"])))
     record = sb.swap_visual_background(scene, spec)

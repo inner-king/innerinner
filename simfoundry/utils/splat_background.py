@@ -29,6 +29,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,7 @@ _ORTHO_TOL = 1e-6
 _LAST_ROW_TOL = 1e-9
 _SPEC_KEYS = frozenset(
     {"schema", "name", "usdz", "pose_json", "matrix", "dz_m", "floor_plane_visible", "remove", "kit_settings", "color",
-     "ccm", "counter_patch"}
+     "ccm", "counter_patch", "scene_requires"}
 )
 _DEFAULT_REMOVE = ("mesh_background_0",)
 _CCM_LIMIT = 4.0  # a larger entry is more likely a typo than a correction, so it is refused
@@ -56,10 +57,25 @@ _PATCH_MAX_THICKNESS_M = 0.05
 MIN_RECT_SIDE_M = 1e-3  # a box side under 1 mm is a degenerate sliver, not a patch, so it is refused
 MIN_THICKNESS_M = 1e-4  # a box thinner than 0.1 mm is refused for the same reason
 _LENGTH_DECIMALS = 12  # a side is rounded to a picometre before the minimum test, so that 0.401 - 0.4 is exactly 1 mm
+_MD5_TEXT = re.compile(r"[0-9a-f]{32}")  # an expected_file_hash is the MD5 of the asset file, in lower case
+VISUAL_BACKGROUND_ROOT_ENV = "SIMFOUNDRY_VISUAL_BACKGROUND_ROOT"  # where the packaged spec's files are, when no option says
+_CHECKOUT_DIR = Path(__file__).resolve().parents[2]  # the checkout that holds simfoundry/, whatever the working directory
 
 
 class SplatBackgroundError(ValueError):
     """A spec or a scene that cannot take the swap. It is raised before anything is changed."""
+
+
+class MissingAssetError(SplatBackgroundError):
+    """A file that the spec names is not in the folder the spec is read from.
+
+    ``names`` are the file names the spec gave, and ``folder`` is the folder they were looked for in.
+    """
+
+    def __init__(self, names, folder):
+        self.names = tuple(names)
+        self.folder = Path(folder)
+        super().__init__(f"not found in {self.folder}: {', '.join(self.names)}")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,6 +107,27 @@ class SplatBackgroundSpec:
     color: dict | None
     ccm: tuple[tuple[float, ...], ...] | None = None  # the splat's 3 x 4 colour matrix; None changes nothing at run time
     counter_patch: CounterPatch | None = None  # None adds no boxes to the scene
+    scene_requires: dict[str, str] | None = None  # object name -> expected_file_hash; None checks nothing
+
+
+def _checked_scene_requires(value, where: str):
+    """None when the spec has no guard; otherwise a dict of object name -> expected_file_hash, every entry checked.
+
+    The guard is optional and additive: a spec without the key, such as the pinned P5 spec, is not guarded and loads as it
+    always did. An empty object is refused rather than read as "no guard", since it would check nothing.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not value:
+        raise SplatBackgroundError(f"{where} must be an object of object names and expected_file_hash values, with at least one entry")
+    checked = {}
+    for name, digest in value.items():
+        if not isinstance(name, str) or not name:
+            raise SplatBackgroundError(f"{where} has an empty or non-string object name")
+        if not isinstance(digest, str) or _MD5_TEXT.fullmatch(digest) is None:
+            raise SplatBackgroundError(f"{where} gives {name!r} the value {digest!r}: an expected_file_hash is 32 lower-case hex characters")
+        checked[name] = digest
+    return checked
 
 
 def _checked_spec(spec: SplatBackgroundSpec) -> SplatBackgroundSpec:
@@ -156,26 +193,28 @@ def _checked_spec(spec: SplatBackgroundSpec) -> SplatBackgroundSpec:
 
     ccm = _checked_ccm(spec.ccm, '"ccm"')
     patch = _checked_counter_patch(spec.counter_patch, '"counter_patch"')
+    requires = _checked_scene_requires(spec.scene_requires, '"scene_requires"')
 
     return dataclasses.replace(
         spec, name=name, usdz=usdz, matrix=matrix, pose_json=pose_json, dz_m=float(dz),
         floor_plane_visible=floor_visible, remove=tuple(remove), kit_settings=dict(kit), color=None, ccm=ccm,
-        counter_patch=patch)
+        counter_patch=patch, scene_requires=requires)
 
 
-def load_visual_background(path) -> SplatBackgroundSpec:
+def load_visual_background(path, root=None) -> SplatBackgroundSpec:
     """Reads and checks a spec file. Every refusal is a ``SplatBackgroundError``.
 
     The file-level checks are here: the JSON, the schema, the unknown keys, the pose file, and the rule that gives exactly
     one matrix source. The field checks are in ``_checked_spec``, which the swap runs too.
 
-    Relative paths in the spec (``usdz``, ``pose_json``) are taken from the folder of the spec file, so a spec moves
+    Relative paths in the spec (``usdz``, ``pose_json``) are taken from ``root`` when one is given, and otherwise from the
+    folder of the spec file, so a spec moves
     together with its splat. ``~`` is not expanded. Unknown keys are refused: a misspelt key such as ``dz`` would
     otherwise be ignored and its default kept, and the swap would run cleanly with the splat in the wrong place.
     Paths are kept as spelled, symlinks included (see ``_resolve``).
     """
     spec_path = Path(path).absolute()
-    spec_dir = spec_path.parent
+    base = spec_path.parent if root is None else Path(root).absolute()
     try:
         raw = json.loads(spec_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:  # ValueError covers JSONDecodeError and UnicodeDecodeError
@@ -203,9 +242,13 @@ def load_visual_background(path) -> SplatBackgroundSpec:
         pose_text = raw["pose_json"]
         if not isinstance(pose_text, str) or not pose_text:
             raise SplatBackgroundError("\"pose_json\" must be a path")
-        pose_json = _resolve(spec_dir, pose_text)
-        if not pose_json.is_file():
-            raise SplatBackgroundError(f"pose_json not found: {pose_json}")
+        pose_json = _resolve(base, pose_text)
+    usdz = _resolve(base, usdz_text)
+    # both files are looked for before either is read, so one message names every file that is missing
+    missing = [p.name for p in (usdz, pose_json) if p is not None and not p.is_file()]
+    if missing:
+        raise MissingAssetError(missing, base)
+    if pose_json is not None:
         try:
             pose_doc = json.loads(pose_json.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
@@ -216,9 +259,11 @@ def load_visual_background(path) -> SplatBackgroundSpec:
     else:
         matrix = _checked_matrix(raw["matrix"], "the spec's \"matrix\"")
 
+    if "scene_requires" in raw and not isinstance(raw["scene_requires"], dict):  # an explicit null is not "no guard"
+        raise SplatBackgroundError("\"scene_requires\" must be an object of object names and expected_file_hash values")
     return _checked_spec(SplatBackgroundSpec(
         name=raw.get("name"),
-        usdz=_resolve(spec_dir, usdz_text),
+        usdz=usdz,
         matrix=matrix,
         pose_json=pose_json,
         dz_m=raw.get("dz_m", 0.0),
@@ -228,7 +273,65 @@ def load_visual_background(path) -> SplatBackgroundSpec:
         color=raw.get("color"),
         ccm=raw.get("ccm"),
         counter_patch=raw.get("counter_patch"),
+        scene_requires=raw.get("scene_requires"),
     ))
+
+
+def check_scene_requires(scene: dict, requires: dict[str, str], label: str = "the scene") -> None:
+    """Refuses a scene that is not the one the spec was aligned to. Every refusal is a ``SplatBackgroundError``.
+
+    ``requires`` maps an object name to the ``expected_file_hash`` the spec was aligned against. The scene must hold the
+    object, and must record that hash at ``objects_info.init_info[name].args.expected_file_hash``. A scene that records no
+    hash is refused as "cannot verify": a missing record is not a match. ``label`` names the scene in the message.
+    """
+    try:
+        init_info = scene["objects_info"]["init_info"]
+    except (KeyError, TypeError) as error:
+        raise SplatBackgroundError(f"cannot verify {label}: it has no objects_info.init_info") from error
+    if not isinstance(init_info, dict):
+        raise SplatBackgroundError(f"cannot verify {label}: objects_info.init_info is not an object")
+    for name, expected in requires.items():
+        if name not in init_info:
+            raise SplatBackgroundError(
+                f"{label} has no object {name!r}, which the spec requires. The spec was aligned to a different scene: "
+                "pass --visual-background none for this scene, or a spec made for it.")
+        entry = init_info[name]
+        args = entry.get("args") if isinstance(entry, dict) else None
+        found = args.get("expected_file_hash") if isinstance(args, dict) else None
+        if found is None:
+            raise SplatBackgroundError(
+                f"cannot verify {label}: object {name!r} has no expected_file_hash, so the spec's hash {expected!r} is not "
+                "checked. A missing record is an error, not a pass: pass --visual-background none for this scene.")
+        if found != expected:
+            raise SplatBackgroundError(
+                f"{label} does not match the spec: object {name!r} has expected_file_hash {found!r}, the spec requires "
+                f"{expected!r}. This scene is not the one the spec was aligned to: pass --visual-background none for this "
+                "scene, or a spec made for it.")
+
+
+def missing_assets_message(error: MissingAssetError, packaged: bool) -> str:
+    """What a run prints when the spec's files are missing: the names, the folder, and both ways out.
+
+    ``packaged`` says the spec is the packaged one, the only spec the environment variable applies to.
+    """
+    root_fix = "--visual-background-root DIR"
+    if packaged:
+        root_fix += f" or the environment variable {VISUAL_BACKGROUND_ROOT_ENV}"
+    return (f"the spec's file(s) {', '.join(error.names)} are not in {error.folder}. Either (1) give the folder that holds "
+            f"them with {root_fix}, or (2) run without the splat with --visual-background none (the old 5c mesh background). "
+            "See docs/BACKGROUND_SWAP.md.")
+
+
+def packaged_visual_background_root(option=None, environ=None) -> Path:
+    """The folder the packaged spec's two files are read from: the option if given, else the environment variable, else
+    ``Data/visual_background`` in the checkout. A spec the user wrote does not use this (``load_visual_background``).
+    """
+    if option is not None:
+        return Path(option)
+    value = (os.environ if environ is None else environ).get(VISUAL_BACKGROUND_ROOT_ENV, "")
+    if value:
+        return Path(value)
+    return _CHECKOUT_DIR / "Data" / "visual_background"
 
 
 def pose_from_similarity(matrix, dz_m: float = 0.0) -> tuple[np.ndarray, np.ndarray, float]:
@@ -357,7 +460,7 @@ def _missing_message(name: str, in_init: bool, in_registry: bool) -> str:
     return f"{name!r} is in {present} but not in {absent} of the scene; a name must be in both to be removed"
 
 
-def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
+def swap_visual_background(scene: dict, spec: SplatBackgroundSpec, label: str = "the scene") -> dict:
     """Puts the splat in place of the spec's ``remove`` objects, in ``scene`` (changed in place).
 
     The spec gets ``_checked_spec`` first, the same checks a loaded spec gets, before anything in the scene is read. The
@@ -376,6 +479,8 @@ def swap_visual_background(scene: dict, spec: SplatBackgroundSpec) -> dict:
         raise SplatBackgroundError("the scene needs objects_info.init_info and state.registry.object_registry") from error
     if not isinstance(init_info, dict) or not isinstance(registry, dict):
         raise SplatBackgroundError("init_info and object_registry must be objects")
+    if spec.scene_requires is not None:  # before any change: a scene that is not the one the spec was aligned to is refused
+        check_scene_requires(scene, spec.scene_requires, label)
     if GS_NAME in init_info or GS_NAME in registry:
         raise SplatBackgroundError(_taken_message(GS_NAME, init_info, registry))
     for name in spec.remove:
@@ -476,15 +581,15 @@ def _vec4f(*values):
     return Gf.Vec4f(*[float(v) for v in values])
 
 
-def _resolve(spec_dir: Path, text: str) -> Path:
-    """The path a spec gives, made absolute by joining a relative one to ``spec_dir``, and otherwise left as written.
+def _resolve(base: Path, text: str) -> Path:
+    """The path a spec gives, made absolute by joining a relative one to ``base``, and otherwise left as written.
 
     Nothing is resolved. A symlink keeps the name the spec gives, so the scene records that name. ``..`` is not collapsed
     as text either: after a symlink, ``link/..`` is the parent of the link's target, and collapsing it would name a file
     that the OS would not open.
     """
     candidate = Path(text)
-    return candidate if candidate.is_absolute() else spec_dir / candidate
+    return candidate if candidate.is_absolute() else base / candidate
 
 
 def _number_problem(value, where: str):
