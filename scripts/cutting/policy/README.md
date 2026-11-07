@@ -61,6 +61,9 @@ python npz_to_lerobot.py --list <sel dir>/accepted.txt --root <ds root> --kinds 
 python ../tofu_policy_episodes.py --mode policy --action-mode support-log --support-meta <ds root>/tofu_state/meta/support_height.json ...
 ```
 
+The runner call above uses the default background (the LiDAR kitchen). For another scene, pass `--visual-background none`;
+see "Serving and evaluating" below.
+
 The action's z slot becomes u = ln(h + eps), where h is the knife edge's lowest point above the support plane s (the
 block's bottom, the solver board plane) at the commanded pose. By default the state is the hand alone (9 entries: two
 fingers, hand position, quaternion). `--state-support append` adds s as the last entry (10 entries).
@@ -104,6 +107,21 @@ python policy_server.py --ckpt <checkpoint>/pretrained_model --port 6000 --devic
 python scripts/cutting/tofu_policy_episodes.py --mode policy --policy-port 6000 --seeds 1000 50 --episode-s 10 \
     <scene arguments, the same as for the demonstrations> --out <eval dir>
 ```
+
+**Background.** The runner's default background is the packaged 3DGS spec. It fits the LiDAR kitchen scene only, and its two
+asset files must be in place (see `docs/BACKGROUND_SWAP.md`). Two recipes:
+
+```bash
+# LiDAR kitchen: the default background (3DGS)
+python scripts/cutting/tofu_policy_episodes.py --mode policy --policy-port 6000 --seeds 1000 50 --episode-s 10 \
+    --scene <LiDAR kitchen folder> --out <eval dir>
+
+# another scene, or results made on the old 5c mesh background: say so with none
+python scripts/cutting/tofu_policy_episodes.py --mode policy --policy-port 6000 --seeds 1000 50 --episode-s 10 \
+    --scene <other scene folder> --visual-background none --out <eval dir>
+```
+
+To reproduce the numbers of checkpoints trained on the old background, use the second recipe, with `--visual-background none`.
 
 **Protocol.** `multiprocessing.connection` on 127.0.0.1, authkey `b"tofu"`.
 - `{"cmd": "reset"}` starts an episode.
