@@ -203,7 +203,7 @@ the fog layer also covers the footprints of objects on the counter. Make the der
   -0.029) and -0.184 (interval -0.306 to -0.072), with standard deviations of v0 of 4.45, 3.74 and 5.21 mm. Paired by seed, the
   control minus the old background is -0.004 (interval -0.037 to +0.027), -0.056 (interval -0.101 to -0.011) and -0.005
   (interval -0.065 to +0.055), and the new background minus the control is -0.258 (interval -0.367 to -0.164), -0.361 (interval
-  -0.485 to -0.254) and -0.365 (interval -0.460 to -0.275). The cut position of the same episode moves by a median of 1.2 to
+  -0.485 to -0.254) and -0.365 (interval -0.460 to -0.275). The cut position of the same episode moves by a median of 0.8 to
   1.7 mm between the control and the old background, and by at most 6.3 mm. With the background switched off, the same runner
   on the same system gives back the old-background numbers for all three checkpoints and stays within 0.06 of the old
   background's b_s, so the loss on the new background is not an effect of the runner or of Ubuntu 26.04. The second checkpoint
@@ -217,10 +217,10 @@ the fog layer also covers the footprints of objects on the counter. Make the der
   39 have pixels whose largest channel is below 25 on 15.9 to 21.7 % of the frame on average. The peak tick is 31 to 35 %, and 8
   or 9 ticks go above 10 %. The old background's recording of the same seed peaks at 4.8 % and has no tick above 10 %. The runs are
   seed 1000 (the probed p1 run and the blind replays) and seeds 1000 and 1001 (the policy runs). Of the dark pixels of the probed
-  run, 99.8 % land on the front counter-patch box 0. They are not on the induction hob or the sink, which are not in view at
+  run, an estimate from the stored poses puts 99.8 % on the front counter-patch box 0. They are not on the induction hob or the sink, which are not in view at
   ticks 30 to 39. They are not the knife either: the knife's image region is fixed across ticks, and only 1 to 4 % of it is dark
   at ticks 30 to 39. The probe with instance labels at ticks 30, 33, 35, 37 and 39 (seed 1000, 2026-11-08) found 53,660 dark pixels that are
-  not the knife, and 100.0 % of them lie on the front counter-patch box 0. The label says which object a pixel belongs to;
+  not the knife; counting the labels puts 100.0 % of them on the front counter-patch box 0. The label says which object a pixel belongs to;
   it does not rule out a dark element of the splat drawn over the box. The cause is not decided: an arm shadow on the
   low-reflectance box is plausible, but other shading, or a dark element of the splat drawn over the box, has not been
   ruled out. A policy trained on the
@@ -240,7 +240,7 @@ python -B -m pytest -p no:cacheprovider -q \
   tests/test_background_swap_doc.py tests/test_cutting_package_doc.py
 ```
 
-Run on this branch with this change (2026-11-08): 426 passed and 11 skipped in the five files above.
+Run on this branch with this change (2026-11-08): 427 passed and 11 skipped in the five files above.
 
 The 11 skips are environment checks, not failures. Six cases of `tests/test_splat_background.py` read the scene JSON named by
 `SIMFOUNDRY_TEST_SCENE_JSON`; one reads `SIMFOUNDRY_TEST_ALIGN_JSON` and one `SIMFOUNDRY_TEST_PD_USDZ`. Two need `pxr`, which the
