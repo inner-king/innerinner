@@ -188,13 +188,27 @@ the fog layer also covers the footprints of objects on the counter. Make the der
   trained on the old background (one scene; training seeds 0, 1 and 2; 50 evaluation episodes per seed), all 150 episodes end
   in a basic and a strict success, and none fails. The policy still cuts every time, but on the new background it follows the
   tofu's position less well: the pooled b_s is -0.516 (interval -0.648 to -0.413) against -0.166 (-0.26 to -0.09) on the old
-  background, and the standard deviation of v0 is 8.13 mm against 4.71 mm. The cut position of the same episode moves by a
-  median of 5.4 to 9.0 mm between runs, and by up to about 20 mm, while repeats of the same setting differ by at most 1.3 mm.
-  The blade depth is normal: +0.70 to +0.81 mm, against +0.58 to +0.75 mm on the old background. Over the whole frame, the new
-  background's brightness relative to the old one is 0.69 in front and 0.70 to 0.71 on the wrist. The cause is not separated.
-  The candidates are the look and brightness of the background, the dark wrist region above, and a difference between the 24.04
-  and 26.04 runs: the 26.04 control run is the last run of the comparison, so an operating-system difference cannot be ruled
-  out. To evaluate a checkpoint as it was trained, pass `--visual-background none`.
+  background, and the standard deviation of v0 is 8.13 mm against 4.71 mm. On the new background, b_s is -0.470 (interval
+  -0.620 to -0.353), -0.523 (interval -0.682 to -0.383) and -0.554 (interval -0.681 to -0.453) for seeds 0, 1 and 2, and the
+  standard deviation of v0 is 7.86, 8.54 and 7.92 mm. The cut position of the same episode moves by a median of 5.3 to 8.3 mm
+  between the new background and the control evaluation, and by at most 21 mm. The blade depth is normal: +0.70 to +0.81 mm,
+  against +0.58 to +0.75 mm on the old background. Over the whole frame, the new background's brightness relative to the old
+  one is 0.69 in front and 0.70 to 0.71 on the wrist. The cause is not separated: the look and brightness of the background and
+  the dark wrist region are not separated from each other.
+  A control evaluation uses the same runner on the same system (Ubuntu 26.04) with the background off (`--visual-background none`),
+  one evaluation per training seed, about 18 to 19 minutes per training seed. Its b_s is -0.212 (interval -0.302 to -0.138),
+  -0.162 (interval -0.255 to -0.074) and -0.189 (interval -0.320 to -0.070) for seeds 0, 1 and 2; its standard deviation of v0 is
+  4.29, 4.40 and 5.23 mm; and its median blade depth is +0.57, +0.63 and +0.73 mm. The basic success is 50 of 50 episodes in
+  every evaluation. The old-background evaluation gives b_s -0.208 (interval -0.297 to -0.138), -0.106 (interval -0.191 to
+  -0.029) and -0.184 (interval -0.306 to -0.072), with standard deviations of v0 of 4.45, 3.74 and 5.21 mm. Paired by seed, the
+  control minus the old background is -0.004 (interval -0.037 to +0.027), -0.056 (interval -0.101 to -0.011) and -0.005
+  (interval -0.065 to +0.055), and the new background minus the control is -0.258 (interval -0.367 to -0.164), -0.361 (interval
+  -0.485 to -0.254) and -0.365 (interval -0.460 to -0.275). The cut position of the same episode moves by a median of 1.2 to
+  1.7 mm between the control and the old background, and by at most 6.3 mm. With the background switched off, the same runner
+  on the same system gives back the old-background numbers for all three checkpoints and stays within 0.06 of the old
+  background's b_s, so the loss on the new background is not an effect of the runner or of Ubuntu 26.04. The second checkpoint
+  (seed 1) shows a small difference between the control and the old background (-0.056) that the data cannot tell from
+  run-to-run variation. To evaluate a checkpoint as it was trained, pass `--visual-background none`.
 - **Wrist edge.** The front border's judged boundary is also seen by the wrist camera. There its step is +9/255 whatever the
   reflectance; the wrist sample is below the rule's minimum, so this is a known limit outside the judged rule (2026-11-06 14:36).
 - **Front seam.** At the tentative reflectance 0.244 the judged front border had a seam step of 12/255 against a limit of 6 (22
@@ -205,9 +219,13 @@ the fog layer also covers the footprints of objects on the counter. Make the der
   seed 1000 (the probed p1 run and the blind replays) and seeds 1000 and 1001 (the policy runs). Of the dark pixels of the probed
   run, 99.8 % land on the front counter-patch box 0. They are not on the induction hob or the sink, which are not in view at
   ticks 30 to 39. They are not the knife either: the knife's image region is fixed across ticks, and only 1 to 4 % of it is dark
-  at ticks 30 to 39. Whether the cause is a shadow on that patch or a floating dark element of the splat is not decided. A wrist
-  probe with instance labels at ticks 30 to 39 is needed; the probes so far are at ticks 25, 50, 75 and 99. A policy trained on the
+  at ticks 30 to 39. The probe with instance labels at ticks 30, 33, 35, 37 and 39 (seed 1000, 2026-11-08) found 53,660 dark pixels that are
+  not the knife, and 100.0 % of them lie on the front counter-patch box 0. The label says which object a pixel belongs to;
+  it does not rule out a dark element of the splat drawn over the box. The cause is not decided: an arm shadow on the
+  low-reflectance box is plausible, but other shading, or a dark element of the splat drawn over the box, has not been
+  ruled out. A policy trained on the
   old background sees a much different wrist image during the cutting phase.
+- **Two rendered states.** The same configuration can render in one of two slightly different states: the frames differ by about 2 levels of 255, mostly at edges, with zero mean. Both states were seen on Ubuntu 24.04 and on 26.04; the cause is not known.
 - **Probe wrist frame at tick 0** shows the front camera's view (about 2026-11-05 18:15).
 - **Probe segmentation.** OmniGibson adds `seg_semantic` whenever `seg_instance` is requested.
 - **Replaying the 5c probe** is not solved.
@@ -222,7 +240,7 @@ python -B -m pytest -p no:cacheprovider -q \
   tests/test_background_swap_doc.py tests/test_cutting_package_doc.py
 ```
 
-Run on this branch with this change (2026-11-08): 396 passed and 11 skipped in the five files above.
+Run on this branch with this change (2026-11-08): 426 passed and 11 skipped in the five files above.
 
 The 11 skips are environment checks, not failures. Six cases of `tests/test_splat_background.py` read the scene JSON named by
 `SIMFOUNDRY_TEST_SCENE_JSON`; one reads `SIMFOUNDRY_TEST_ALIGN_JSON` and one `SIMFOUNDRY_TEST_PD_USDZ`. Two need `pxr`, which the
