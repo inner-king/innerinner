@@ -3346,3 +3346,36 @@ Cup in Bowl은 장면 이름과 과제(`put_cup_in_bowl_bg_g4_place_cup_in_bowl.
 층 배치를 Ollama에 맡기려면 `SIMFOUNDRY_OLLAMA_NUM_GPU=-1`을 주면 됩니다. -1은 Ollama가 층 배치를 스스로 정하는 값이고(이 설명은 Ollama 소스에서 온 것이며, 이 머신에서 오프로드된 층 수로는 확인하지 않았습니다), 이전 코드도 이 값을 그대로 보냈습니다. 스크립트는 `${VAR:-값}` 형식이라 빈 값으로는 끌 수 없으며, `num_batch` 고정을 풀려면 이 스크립트를 쓰지 않고 파이프라인을 직접 부르거나 스크립트의 그 줄을 지워야 합니다. 스크립트 안에서는 `num_batch`를 끌 수 없다는 한계를 그대로 둡니다. 이 스크립트는 이미지 모델도 qwen21(Qwen-Image-2.1-Turbo)을 기본으로 내보냅니다. edit2511을 쓰려면 `SIMFOUNDRY_IMAGE_BACKEND=edit2511`을 주고, 필요한 가중치(Edit-2511 UNet·LoRA·텍스트 인코더·VAE)를 준비해야 합니다.
 
 이미지 호출의 캐시 키(`CACHE_MODE`일 때 `vlm.py`의 `gemini_cache_request`와 `remote_cache.RemoteModelCache.key_for`)에는 제공자, 모델 id, 프롬프트, 입력 이미지 해시, 샘플링 인수, 시드, 최대 토큰, 응답 형식, 그리고 Ollama가 답하는 텍스트 호출이면 Ollama 옵션이 들어가고, 이미지 백엔드(`SIMFOUNDRY_IMAGE_BACKEND`), UNET 파일(`SIMFOUNDRY_Q21_UNET`), 단계 수(`SIMFOUNDRY_Q21_STEPS`)는 들어가지 않습니다. 그래서 이것들을 바꾸고 같은 캐시 폴더로 돌리면 앞 백엔드의 이미지가 다시 나오므로, 바꿀 때는 `SIMFOUNDRY_MODEL_CACHE_DIR`를 따로 지정하세요(11장이 이 이유로 별도 폴더를 썼습니다). 코드에는 넣지 않은 이유가 적혀 있지 않습니다. 넣으면 이미 쌓인 qwen21 이미지 캐시의 키가 모두 바뀌어 다시 계산되므로, 그것을 피하려는 것으로 보입니다(추정).
+
+## 33. 5단계 `crop_source: original`: 원본 프레임에서 물체 자르기 (2026-11-11)
+
+5단계가 물체를 지울 때 물체의 컷아웃을 회차 그림이 아니라 **원본 프레임**(`source_padded_resized.png`)에서 자를 수 있게 했습니다. 지우기 사슬(지우는 마스크, 다시 붙이기, 깊이, 고스트 판정)은 그대로이고, 바뀌는 것은 컷아웃과 그 기록뿐입니다. 명세는 `final_veg/yt_fix/design/SPEC_crop_source_ko.v2.frozen.md`(동결)와 `SPEC_crop_source_v3_notes_ko.md`(메모)에 있고, 규칙 함수는 `simfoundry/pipeline/crop_source.py`에 있습니다.
+
+설정(`s5_scene`, 모두 선택이고 기본값은 지금과 같습니다):
+
+| 키 | 기본값 | 뜻 |
+|---|---|---|
+| `crop_source` | `edited` | `edited`는 지금과 같고 새 코드를 부르지 않습니다. `original`은 이 절의 동작입니다 |
+| `original_match_iou` | 0.5 | 원본 개체와의 IoU가 이 값 이상이면 같은 물체로 짝을 짓습니다 |
+| `revealed_inside_fraction` | 0.5 | 회차 마스크가 이미 짝지은 원본 안에 이 비율을 넘게 들면 "나중에 드러남"입니다 |
+| `rescue_scope` | `dropped_only` | 살리기 범위. `dropped_only`는 흔적 마스크의 자기 원본만, `all`은 남은 원본 모두(연구용), `none`은 살리지 않습니다 |
+| `rescue_min_score` | 0.5 | 살릴 원본의 SAM3 점수 하한 |
+| `matched_mask` | `union` | 짝 물체 컷아웃의 마스크. `union`, `original_plus_hidden`, `original` |
+
+원본 모드의 출력입니다(편집 모드는 이 파일들을 더 쓰지 않습니다):
+- `masked_object/`, `masked_object_focus/`: 짝 물체는 원본 개체 마스크 안을 원본 그림에서, 밖을 회차 그림에서 가져온 합성입니다. 살린 물체는 원본 개체만 씁니다.
+- `object_mask/iter_k.png`: 짝 물체와 살린 물체의 원본 개체 마스크입니다.
+- `obj_cat_list/iter_k.json`: 기존 키는 그대로 두고 `crop_source`, `crop_reason`, `original_instance`, `matched_mask_mode`, `edited_pixel_share`, `occluded_by`를 더합니다. 살린 물체는 `base_iter: null`을 명시합니다.
+- `skipped_iterations/iter_k.json`: 흔적 회차(`reason: trace_no_original_match`)입니다. 살린 번호(`rescued_as`)나 `lost_object`를 적습니다.
+- `original_instances.json`, `original_instances.npz`: 원본 개체 전부, 물음별 범주(`asked_prompts`), 무엇이 되었는지.
+
+8단계와 8b단계는 기록의 `crop_source`가 `original`인 물체만 원본 깊이(`original_depth.npy`), `source_padded_resized.png`, `object_mask`로 읽습니다. 파일이 있다는 것만으로는 정하지 않습니다. 크기 점검 고리에도 `object_mask`를 넣습니다.
+
+한계:
+1. **이어 돌리기를 하지 않습니다.** 원본 모드에서 회차 기록이 있거나 `start_iter > 0`이면 `RuntimeError`로 멈추고 아무 파일도 쓰지 않습니다. 편집 모드도 원본 모드 출력이 있는 폴더를 같은 이유로 멈춥니다. 이어 돌리면 살린 물체가 불완전한 회차로 지워지기 때문입니다.
+2. `no_original`은 57개 기준 4개입니다. 원본 SAM3가 그 긴 이름으로 개체를 찾지 못했거나, 회차 마스크가 원본 풀 어느 것과도 겹치지 않는 경우입니다(v3 메모의 S3). 머리 명사로 다시 묻는 규칙은 아직 없습니다.
+3. `rescue_scope: all`은 손, 기름병처럼 시뮬 물체가 되면 안 되는 것도 살립니다. 연구용 선택지로만 둡니다.
+4. 6단계 infill은 켜지 않았습니다. 가려졌던 가장자리는 회차 그림에서 옵니다.
+5. 자기 원본이 이미 다른 회차에 가져가졌으면 살리지 않고 `lost_object: true`로 남깁니다. 57개 기준으로 당근 iter_24가 여기에 해당합니다.
+
+시험: `tests/test_crop_source.py`, `tests/test_crop_source_replay.py`(규칙), `tests/test_stage5_crop_source_wiring.py`, `tests/test_stage8_object_mask.py`(연결과 기본값 가드). GPU 시험(기본값 불변, 사슬 불변)의 준비물은 저장소 밖 `codelead_2026-10-26/coder2_i58/gpu_test34/`에 있습니다.
