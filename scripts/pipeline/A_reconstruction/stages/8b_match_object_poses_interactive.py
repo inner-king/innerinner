@@ -678,6 +678,22 @@ class InteractivePoseEditor:
                 self.save()
 
 
+def original_crop_indices(scene_dir: str) -> set[int]:
+    """Indices of the objects that stage 5 cut out of the source frame (crop_source: original).
+
+    Read from each object's record: obj_cat_list/iter_k.json says "crop_source": "original". A file that exists is not
+    enough to say so, and an edited run writes no such key, so its objects are read the way they always were.
+    Same rule as stage 8 (8_match_object_poses.py).
+    """
+    found = set()
+    for fpath in Path(scene_dir, "obj_cat_list").glob("iter_*.json"):
+        with open(fpath) as f:
+            record = json.load(f)
+        if record.get("crop_source") == "original":
+            found.add(int(fpath.stem.split("_")[-1]))
+    return found
+
+
 @hydra.main(config_name="real2sim_cfg", config_path=CFG_DIR, version_base="1.3")
 def main(cfg):
     source_dir = cfg.s2_da.out_dir
@@ -803,6 +819,7 @@ def main(cfg):
             return float('inf')
 
     # Iterate over all meshes, and match their pose (sorted numerically by iteration)
+    from_source_frame = original_crop_indices(scene_dir)
     for filename in sorted(os.listdir(mesh_dir), key=get_iter_num):
         if not filename.endswith(".glb"):
             continue
@@ -812,12 +829,19 @@ def main(cfg):
         idx = int(img_name.split("iter_")[-1])
 
         mesh_path = f"{mesh_dir}/{filename}"
-        base_iter = resolve_base_iteration(scene_dir, idx)
-        depth_filename = "original_depth.npy" if base_iter is None else f"metric_depth/iter_{base_iter}.npy"
-        depth_path = f"{scene_dir}/{depth_filename}"
-        rgb_filename = "source_padded_resized.png" if base_iter is None else f"post_object_removal/iter_{base_iter}.png"
-        rgb_path = f"{scene_dir}/{rgb_filename}"
-        mask_path = f"{scene_dir}/removal_mask/iter_{idx}.png"
+        if idx in from_source_frame:
+            # Cut out of the source frame by stage 5: the source frame's depth and picture, and the object's own mask.
+            # The removal mask is not read here, since it also covers pixels the removal repainted that belong to neighbours.
+            depth_path = f"{scene_dir}/original_depth.npy"
+            rgb_path = f"{scene_dir}/source_padded_resized.png"
+            mask_path = f"{scene_dir}/object_mask/iter_{idx}.png"
+        else:
+            base_iter = resolve_base_iteration(scene_dir, idx)
+            depth_filename = "original_depth.npy" if base_iter is None else f"metric_depth/iter_{base_iter}.npy"
+            depth_path = f"{scene_dir}/{depth_filename}"
+            rgb_filename = "source_padded_resized.png" if base_iter is None else f"post_object_removal/iter_{base_iter}.png"
+            rgb_path = f"{scene_dir}/{rgb_filename}"
+            mask_path = f"{scene_dir}/removal_mask/iter_{idx}.png"
         
         # Path to canonical mesh (always same location)
         canonical_mesh_fpath = f"{out_dir}/canonical_mesh/{img_name}.glb"

@@ -51,6 +51,11 @@ from simfoundry.pipeline.frame_selection import resolve_img_idx
 from simfoundry.pipeline.support_graph import support_levels
 from simfoundry.pipeline.removal_ghosts import GHOST_SKIP_REASON, RemovedRegion, find_ghosts, grow_region, \
     load_removed_regions, point_in_removed_regions
+from simfoundry.pipeline.crop_source import (
+    MARGIN_FRACTION, MARGIN_FRACTION_FOCUS, CropParams, OriginalPool, composite_cutout, crop_like_5a, match_iteration_mask,
+    object_record, occluded_by, original_instance_record, originals_record, pack_originals, rescue_plan,
+    rescued_object_record, set_rescue_outcome, trace_record,
+)
 from simfoundry.utils.python_utils import atomic_output_path
 import hydra
 from omegaconf import OmegaConf
@@ -646,7 +651,7 @@ def delete_iteration_data(out_dir: str, start_iter: int, end_iter: int = None):
         "masked_object", "masked_object_focus", "masked_object_background",
         "detected_phrases", "removal_mask", "removal_mask_resized",
         "pre_object_removal", "post_object_removal", "metric_depth", "obj_cat_list",
-        "skipped_iterations",
+        "skipped_iterations", "object_mask",
     ]
     
     # Find all iteration files if end_iter not specified
@@ -768,7 +773,7 @@ def infer_resume_state(out_dir: str) -> tuple:
 
     for dir_name in [
         "masked_object", "masked_object_focus", "masked_object_background",
-        "detected_phrases", "removal_mask", "removal_mask_resized", "pre_object_removal",
+        "detected_phrases", "removal_mask", "removal_mask_resized", "pre_object_removal", "object_mask",
     ]:
         dir_path = os.path.join(out_dir, dir_name)
         if not os.path.exists(dir_path):
@@ -889,6 +894,99 @@ def process_feedback_requests(rerun_requests: dict, out_dir: str) -> tuple:
 from simfoundry import CFG_DIR
 
 
+def source_prompt_of(obj_cat) -> str:
+    """The text of a source-frame SAM3 query for a category (SPEC_crop_source 2-1; research 2, 11-11).
+
+    The first name of the category, lowercased: the normalization of research 1's study. A category with an empty first name
+    is queried whole, lowercased. The stage's own prompts (detection and removal) keep the long names; only the source
+    frame's queries and the keys that match them use this.
+    """
+    first = get_primary_object_name(obj_cat)
+    text = first if isinstance(first, str) and first.strip() else str(obj_cat)
+    return text.strip().lower()
+
+
+def _holds_original_output(out_dir: str) -> bool:
+    """Whether a stage-5 folder holds crop_source: original output, read by file and record key only."""
+    if os.path.exists(os.path.join(out_dir, "original_instances.json")):
+        return True
+    for dir_name in ("obj_cat_list", "skipped_iterations"):
+        for fpath in glob.glob(os.path.join(out_dir, dir_name, "iter_*.json")):
+            with open(fpath) as f:
+                if json.load(f).get("crop_source") == "original":
+                    return True
+    return False
+
+
+def rescued_source_objects(out_dir: str, pool, plan, dropped_records: list, first_index: int, source_rgb, start_rgb,
+                           target_ratio: float, resolution, min_valid_pixel_prop: float, asked_names: dict = None) -> dict:
+    """The end-of-run step of crop_source: original (SPEC_crop_source 2-3 and 6절). Writes the rescued objects and records.
+
+    ``plan`` is the RescuePlan of simfoundry/pipeline/crop_source.py, and ``dropped_records[p]`` is the trace record of
+    ``plan.per_dropped[p]``; each is rewritten with the object it was rescued as, or with lost_object. A rescued object is
+    numbered from ``first_index``, the first iteration number nothing has used. Its cut-out is the original frame alone.
+    Its validity is the share of its mask where the original frame and the start image agree: the 2172-2177 formula with
+    the original frame in place of the iteration image.
+    """
+    entries = pool.entries()
+    rescued_as = {}
+    objects = []  # (object number, original number, the trace iteration it came from or None)
+    next_number = first_index
+    for position, outcome in enumerate(plan.per_dropped):
+        if outcome.rescued:
+            rescued_as[outcome.own_index] = next_number
+            objects.append((next_number, outcome.own_index, dropped_records[position]["iteration"]))
+            next_number += 1
+    for original_index in plan.extra:
+        rescued_as[original_index] = next_number
+        objects.append((next_number, original_index, None))
+        next_number += 1
+    for position, outcome in enumerate(plan.per_dropped):
+        rescued = rescued_as[outcome.own_index] if outcome.rescued else None
+        write_skipped_iteration(out_dir, set_rescue_outcome(dropped_records[position], rescued))
+    for number, original_index, trace_iteration in objects:
+        entry = entries[original_index]
+        occluded = occluded_by(entry.mask, pool.claimed_masks(), pool.claimed_order())
+        cut = crop_like_5a(source_rgb, entry.mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION)
+        focus = crop_like_5a(source_rgb, entry.mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION_FOCUS)
+        Image.fromarray(cut).save(f"{out_dir}/masked_object/iter_{number}.png")
+        Image.fromarray(focus).save(f"{out_dir}/masked_object_focus/iter_{number}.png")
+        Image.fromarray(entry.mask.astype(np.uint8) * 255).save(f"{out_dir}/object_mask/iter_{number}.png")
+        aligned = np.linalg.norm(start_rgb.astype(np.float32) - source_rgb.astype(np.float32), axis=-1) < 50
+        valid_proportion = float(aligned[entry.mask].sum()) / float(entry.mask.sum())
+        record = {
+            "vlm_categories": [entry.prompt],
+            "pruned_phrases": [],
+            "removed_obj_phrase": entry.prompt,
+            "vlm_categories_full": [entry.prompt],
+            "pruned_phrases_full": [],
+            "removed_obj_phrase_full": entry.prompt,
+            "is_valid_removed_obj": bool(valid_proportion > min_valid_pixel_prop),
+            "valid_pixel_proportion": valid_proportion,
+            "valid_pixel_proportion_threshold": min_valid_pixel_prop,
+            "skipped_objects": [],
+            "removal_prompt_type": None,
+            "removal_prompt_types_tried": [],
+            "rescued_from_iteration": trace_iteration,
+            **rescued_object_record(original_instance_record(entry), occluded_by_numbers=occluded),
+        }
+        with atomic_output_path(f"{out_dir}/obj_cat_list/iter_{number}.json") as tmp_fpath, open(tmp_fpath, "w+") as f:
+            json.dump(record, f, indent=4)
+    listing = originals_record(pool, rescued_as=rescued_as)
+    # The question each original answers, and the categories of the iterations that asked it (research 2: 6절).
+    listing["asked_prompts"] = {label: list(names) for label, names in (asked_names or {}).items()}
+    with atomic_output_path(f"{out_dir}/original_instances.json") as tmp_fpath, open(tmp_fpath, "w+") as f:
+        json.dump(listing, f, indent=4)
+    if pool.shape is not None:
+        np.savez_compressed(f"{out_dir}/original_instances.npz", **pack_originals(pool))
+    return {
+        "rescued_own": sum(1 for outcome in plan.per_dropped if outcome.rescued),
+        "rescued_extra": len(plan.extra),
+        "lost_object": sum(1 for outcome in plan.per_dropped if not outcome.rescued),
+        "originals": len(entries),
+    }
+
+
 @hydra.main(config_name="real2sim_cfg", config_path=CFG_DIR, version_base="1.3")
 def main(cfg):
     raw_img_dir = f"{cfg.s1_video.out_dir}/frames_subsampled_{cfg.s1_video.n_subsampled_frames}"
@@ -896,6 +994,23 @@ def main(cfg):
     source_dir = cfg.s2_da.out_dir
     # source_image_fpath = f"{cfg.s1_zed.out_dir}/{cfg.s5_scene.img_name}_l.png"
     out_dir = cfg.s5_scene.out_dir
+    # crop_source (SPEC_crop_source): "edited" is the default and runs none of the new code. The refusals raise before anything
+    # is written, so a folder that holds another run's output keeps its files, including stage_info.json.
+    crop_source = cfg.s5_scene.get("crop_source", "edited")
+    assert_valid_key(key=crop_source, valid_keys=("edited", "original"), name="s5_scene.crop_source")
+    # original does not resume: its pool and the originals it claimed are not saved, so a resumed run would silently build a
+    # different result. The refusal comes before any deletion (the resume rule and the feedback rerun both delete).
+    if crop_source == "original" and (last_recorded_iteration(out_dir) is not None or cfg.s5_scene.start_iter not in (None, 0)):
+        raise RuntimeError(
+            f"{out_dir} already holds stage-5 iterations, or s5_scene.start_iter is set. crop_source: original does not resume "
+            "(resume_not_supported_in_crop_source_original): its pool and claimed originals are not saved. Use a new s5_scene "
+            "folder, or crop_source: edited to resume an edited run."
+        )
+    if crop_source == "edited" and _holds_original_output(out_dir):
+        raise RuntimeError(
+            f"{out_dir} holds crop_source: original output. An edited run would resume on it, and the resume rule deletes the "
+            "rescued and cut-out objects as incomplete. Use a new s5_scene folder."
+        )
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     # Other hyperparams we need
@@ -916,6 +1031,8 @@ def main(cfg):
     "pre_object_removal", "post_object_removal", "metric_depth", "obj_cat_list", "skipped_iterations"]
     for dir_name in dirs_to_create:
         Path(f"{out_dir}/{dir_name}").mkdir(parents=True, exist_ok=True)
+    if crop_source == "original":
+        Path(f"{out_dir}/object_mask").mkdir(parents=True, exist_ok=True)
 
     # Checked before the expensive source-image upsample below, so a stale output dir fails
     # fast rather than after a remote image call.
@@ -1074,6 +1191,19 @@ def main(cfg):
     img_scale = np.sqrt(H * W)
     source_resized_image_fpath = f"{out_dir}/source_padded_resized.png"
     Image.fromarray(resized_padded_img).save(source_resized_image_fpath)
+
+    # crop_source: original (SPEC_crop_source 2-1). The source frame's own SAM3 instances are asked once per category, and the
+    # cut-outs of matched objects are taken from this frame. Nothing here runs in the edited mode.
+    if crop_source == "original":
+        crop_params = CropParams.from_cfg(cfg.s5_scene)
+        source_pool = OriginalPool()
+        source_pil = Image.open(source_resized_image_fpath).convert("RGB")
+        source_rgb = np.array(source_pil)
+        asked_labels = set()
+        asked_names = {}      # question (source_prompt_of) -> the categories that asked it, in iteration order
+        source_kind_counts = {"matched": 0, "no_original": 0, "revealed_later": 0, "trace": 0}
+        dropped_masks = []    # the removal mask of each trace, in iteration order (2-3)
+        dropped_records = []  # its skipped-iteration record, which the rescue step rewrites
 
     # Pass through VLM to upsample this image, unless disabled via cfg.s5_scene.use_upsampled_source_image
     use_upsampled_source_image = cfg.s5_scene.get("use_upsampled_source_image", True)
@@ -1521,6 +1651,23 @@ def main(cfg):
             print(f"\n Using forced categories: {obj_cat_list}")
             detection_iteration += 1
 
+        # crop_source: original (SPEC_crop_source 2-1; research 2, 11-11): each category is asked once on the source frame, under
+        # source_prompt_of(category). Categories with the same question are one question, and the same text keys the pool
+        # and the matching, so n_found counts the question's own instances.
+        if crop_source == "original":
+            for obj_cat in obj_cat_list:
+                label = source_prompt_of(obj_cat)
+                if not label:
+                    continue
+                names = asked_names.setdefault(label, [])
+                if obj_cat not in names:
+                    names.append(obj_cat)
+                if label in asked_labels:
+                    continue
+                asked_labels.add(label)
+                source_masks, _, source_scores = sam3.predict_segmentation(pil_img=source_pil, text_prompt=label)
+                source_pool.add_prompt(label, source_scores, [mask.reshape(H, W) for mask in source_masks])
+
         # 2. Segment object instances / masks using SAM3 -> N objects detected to decompose
         pil_img = Image.open(current_rgb_fpath)
         np_img = np.array(pil_img)
@@ -1868,6 +2015,30 @@ def main(cfg):
         # 5a. Isolate the object
         removal_mask = pruned_masks[obj_idx_to_remove]
         removal_mask_255 = removal_mask.astype(np.uint8) * 255
+
+        # crop_source: original (SPEC_crop_source 2-2): which source object this erased mask is. The removal below is the
+        # iteration's own, so the image chain does not change; the decision only sets the cut-out and the records.
+        crop_decision = None
+        matched_cutout = None
+        if crop_source == "original" and ghost_to_remove is None:
+            crop_decision = match_iteration_mask(
+                removal_mask, source_pool, crop_params, source_prompt_of(obj_phrase_to_remove),
+            )
+            source_kind_counts[crop_decision.kind] += 1
+            if crop_decision.kind == "matched":
+                original_entry = source_pool.entries()[crop_decision.index]
+                cut_rgb, cut_mask, edited_share = composite_cutout(
+                    current_rgb, source_rgb, original_entry.mask, removal_mask,
+                    source_pool.claimed_union(removal_mask.shape), crop_params.matched_mask,
+                )
+                matched_cutout = {
+                    "object": crop_like_5a(cut_rgb, cut_mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION),
+                    "focus": crop_like_5a(cut_rgb, cut_mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION_FOCUS),
+                    "object_mask": original_entry.mask,
+                    "edited_share": edited_share,
+                    "occluded": occluded_by(original_entry.mask, source_pool.claimed_masks(), source_pool.claimed_order()),
+                }
+        is_trace = crop_decision is not None and crop_decision.kind == "trace"
         Image.fromarray(removal_mask_255).save(f"{out_dir}/removal_mask/iter_{current_iteration}.png")
         # Save the masked object -- crop to center and resize
         mask_h_idxs, mask_w_idxs = np.where(removal_mask)
@@ -1899,13 +2070,25 @@ def main(cfg):
             masked_images[f"no_background{suffix}"][~masked_images[f"resized_removal_mask{suffix}"].astype(bool)] = 255
             masked_images[f"no_background{suffix}"] = np.concatenate([masked_images[f"no_background{suffix}"], masked_images[f"resized_removal_mask{suffix}"][..., np.newaxis]], axis=-1)
 
+        # crop_source: original (SPEC_crop_source 2-2, step 3): a matched object's cut-out is composed from the source frame, so
+        # the two cut-outs saved below are replaced. The removal-side pictures (with_background, resized_removal_mask, which the
+        # removal and the splice use) are the iteration's own and stay.
+        if matched_cutout is not None:
+            masked_images["no_background"] = matched_cutout["object"]
+            masked_images["no_background_focus"] = matched_cutout["focus"]
 
-        # Stage 6 builds a mesh from every masked_object crop, so a ghost gets none.
-        if ghost_to_remove is None:
+
+        # Stage 6 builds a mesh from every masked_object crop, so a ghost gets none. A trace is not a new object either: it gets
+        # no cut-out and no object mask, only its record (SPEC_crop_source 2-2, step 2 (c)), as a ghost does.
+        skip_cutout = ghost_to_remove is not None or is_trace
+        if not skip_cutout:
             Image.fromarray(masked_images["no_background"]).save(f"{out_dir}/masked_object/iter_{current_iteration}.png")
             Image.fromarray(masked_images["no_background_focus"]).save(f"{out_dir}/masked_object_focus/iter_{current_iteration}.png")
             Image.fromarray(masked_images["with_background"]).save(f"{out_dir}/masked_object_background/iter_{current_iteration}.png")
             Image.fromarray(masked_images["resized_removal_mask"]).save(f"{out_dir}/removal_mask_resized/iter_{current_iteration}.png")
+            if matched_cutout is not None:
+                Image.fromarray(matched_cutout["object_mask"].astype(np.uint8) * 255).save(
+                    f"{out_dir}/object_mask/iter_{current_iteration}.png")
 
 
         if crop_removal_images:
@@ -2238,33 +2421,67 @@ def main(cfg):
             current_iteration += 1
             continue
 
-        # Published atomically: this file is what the stage-6 listener watches for, so a
-        # consumer must never see it half-written.
-        _obj_cat_fpath = f"{out_dir}/obj_cat_list/iter_{current_iteration}.json"
-        with atomic_output_path(_obj_cat_fpath) as _tmp_obj_cat, open(_tmp_obj_cat, "w+") as f:
-            saved_vlm_categories = [get_primary_object_name(name) for name in obj_cat_list]
-            saved_pruned_phrases = [get_primary_object_name(name) for name in pruned_phrases]
-            saved_removed_obj_phrase = get_primary_object_name(obj_phrase_to_remove)
-            json.dump({
-                "vlm_categories": saved_vlm_categories,
-                "pruned_phrases": saved_pruned_phrases,
-                "removed_obj_phrase": saved_removed_obj_phrase,
-                "vlm_categories_full": obj_cat_list,
-                "pruned_phrases_full": pruned_phrases,
+        if is_trace:
+            # A trace moves the image chain as an object does (the same removal, and the category and region bookkeeping below),
+            # but it emits no object: its record is the skipped-iteration record, and the rescue step (2-3) completes it.
+            trace_entry = {
+                "iteration": current_iteration,
+                "crop_source": "original",
+                **trace_record(crop_decision, int(removal_mask.sum())),
+                "removed_obj_phrase": get_primary_object_name(obj_phrase_to_remove),
                 "removed_obj_phrase_full": obj_phrase_to_remove,
-                "is_valid_removed_obj": is_valid_removed_obj,
-                "valid_pixel_proportion": valid_pixel_proportion,
-                "valid_pixel_proportion_threshold": min_valid_pixel_prop,
-                "skipped_objects": skipped_objects,
-                # Which iteration's post-removal image/depth this object was detected
-                # against (null = the original source frame). Iteration numbers can have
-                # gaps, so consumers (stage 8/8b) must use this rather than idx - 1.
+                "vlm_categories_full": obj_cat_list,
+                "detection_iteration": detection_iteration,
                 "base_iter": last_kept_iteration,
-                # If this removal leaves a ghost, it is removed again with the types not
-                # tried here (removal_ghosts.py).
                 "removal_prompt_type": obj_removal_prompt_type,
                 "removal_prompt_types_tried": removal_prompt_types_tried,
-            }, f, indent=4)
+            }
+            write_skipped_iteration(out_dir, trace_entry)
+            dropped_masks.append(removal_mask.astype(bool))
+            dropped_records.append(trace_entry)
+        else:
+            # Published atomically: this file is what the stage-6 listener watches for, so a
+            # consumer must never see it half-written.
+            _obj_cat_fpath = f"{out_dir}/obj_cat_list/iter_{current_iteration}.json"
+            with atomic_output_path(_obj_cat_fpath) as _tmp_obj_cat, open(_tmp_obj_cat, "w+") as f:
+                saved_vlm_categories = [get_primary_object_name(name) for name in obj_cat_list]
+                saved_pruned_phrases = [get_primary_object_name(name) for name in pruned_phrases]
+                saved_removed_obj_phrase = get_primary_object_name(obj_phrase_to_remove)
+                manifest = {
+                    "vlm_categories": saved_vlm_categories,
+                    "pruned_phrases": saved_pruned_phrases,
+                    "removed_obj_phrase": saved_removed_obj_phrase,
+                    "vlm_categories_full": obj_cat_list,
+                    "pruned_phrases_full": pruned_phrases,
+                    "removed_obj_phrase_full": obj_phrase_to_remove,
+                    "is_valid_removed_obj": is_valid_removed_obj,
+                    "valid_pixel_proportion": valid_pixel_proportion,
+                    "valid_pixel_proportion_threshold": min_valid_pixel_prop,
+                    "skipped_objects": skipped_objects,
+                    # Which iteration's post-removal image/depth this object was detected
+                    # against (null = the original source frame). Iteration numbers can have
+                    # gaps, so consumers (stage 8/8b) must use this rather than idx - 1.
+                    "base_iter": last_kept_iteration,
+                    # If this removal leaves a ghost, it is removed again with the types not
+                    # tried here (removal_ghosts.py).
+                    "removal_prompt_type": obj_removal_prompt_type,
+                    "removal_prompt_types_tried": removal_prompt_types_tried,
+                }
+                if crop_decision is not None:
+                    # crop_source: original (SPEC_crop_source 6절): keys added to the record above, which is unchanged.
+                    if crop_decision.kind == "matched":
+                        manifest.update(object_record(
+                            crop_decision, matched_mask=crop_params.matched_mask,
+                            edited_pixel_share=matched_cutout["edited_share"],
+                            original_instance=original_instance_record(source_pool.entries()[crop_decision.index], crop_decision),
+                            occluded_by_numbers=matched_cutout["occluded"],
+                        ))
+                        source_pool.claim(crop_decision.index, current_iteration)
+                    else:
+                        manifest.update(object_record(
+                            crop_decision, matched_mask=crop_params.matched_mask, edited_pixel_share=1.0,
+                        ))
+                json.dump(manifest, f, indent=4)
 
         # Only remove the category from the list if this was the sole instance detected.
         # If multiple instances of the same category were found, keep the category so that
@@ -2288,6 +2505,14 @@ def main(cfg):
 
         last_kept_iteration = current_iteration
         current_iteration += 1
+
+    if crop_source == "original":
+        plan = rescue_plan(source_pool, dropped_masks, crop_params)
+        rescue_summary = rescued_source_objects(
+            out_dir, source_pool, plan, dropped_records, current_iteration, source_rgb, upsampled_obj_img_raw,
+            target_ratio, resolution, min_valid_pixel_prop, asked_names=asked_names,
+        )
+        served_models["crop_source_summary"] = {"kind_counts": source_kind_counts, **rescue_summary}
 
     # Done!
     logger.info(f"\n{'*' * 30}\nCompleted scene decomposition!\n{'*' * 30}\n")

@@ -173,6 +173,16 @@ s5_scene:     # env: simfoundry
   pda_K: 5
   pda_geometric_backend: da3    # options: depth_pro, da3  (geometric depth source for PriorDepthAnything)
   pda_da3_resolution: 504             # DA3 processing resolution (must be multiple of 14, only used when pda_geometric_backend=da3)
+  # Crop source of the stage-5 cut-outs (SPEC_crop_source v2 and v3 memo; the rules are in simfoundry/pipeline/crop_source.py).
+  # edited (default): every cut-out comes from the iteration's own image, as before; no new code runs.
+  # original: an object that matches an object in the source frame is cut from the source frame, where it was visible, and
+  # what it hid is taken from the iteration image. The run stops rather than resume in this mode.
+  crop_source: edited                # edited | original
+  original_match_iou: 0.5            # original only: IoU with a source object at or above this is the same object
+  revealed_inside_fraction: 0.5      # original only: share of an iteration mask inside claimed source objects -> revealed later
+  rescue_scope: dropped_only         # original only: dropped_only | all | none ("all" also returns hands and bottles; research option)
+  rescue_min_score: 0.5              # original only: SAM3 score a source object needs to be rescued
+  matched_mask: union                # original only: union | original_plus_hidden | original (mask of a matched cut-out)
 s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mesh of the surroundings from the canonical frame's depth and stage 5's clean plate
   rerun: true
   out_dirname: s_bg_mesh
