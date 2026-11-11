@@ -12,6 +12,7 @@ import ast
 import copy
 import dataclasses
 import pathlib
+import re
 from typing import Optional, Tuple
 
 import cv2
@@ -655,3 +656,209 @@ def test_no_original_is_decided_before_revealed_later():
     d = cs.match_iteration_mask(inside, pool, PARAMS, "black knife handle")
     assert d.inside_claimed_fraction == pytest.approx(1.0)
     assert d.kind == "no_original"
+
+
+# --- matched_pixel_source: the picture the matched cutout takes its pixels from (the start-picture experiment) ---
+
+def _refuses(call, *fragments):
+    """``call`` raises ValueError with every fragment in its message. One ``match=`` per fragment, so a message that blurs
+    any one of them fails the test."""
+    for fragment in fragments:
+        with pytest.raises(ValueError, match=re.escape(fragment)):
+            call()
+
+
+def _without(record, key):
+    return {k: v for k, v in record.items() if k != key}
+
+
+def _start_picture(seed=1):
+    """A picture that is not the frame: another random image of the frame's shape."""
+    return np.random.default_rng(seed).integers(0, 256, size=(H, W, 3), dtype=np.uint8)
+
+
+def test_matched_pixel_source_defaults_to_frame_and_both_values_are_read_from_the_config():
+    assert cs.CropParams().matched_pixel_source == "frame"
+    assert cs.CropParams.from_cfg({}).matched_pixel_source == "frame"
+    assert cs.CropParams.from_cfg({"matched_pixel_source": "frame"}).matched_pixel_source == "frame"
+    assert cs.CropParams.from_cfg({"matched_pixel_source": "start_picture"}).matched_pixel_source == "start_picture"
+
+
+@pytest.mark.parametrize("value", ["Frame", "", None, 1])
+def test_matched_pixel_source_refuses_any_other_value_in_the_from_cfg_wording(value):
+    with pytest.raises(ValueError, match=r"s5_scene\.matched_pixel_source must be one of"):
+        cs.CropParams.from_cfg({"matched_pixel_source": value})
+
+
+@pytest.mark.parametrize("upsampled", [True, False, None, 0, "false"])
+def test_check_pixel_source_frame_never_reads_the_upsample_flag(upsampled):
+    cs.check_pixel_source("frame", upsampled)
+
+
+def test_check_pixel_source_start_picture_passes_only_with_the_upsampled_source_on():
+    cs.check_pixel_source("start_picture", True)
+    _refuses(lambda: cs.check_pixel_source("start_picture", False),
+             "start_picture_needs_upsampled_source", "s5_scene.matched_pixel_source: start_picture",
+             "s5_scene.use_upsampled_source_image")
+
+
+@pytest.mark.parametrize("upsampled", [None, 0, 1, "false", "true"])
+def test_check_pixel_source_start_picture_refuses_a_flag_that_is_not_a_bool(upsampled):
+    with pytest.raises(ValueError, match="must be true or false"):
+        cs.check_pixel_source("start_picture", upsampled)
+
+
+def test_check_pixel_source_takes_a_numpy_bool_as_the_bool_it_is():
+    cs.check_pixel_source("start_picture", np.True_)
+    _refuses(lambda: cs.check_pixel_source("start_picture", np.False_), "start_picture_needs_upsampled_source")
+
+
+@pytest.mark.parametrize("value", ["Frame", "", None, 1])
+@pytest.mark.parametrize("upsampled", [True, False])
+def test_check_pixel_source_refuses_a_wrong_value_in_the_from_cfg_wording(value, upsampled):
+    with pytest.raises(ValueError, match=r"s5_scene\.matched_pixel_source must be one of"):
+        cs.check_pixel_source(value, upsampled)
+
+
+def test_check_start_picture_refuses_a_start_picture_equal_to_the_frame():
+    frame = _images()[1]
+    _refuses(lambda: cs.check_start_picture(frame, frame.copy()),
+             "start_picture_equals_frame", "the start picture equals the frame")
+    # The same values as a float array are still the frame: the check is on values, not on the dtype.
+    _refuses(lambda: cs.check_start_picture(frame, frame.astype(np.float32)), "the start picture equals the frame")
+
+
+def test_check_start_picture_passes_when_one_channel_of_one_pixel_differs():
+    frame = _images()[1]
+    start = frame.copy()
+    start[7, 9, 1] ^= 1
+    cs.check_start_picture(frame, start)
+
+
+def test_check_start_picture_refuses_another_shape_with_a_shape_message_that_is_not_the_equality_one():
+    frame = _images()[1]
+    with pytest.raises(ValueError, match="has shape") as info:
+        cs.check_start_picture(frame, frame[:-1])
+    assert "equals the frame" not in str(info.value)
+
+
+def test_cutout_pixels_gives_the_frame_or_the_start_picture_itself_without_a_copy():
+    frame, start = _images()[1], _start_picture()
+    assert cs.cutout_pixels("frame", frame, start) is frame
+    assert cs.cutout_pixels("start_picture", frame, start) is start
+
+
+def test_cutout_pixels_refuses_a_wrong_value_and_a_start_picture_of_another_shape():
+    frame, start = _images()[1], _start_picture()
+    with pytest.raises(ValueError, match=r"s5_scene\.matched_pixel_source must be one of"):
+        cs.cutout_pixels("Frame", frame, start)
+    with pytest.raises(ValueError, match="has shape"):
+        cs.cutout_pixels("start_picture", frame, start[:-1])
+    with pytest.raises(ValueError, match="has shape"):
+        cs.cutout_pixels("start_picture", frame, None)
+
+
+@pytest.mark.parametrize(
+    "start", [None, np.zeros((H - 1, W, 3), np.uint8), np.zeros((H, W, 4), np.uint8), [[0, 1], [2]]],
+    ids=["none", "other_shape", "other_channels", "ragged"])
+def test_cutout_pixels_frame_returns_the_frame_and_never_looks_at_the_start_picture(start):
+    frame = _images()[1]
+    assert cs.cutout_pixels("frame", frame, start) is frame
+
+
+def test_the_frame_source_gives_the_909b823_pixels_on_a_hand_worked_grid():
+    # Worked by hand on a 2x3 grid. The original is the two left pixels of row 0; the iteration mask is the two right pixels
+    # of row 0 (the middle one shared). The union is all of row 0, and its column-2 pixel lies outside the original, so the
+    # edited share is 1/3. Inside the original the frame's 200 shows; everywhere else the current picture's 10.
+    current = np.full((2, 3, 3), 10, np.uint8)
+    frame = np.full((2, 3, 3), 200, np.uint8)
+    original = np.zeros((2, 3), bool)
+    original[0, 0:2] = True
+    iteration = np.zeros((2, 3), bool)
+    iteration[0, 1:3] = True
+    image, mask, share = cs.composite_cutout(current, frame, original, iteration, None, "union")
+    row0 = np.zeros((2, 3), bool)
+    row0[0, :] = True
+    assert np.array_equal(mask, row0) and share == pytest.approx(1 / 3)
+    assert image[0, 0].tolist() == [200, 200, 200] and image[0, 1].tolist() == [200, 200, 200]
+    assert image[0, 2].tolist() == [10, 10, 10] and np.all(image[1] == 10)
+    for mode in ("original_plus_hidden", "original"):
+        _, only_original, share_zero = cs.composite_cutout(current, frame, original, iteration, None, mode)
+        assert np.array_equal(only_original, original) and share_zero == 0.0
+
+
+@pytest.mark.parametrize("mode", list(cs.MATCHED_MASK_MODES))
+def test_a_start_picture_in_the_source_slot_changes_only_the_pixels_inside_the_original(mode):
+    original = _block(5, 15, 5, 25)
+    iteration = _block(8, 20, 10, 35)
+    claimed = _block(12, 30, 30, 50)
+    current, frame = _images()
+    start = _start_picture()
+    assert not np.array_equal(start[original], frame[original])     # otherwise the checks below would see nothing
+    frame_img, frame_mask, frame_share = cs.composite_cutout(current, frame, original, iteration, claimed, mode)
+    source = cs.cutout_pixels("start_picture", frame, start)
+    start_img, start_mask, start_share = cs.composite_cutout(current, source, original, iteration, claimed, mode)
+    assert np.array_equal(start_mask, frame_mask) and start_share == frame_share
+    assert np.array_equal(start_img[original], start[original])
+    outside = start_mask & ~original
+    assert np.array_equal(start_img[outside], current[outside])
+    assert not np.array_equal(start_img[original], frame_img[original])
+
+
+def test_the_pixel_source_is_recorded_right_after_the_mask_mode_on_a_matched_object():
+    decision = cs.Decision(kind="matched", index=0, iou=0.8, containment=0.9, coverage=0.85)
+    for source in cs.MATCHED_PIXEL_SOURCES:
+        rec = cs.object_record(decision, matched_mask="union", edited_pixel_share=0.1, original_instance={"index": 0},
+                               matched_pixel_source=source)
+        keys = list(rec)
+        assert rec["matched_pixel_source"] == source
+        assert keys.index("matched_pixel_source") == keys.index("matched_mask_mode") + 1
+    default = cs.object_record(decision, matched_mask="union", edited_pixel_share=0.1, original_instance={"index": 0})
+    assert default["matched_pixel_source"] == "frame"
+
+
+def test_the_pixel_source_is_none_for_no_original_and_revealed_later_objects():
+    no_orig = cs.Decision(kind="no_original", best_original_iou=0.1, best_original_index=None)
+    revealed = cs.Decision(kind="revealed_later", inside_claimed_fraction=0.7)
+    for decision in (no_orig, revealed):
+        rec = cs.object_record(decision, matched_mask="union", edited_pixel_share=0.3, matched_pixel_source="start_picture")
+        assert rec["matched_pixel_source"] is None
+        keys = list(rec)
+        assert keys.index("matched_pixel_source") == keys.index("matched_mask_mode") + 1
+
+
+def test_the_rescued_record_carries_the_pixel_source_right_after_the_mask_mode():
+    for source in cs.MATCHED_PIXEL_SOURCES:
+        rec = cs.rescued_object_record({"index": 4}, matched_pixel_source=source)
+        keys = list(rec)
+        assert rec["matched_pixel_source"] == source
+        assert keys.index("matched_pixel_source") == keys.index("matched_mask_mode") + 1
+    assert cs.rescued_object_record({"index": 4})["matched_pixel_source"] == "frame"
+
+
+def test_a_wrong_pixel_source_is_refused_by_both_records():
+    decision = cs.Decision(kind="matched", index=0, iou=0.8, containment=0.9, coverage=0.85)
+    with pytest.raises(ValueError, match=r"s5_scene\.matched_pixel_source must be one of"):
+        cs.object_record(decision, matched_mask="union", edited_pixel_share=0.1, original_instance={"index": 0},
+                         matched_pixel_source="Frame")
+    with pytest.raises(ValueError, match=r"s5_scene\.matched_pixel_source must be one of"):
+        cs.rescued_object_record({"index": 4}, matched_pixel_source=None)
+
+
+def test_apart_from_the_new_key_the_records_are_the_909b823_records():
+    inst = {"index": 2, "category_prompt": "board", "aliases": [], "sam3_score": 0.9}
+    matched = cs.object_record(cs.Decision(kind="matched", index=2, iou=0.8, containment=0.9, coverage=0.85),
+                               matched_mask="union", edited_pixel_share=0.12, original_instance=inst,
+                               occluded_by_numbers=[1], matched_pixel_source="start_picture")
+    assert _without(matched, "matched_pixel_source") == {
+        "crop_source": "original", "crop_reason": "matched", "matched_mask_mode": "union", "edited_pixel_share": 0.12,
+        "original_instance": inst, "occluded_by": [1]}
+    no_orig = cs.object_record(cs.Decision(kind="no_original", best_original_iou=0.1, best_original_index=None),
+                               matched_mask="union", edited_pixel_share=0.3)
+    assert _without(no_orig, "matched_pixel_source") == {
+        "crop_source": "edited", "crop_reason": "no_original", "matched_mask_mode": None, "edited_pixel_share": 1.0,
+        "best_original_iou": 0.1, "best_original_index": None}
+    rescued = cs.rescued_object_record(inst, occluded_by_numbers=[1], matched_pixel_source="start_picture")
+    assert _without(rescued, "matched_pixel_source") == {
+        "crop_source": "original", "crop_reason": "rescued", "matched_mask_mode": "original", "edited_pixel_share": 0.0,
+        "base_iter": None, "original_instance": inst, "occluded_by": [1]}

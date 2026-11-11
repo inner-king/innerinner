@@ -27,6 +27,10 @@ import numpy as np
 
 RESCUE_SCOPES = ("dropped_only", "all", "none")
 MATCHED_MASK_MODES = ("union", "original_plus_hidden", "original")
+# The picture a matched cutout takes its pixels from inside the original mask. "frame" is the original frame and the default;
+# "start_picture" is the picture the image model drew again before the removal. The second is an experiment, so
+# check_pixel_source refuses it unless the upsampled image is on.
+MATCHED_PIXEL_SOURCES = ("frame", "start_picture")
 DECISION_KINDS = ("matched", "no_original", "revealed_later", "trace")
 
 # Constants of the spec, not settings: the duplicate rule across all categories (2-1), the least overlap that makes an
@@ -72,13 +76,18 @@ def _iou(a: np.ndarray, b: np.ndarray) -> float:
 
 @dataclass(frozen=True)
 class CropParams:
-    """The ``s5_scene`` keys of spec section 5, with the spec's defaults."""
+    """The ``s5_scene`` keys of spec section 5, with the spec's defaults.
+
+    ``matched_pixel_source`` is not a spec key. It is the switch of the start-picture experiment, and its default keeps the
+    spec's pixels: the original frame.
+    """
 
     original_match_iou: float = 0.5
     revealed_inside_fraction: float = 0.5
     rescue_scope: str = "dropped_only"
     rescue_min_score: float = 0.5
     matched_mask: str = "union"
+    matched_pixel_source: str = "frame"
 
     @classmethod
     def from_cfg(cls, s5_scene) -> "CropParams":
@@ -110,6 +119,7 @@ class CropParams:
             rescue_scope=choice("rescue_scope", "dropped_only", RESCUE_SCOPES),
             rescue_min_score=number("rescue_min_score", 0.5),
             matched_mask=choice("matched_mask", "union", MATCHED_MASK_MODES),
+            matched_pixel_source=choice("matched_pixel_source", "frame", MATCHED_PIXEL_SOURCES),
         )
 
 
@@ -328,6 +338,71 @@ def _inside_claimed_fraction(mask: np.ndarray, pool: OriginalPool) -> float:
     return float(np.count_nonzero(mask & claimed)) / float(np.count_nonzero(mask))
 
 
+def _check_source_value(matched_pixel_source) -> None:
+    if matched_pixel_source not in MATCHED_PIXEL_SOURCES:
+        raise ValueError(
+            f"s5_scene.matched_pixel_source must be one of {MATCHED_PIXEL_SOURCES}, got {matched_pixel_source!r}")
+
+
+def check_pixel_source(matched_pixel_source, use_upsampled_source_image) -> None:
+    """Refuse a pixel-source setting the stage cannot honour.
+
+    ``"frame"`` is accepted whatever ``use_upsampled_source_image`` holds, and that flag is not read then: a config that ran
+    before this key existed keeps running. ``"start_picture"`` needs the upsampled image on. With it off, the start picture
+    is the frame itself, so the experiment would silently run the frame arm. The flag must also be a bool, so that a string
+    or a 0 or 1 is not read as true.
+    """
+    _check_source_value(matched_pixel_source)
+    if matched_pixel_source == "frame":
+        return
+    if not isinstance(use_upsampled_source_image, (bool, np.bool_)):
+        raise ValueError(
+            "s5_scene.use_upsampled_source_image must be true or false when s5_scene.matched_pixel_source is "
+            f"start_picture, got {use_upsampled_source_image!r}")
+    if not use_upsampled_source_image:
+        raise ValueError(
+            "s5_scene.matched_pixel_source: start_picture needs s5_scene.use_upsampled_source_image: true "
+            "(start_picture_needs_upsampled_source). With it false the start picture is the frame itself, so this run "
+            "would silently be a frame run.")
+
+
+def check_start_picture(frame_rgb, start_rgb) -> None:
+    """Refuse a start picture that cannot stand in for the frame's pixels.
+
+    The two pictures must have the same shape. They must also differ. A start picture equal to the frame (same shape and
+    same values, which for two uint8 pictures is the same bytes) is the frame under another name, and a run with it would
+    be a frame run. That happens when the upsample call gave no picture and the stage fell back to the frame, or when the
+    picture is the frame itself.
+    """
+    frame = np.asarray(frame_rgb)
+    start = np.asarray(start_rgb)
+    if frame.shape != start.shape:
+        raise ValueError(f"the start picture has shape {start.shape}, the frame has shape {frame.shape}")
+    if np.array_equal(frame, start):
+        raise ValueError(
+            "the start picture equals the frame (start_picture_equals_frame): same shape and same values. Either the "
+            "upsample call returned no picture and the stage fell back to the frame, or the start picture is the frame "
+            "itself. This run would be the same as a frame run, so it is refused.")
+
+
+def cutout_pixels(matched_pixel_source, frame_rgb, start_rgb) -> np.ndarray:
+    """The picture a matched object's cutout takes its pixels inside the original mask from (2-2 step 3).
+
+    ``"frame"`` returns ``frame_rgb`` itself and does not look at ``start_rgb``, whatever it holds: the default must not depend
+    on the start picture, as it does not depend on ``use_upsampled_source_image``. ``"start_picture"`` returns ``start_rgb``
+    itself, after checking that it has the frame's shape, so the choice cannot move the grid. Neither returns a copy. A wrong
+    value is a ValueError. That the start picture is not the frame is ``check_start_picture``'s job.
+    """
+    _check_source_value(matched_pixel_source)
+    if matched_pixel_source == "frame":
+        return frame_rgb
+    frame = np.asarray(frame_rgb)
+    start = np.asarray(start_rgb)
+    if frame.shape != start.shape:
+        raise ValueError(f"the start picture has shape {start.shape}, the frame has shape {frame.shape}")
+    return start_rgb
+
+
 def composite_cutout(
     current_rgb: np.ndarray,
     source_rgb: np.ndarray,
@@ -338,8 +413,8 @@ def composite_cutout(
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """Build the cutout of a matched object (2-2, step 3). Returns (image, mask, edited_pixel_share).
 
-    Pixels: inside ``original_mask`` they come from ``source_rgb`` (the original frame, so pixels the original shows are
-    real); outside it they come from ``current_rgb`` (this iteration's image). Mask, by ``mode``:
+    Pixels: inside ``original_mask`` they come from ``source_rgb``, the picture the caller chose with ``cutout_pixels``;
+    outside it they come from ``current_rgb`` (this iteration's image). Mask, by ``mode``:
 
     - ``union``: original | iter_mask. Its area is never smaller than the iteration mask's.
     - ``original_plus_hidden``: original | (iter_mask & claimed_union); adds only what an earlier claimed object hid.
@@ -348,8 +423,11 @@ def composite_cutout(
     ``edited_pixel_share`` is the share of final-mask pixels outside ``original_mask``, which come from ``current_rgb``.
     ``claimed_union`` is the union of the masks of the originals claimed before this iteration (None when there are none).
 
-    ``source_rgb`` is the stage's ``source_padded_resized.png``: the original frame on the work grid. It must not be the
-    upsampled image, which is drawn again and so does not hold the frame's pixels (spec 2-2 step 3; research 2, Q1).
+    ``source_rgb`` is, by default (``matched_pixel_source="frame"``), the stage's ``source_padded_resized.png``: the original
+    frame on the work grid, whose pixels inside the original mask are the real ones (spec 2-2 step 3; research 2, Q1).
+    With ``"start_picture"`` the caller passes the start picture instead: the upsampled image the image model drew again
+    before the removal, so the pixels inside ``original_mask`` are that drawing's. The code below is the same for both, and
+    the mask and the edited share do not depend on the choice.
     """
     if mode not in MATCHED_MASK_MODES:
         raise ValueError(f"mode must be one of {MATCHED_MASK_MODES}, got {mode!r}")
@@ -579,15 +657,20 @@ def original_instance_record(entry: OriginalEntry, decision: Optional[Decision] 
 
 
 def object_record(decision: Decision, *, matched_mask: str, edited_pixel_share: float,
-                  original_instance: Optional[dict] = None, occluded_by_numbers: Optional[List[int]] = None) -> dict:
+                  original_instance: Optional[dict] = None, occluded_by_numbers: Optional[List[int]] = None,
+                  matched_pixel_source: str = "frame") -> dict:
     """The keys this module adds to an object's ``obj_cat_list`` record (spec 6절) for a matched, no_original or
     revealed_later object. Only added keys; no file I/O. A trace has no object record: use ``trace_record``.
 
     A matched object is cut from the original, so its share of pixels from the iteration image is what the caller measured.
     A no_original or revealed_later object is cut from the iteration image, so its share is 1.0 by definition.
+
+    ``matched_pixel_source`` is the picture the cutout's pixels inside the original mask came from (``cutout_pixels``). It
+    is recorded for a matched object; the other kinds record None, as ``matched_mask_mode`` does.
     """
     if decision.kind == "trace":
         raise ValueError("a trace has no object record; use trace_record")
+    _check_source_value(matched_pixel_source)
     if decision.kind == "matched":
         if matched_mask not in MATCHED_MASK_MODES:
             raise ValueError(f"matched_mask must be one of {MATCHED_MASK_MODES}, got {matched_mask!r}")
@@ -597,6 +680,7 @@ def object_record(decision: Decision, *, matched_mask: str, edited_pixel_share: 
             "crop_source": "original",
             "crop_reason": "matched",
             "matched_mask_mode": matched_mask,
+            "matched_pixel_source": matched_pixel_source,
             "edited_pixel_share": float(edited_pixel_share),
             "original_instance": original_instance,
         }
@@ -605,6 +689,7 @@ def object_record(decision: Decision, *, matched_mask: str, edited_pixel_share: 
             "crop_source": "edited",
             "crop_reason": decision.kind,
             "matched_mask_mode": None,
+            "matched_pixel_source": None,
             "edited_pixel_share": 1.0,
             "best_original_iou": float(decision.best_original_iou),
             "best_original_index": decision.best_original_index,
@@ -616,16 +701,20 @@ def object_record(decision: Decision, *, matched_mask: str, edited_pixel_share: 
     return record
 
 
-def rescued_object_record(original_instance: dict, occluded_by_numbers: Optional[List[int]] = None) -> dict:
+def rescued_object_record(original_instance: dict, occluded_by_numbers: Optional[List[int]] = None,
+                          matched_pixel_source: str = "frame") -> dict:
     """The keys of a rescued object (2-3): it is a new object cut from the original alone, so its mask is the original mask.
 
     ``base_iter`` is written as None on purpose: a missing key would make the resume code fall back to the last chain
-    iteration, and a rescued object has no iteration.
+    iteration, and a rescued object has no iteration. ``matched_pixel_source`` is the picture its pixels came from, as for a
+    matched object (``cutout_pixels``).
     """
+    _check_source_value(matched_pixel_source)
     record = {
         "crop_source": "original",
         "crop_reason": "rescued",
         "matched_mask_mode": "original",
+        "matched_pixel_source": matched_pixel_source,
         "edited_pixel_share": 0.0,
         "base_iter": None,
         "original_instance": original_instance,
