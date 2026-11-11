@@ -183,6 +183,11 @@ s5_scene:     # env: simfoundry
   rescue_scope: dropped_only         # original only: dropped_only | all | none ("all" also returns hands and bottles; research option)
   rescue_min_score: 0.5              # original only: SAM3 score a source object needs to be rescued
   matched_mask: union                # original only: union | original_plus_hidden | original (mask of a matched cut-out)
+  # original only: the picture the pixels inside a matched object's original mask come from. frame (default): the source frame
+  # (source_padded_resized.png). start_picture: the start picture, the upsampled image the image model drew again before the
+  # removal (source_padded_resized_upsampled.png); the matched and rescued objects take those pixels from it, and nothing else
+  # changes. start_picture needs use_upsampled_source_image: true, and with it false the run is refused before anything is written.
+  matched_pixel_source: frame        # original only: frame | start_picture
 s_bg_mesh:        # env: simfoundry. Optional stage 5c (--bg-mesh): textured mesh of the surroundings from the canonical frame's depth and stage 5's clean plate
   rerun: true
   out_dirname: s_bg_mesh

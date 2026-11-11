@@ -55,6 +55,7 @@ from simfoundry.pipeline.crop_source import (
     MARGIN_FRACTION, MARGIN_FRACTION_FOCUS, CropParams, OriginalPool, composite_cutout, crop_like_5a, match_iteration_mask,
     object_record, occluded_by, original_instance_record, originals_record, pack_originals, rescue_plan,
     rescued_object_record, set_rescue_outcome, trace_record,
+    check_pixel_source, check_start_picture, cutout_pixels,
 )
 from simfoundry.utils.python_utils import atomic_output_path
 import hydra
@@ -919,16 +920,20 @@ def _holds_original_output(out_dir: str) -> bool:
 
 
 def rescued_source_objects(out_dir: str, pool, plan, dropped_records: list, first_index: int, source_rgb, start_rgb,
-                           target_ratio: float, resolution, min_valid_pixel_prop: float, asked_names: dict = None) -> dict:
+                           target_ratio: float, resolution, min_valid_pixel_prop: float, asked_names: dict = None,
+                           matched_pixel_source: str = "frame") -> dict:
     """The end-of-run step of crop_source: original (SPEC_crop_source 2-3 and 6절). Writes the rescued objects and records.
 
     ``plan`` is the RescuePlan of simfoundry/pipeline/crop_source.py, and ``dropped_records[p]`` is the trace record of
     ``plan.per_dropped[p]``; each is rewritten with the object it was rescued as, or with lost_object. A rescued object is
-    numbered from ``first_index``, the first iteration number nothing has used. Its cut-out is the original frame alone.
+    numbered from ``first_index``, the first iteration number nothing has used. Its cut-out is the original frame alone, or,
+    with ``matched_pixel_source="start_picture"``, the start picture inside its mask (``cutout_pixels``).
     Its validity is the share of its mask where the original frame and the start image agree: the 2172-2177 formula with
     the original frame in place of the iteration image.
     """
     entries = pool.entries()
+    # Chosen before anything is written, so a bad value or a shape mismatch stops the stage with no file made.
+    cut_picture = cutout_pixels(matched_pixel_source, source_rgb, start_rgb)
     rescued_as = {}
     objects = []  # (object number, original number, the trace iteration it came from or None)
     next_number = first_index
@@ -947,8 +952,8 @@ def rescued_source_objects(out_dir: str, pool, plan, dropped_records: list, firs
     for number, original_index, trace_iteration in objects:
         entry = entries[original_index]
         occluded = occluded_by(entry.mask, pool.claimed_masks(), pool.claimed_order())
-        cut = crop_like_5a(source_rgb, entry.mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION)
-        focus = crop_like_5a(source_rgb, entry.mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION_FOCUS)
+        cut = crop_like_5a(cut_picture, entry.mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION)
+        focus = crop_like_5a(cut_picture, entry.mask, target_ratio, resolution, margin_fraction=MARGIN_FRACTION_FOCUS)
         Image.fromarray(cut).save(f"{out_dir}/masked_object/iter_{number}.png")
         Image.fromarray(focus).save(f"{out_dir}/masked_object_focus/iter_{number}.png")
         Image.fromarray(entry.mask.astype(np.uint8) * 255).save(f"{out_dir}/object_mask/iter_{number}.png")
@@ -968,7 +973,8 @@ def rescued_source_objects(out_dir: str, pool, plan, dropped_records: list, firs
             "removal_prompt_type": None,
             "removal_prompt_types_tried": [],
             "rescued_from_iteration": trace_iteration,
-            **rescued_object_record(original_instance_record(entry), occluded_by_numbers=occluded),
+            **rescued_object_record(original_instance_record(entry), occluded_by_numbers=occluded,
+                                    matched_pixel_source=matched_pixel_source),
         }
         with atomic_output_path(f"{out_dir}/obj_cat_list/iter_{number}.json") as tmp_fpath, open(tmp_fpath, "w+") as f:
             json.dump(record, f, indent=4)
@@ -1011,6 +1017,10 @@ def main(cfg):
             f"{out_dir} holds crop_source: original output. An edited run would resume on it, and the resume rule deletes the "
             "rescued and cut-out objects as incomplete. Use a new s5_scene folder."
         )
+    if crop_source == "original":
+        # matched_pixel_source is checked before the first write (the mkdir below). The refusal is not caught.
+        check_pixel_source(cfg.s5_scene.get("matched_pixel_source", "frame"),
+                           cfg.s5_scene.get("use_upsampled_source_image", True))
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     # Other hyperparams we need
@@ -1249,6 +1259,14 @@ def main(cfg):
         # Resize to expected resolution (FLUX/Gemini may return slightly different dimensions)
         upsampled_obj_img_raw = cv2.resize(upsampled_obj_img_raw, resolution)
         Image.fromarray(upsampled_obj_img_raw).save(source_resized_upsampled_image_fpath)
+
+    # crop_source: original, matched_pixel_source (the start-picture experiment). The start picture is the upsampled image here.
+    # If the upsample call returned no picture, the stage fell back to the frame, and check_start_picture stops the run at this
+    # point with the message in the log. The refusal is not caught.
+    if crop_source == "original":
+        if crop_params.matched_pixel_source == "start_picture":
+            check_start_picture(source_rgb, upsampled_obj_img_raw)
+        cutout_rgb = cutout_pixels(crop_params.matched_pixel_source, source_rgb, upsampled_obj_img_raw)
 
     # Load the rotated point cloud (i.e.: "floor" is located at origin and z-direction is aligned with the plane
     results = np.load(f"{source_dir}/da/exports/npz/results.npz")
@@ -2027,8 +2045,9 @@ def main(cfg):
             source_kind_counts[crop_decision.kind] += 1
             if crop_decision.kind == "matched":
                 original_entry = source_pool.entries()[crop_decision.index]
+                # The pixels inside the original mask come from cutout_rgb: the frame, or the start picture (matched_pixel_source).
                 cut_rgb, cut_mask, edited_share = composite_cutout(
-                    current_rgb, source_rgb, original_entry.mask, removal_mask,
+                    current_rgb, cutout_rgb, original_entry.mask, removal_mask,
                     source_pool.claimed_union(removal_mask.shape), crop_params.matched_mask,
                 )
                 matched_cutout = {
@@ -2475,6 +2494,7 @@ def main(cfg):
                             edited_pixel_share=matched_cutout["edited_share"],
                             original_instance=original_instance_record(source_pool.entries()[crop_decision.index], crop_decision),
                             occluded_by_numbers=matched_cutout["occluded"],
+                            matched_pixel_source=crop_params.matched_pixel_source,
                         ))
                         source_pool.claim(crop_decision.index, current_iteration)
                     else:
@@ -2511,8 +2531,11 @@ def main(cfg):
         rescue_summary = rescued_source_objects(
             out_dir, source_pool, plan, dropped_records, current_iteration, source_rgb, upsampled_obj_img_raw,
             target_ratio, resolution, min_valid_pixel_prop, asked_names=asked_names,
+            matched_pixel_source=crop_params.matched_pixel_source,
         )
-        served_models["crop_source_summary"] = {"kind_counts": source_kind_counts, **rescue_summary}
+        served_models["crop_source_summary"] = {
+            "kind_counts": source_kind_counts, **rescue_summary, "matched_pixel_source": crop_params.matched_pixel_source,
+        }
 
     # Done!
     logger.info(f"\n{'*' * 30}\nCompleted scene decomposition!\n{'*' * 30}\n")

@@ -17,6 +17,7 @@ import glob
 import json
 import os
 import pathlib
+import types
 
 import numpy as np
 import pytest
@@ -35,6 +36,7 @@ NEW_CALLS = {
     "OriginalPool", "from_cfg", "match_iteration_mask", "composite_cutout", "crop_like_5a", "occluded_by",
     "object_record", "original_instance_record", "rescue_plan", "rescued_source_objects", "trace_record", "source_prompt_of",
     "_holds_original_output", "add_prompt", "claim", "claimed_union", "claimed_masks", "claimed_order", "entries",
+    "check_pixel_source", "check_start_picture", "cutout_pixels",
 }
 # A guard counts when its test names one of these. Each is False in the default mode: crop_source is "edited", or the
 # variable it names is None unless the original mode made it.
@@ -114,6 +116,7 @@ def _stage_namespace():
         "os": os, "json": json, "glob": glob, "np": np, "Image": Image, "atomic_output_path": atomic_output_path,
         "MARGIN_FRACTION": cs.MARGIN_FRACTION, "MARGIN_FRACTION_FOCUS": cs.MARGIN_FRACTION_FOCUS,
         "crop_like_5a": cs.crop_like_5a, "occluded_by": cs.occluded_by, "originals_record": cs.originals_record,
+        "cutout_pixels": cs.cutout_pixels,
         "pack_originals": cs.pack_originals, "rescued_object_record": cs.rescued_object_record,
         "original_instance_record": cs.original_instance_record, "set_rescue_outcome": cs.set_rescue_outcome,
     }
@@ -233,6 +236,7 @@ def test_crop_source_defaults_in_the_config():
     assert s5["rescue_scope"] == "dropped_only"
     assert s5["rescue_min_score"] == 0.5
     assert s5["matched_mask"] == "union"
+    assert s5["matched_pixel_source"] == "frame"
 
 
 # ---------------------------------------------------------------- runtime: helpers extracted from the stage
@@ -383,3 +387,287 @@ def test_scope_all_numbers_the_extra_originals_after_the_own_rescues(tmp_path):
     assert extra["base_iter"] is None and extra["original_instance"]["index"] == 2
     listing = json.loads((out / "original_instances.json").read_text())
     assert {item["index"]: item["rescued_as"] for item in listing["originals"]} == {0: 8, 1: None, 2: 9}
+
+
+# ---------------------------------------------------------------- matched_pixel_source: where the matched pixels come from
+
+PIXEL_CHECKS = ("check_pixel_source", "check_start_picture", "cutout_pixels")
+TRY_TYPES = tuple(t for t in (getattr(ast, "Try", None), getattr(ast, "TryStar", None)) if t is not None)
+
+
+def _module_function(tree, name):
+    found = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
+    assert len(found) == 1, f"expected one {name}() in {STAGE.name}, found {len(found)}"
+    return found[0]
+
+
+def _calls_named(root, name):
+    return [node for node in ast.walk(root) if isinstance(node, ast.Call) and _call_name(node) == name]
+
+
+def _inside_try(node, parents, stop):
+    """True when a try statement lies between ``node`` and ``stop``, the function that holds it."""
+    child = node
+    while child is not stop and child in parents:
+        if isinstance(parents[child], TRY_TYPES):
+            return True
+        child = parents[child]
+    return False
+
+
+def _enclosing_ifs(node, parents):
+    """The If statements that hold ``node`` in their body (not their else), innermost first."""
+    found, child = [], node
+    while child in parents:
+        parent = parents[child]
+        if isinstance(parent, ast.If) and child in parent.body:
+            found.append(parent)
+        child = parent
+    return found
+
+
+def test_pixel_checks_are_called_once_each_under_the_original_guard():
+    main = _main(_tree())
+    parents = _parents(main)
+    for name in PIXEL_CHECKS:
+        calls = _calls_named(main, name)
+        assert len(calls) == 1, f"{name}() must be called once in main(), found {len(calls)}"
+        assert _guarded(calls[0], parents, tokens=("crop_source == 'original'",)), (
+            f"{name}() at line {calls[0].lineno} is not under if crop_source == 'original'")
+
+
+def test_pixel_source_refusal_comes_before_the_first_write():
+    main = _main(_tree())
+    [call] = _calls_named(main, "check_pixel_source")
+    top_ifs = [stmt for stmt in main.body if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "crop_source == 'original'"]
+    assert any(call in ast.walk(stmt) for stmt in top_ifs), (
+        "check_pixel_source() must sit in a top-level if crop_source == 'original' of main()")
+    writes = [node.lineno for node in ast.walk(main) if isinstance(node, ast.Call)
+              and _call_name(node) in ("mkdir", "delete_iteration_data", "write_decomposition_frame")]
+    assert writes and call.lineno < min(writes), "the refusal must come before the first mkdir, delete or frame write"
+
+
+def test_start_picture_check_and_cutout_come_after_the_upsample_step():
+    main = _main(_tree())
+    parents = _parents(main)
+    [check] = _calls_named(main, "check_start_picture")
+    [cut] = _calls_named(main, "cutout_pixels")
+    saves = [node for node in _calls_named(main, "save") if "source_resized_upsampled_image_fpath" in ast.unparse(node)]
+    assert len(saves) == 1, "expected the one save of the upsampled picture"
+    assert saves[0].lineno < check.lineno and saves[0].lineno < cut.lineno, "both must come after the upsample step"
+    check_tests = {ast.unparse(stmt.test) for stmt in _enclosing_ifs(check, parents)}
+    assert "crop_source == 'original'" in check_tests and any("start_picture" in test for test in check_tests), (
+        "check_start_picture() must run only under the original guard and for start_picture")
+    cut_tests = {ast.unparse(stmt.test) for stmt in _enclosing_ifs(cut, parents)}
+    assert "crop_source == 'original'" in cut_tests
+    assigned = [node for node in ast.walk(main) if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == "cutout_rgb" for target in node.targets)]
+    assert len(assigned) == 1 and assigned[0].value is cut, "cutout_rgb must be the value of cutout_pixels()"
+
+
+def test_the_pixel_checks_are_not_inside_a_try_block():
+    """A refusal that is caught, reworded or dropped would let a start picture equal to the frame run as a frame run."""
+    main = _main(_tree())
+    parents = _parents(main)
+    for name in PIXEL_CHECKS:
+        for call in _calls_named(main, name):
+            assert not _inside_try(call, parents, main), f"{name}() at line {call.lineno} is inside a try block"
+    function = _module_function(_tree(), "rescued_source_objects")
+    function_parents = _parents(function)
+    for call in _calls_named(function, "cutout_pixels"):
+        assert not _inside_try(call, function_parents, function), f"cutout_pixels() at line {call.lineno} is inside a try block"
+
+
+def test_composite_takes_the_cutout_picture_as_its_source():
+    main = _main(_tree())
+    calls = _calls_named(main, "composite_cutout")
+    assert len(calls) == 1
+    source = calls[0].args[1]
+    assert isinstance(source, ast.Name) and source.id == "cutout_rgb", "the second argument must be cutout_rgb, not source_rgb"
+
+
+def test_rescue_call_passes_the_pixel_source_and_the_summary_records_it():
+    main = _main(_tree())
+    [call] = _calls_named(main, "rescued_source_objects")
+    keywords = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+    assert keywords.get("matched_pixel_source") == "crop_params.matched_pixel_source"
+    summaries = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Subscript)
+                 and isinstance(node.targets[0].slice, ast.Constant) and node.targets[0].slice.value == "crop_source_summary"]
+    assert len(summaries) == 1 and isinstance(summaries[0].value, ast.Dict)
+    keys = {key.value for key in summaries[0].value.keys if isinstance(key, ast.Constant)}
+    assert {"kind_counts", "matched_pixel_source"} <= keys
+
+
+def test_matched_record_gets_the_pixel_source_and_the_other_records_do_not():
+    main = _main(_tree())
+    parents = _parents(main)
+    calls = _calls_named(main, "object_record")
+    matched = [c for c in calls if "crop_decision.kind == 'matched'" in {ast.unparse(s.test) for s in _enclosing_ifs(c, parents)}]
+    others = [c for c in calls if c not in matched]
+    assert len(matched) == 1 and len(others) == 1, "expected one matched and one other object_record() call"
+    assert "matched_pixel_source" in {kw.arg for kw in matched[0].keywords}
+    assert "matched_pixel_source" not in {kw.arg for kw in others[0].keywords}
+
+
+def test_the_new_key_is_read_or_written_only_under_the_original_guard():
+    main = _main(_tree())
+    parents = _parents(main)
+    hits = [node for node in ast.walk(main)
+            if (isinstance(node, ast.Constant) and node.value == "matched_pixel_source")
+            or (isinstance(node, ast.keyword) and node.arg == "matched_pixel_source")]
+    assert len(hits) == 4, "the config read, the matched record, the rescue call and the summary: four places in main()"
+    for node in hits:
+        assert _guarded(node, parents), f"matched_pixel_source at line {node.lineno} is outside the original guard"
+
+
+def test_the_stage_default_of_the_pixel_source_is_frame():
+    defaults = []
+    for node in _calls_named(_tree(), "get"):
+        if node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == "matched_pixel_source":
+            defaults.append(ast.unparse(node.args[1]) if len(node.args) > 1 else None)
+    assert defaults == ["'frame'"], f"the stage's default must be frame, found {defaults}"
+
+
+def _rescue_once(out, source, start, rect, **keywords):
+    """The end-of-run rescue of the trace setup of test_rescued_source_objects_writes_the_records_stage_6_and_8_read, into
+    ``out`` (not made yet). The trace records are written first, as stage 5 writes them. Returns the summary."""
+    tree = _tree()
+    ns = _stage_namespace()
+    ns["write_skipped_iteration"] = _extract_function(tree, "write_skipped_iteration", ns)
+    rescue_objects = _extract_function(tree, "rescued_source_objects", ns)
+    pool = _pool_for(rect)
+    traces = [rect(10, 30, 18, 38), rect(30, 44, 4, 18), rect(0, 4, 0, 4)]
+    plan = cs.rescue_plan(pool, traces, cs.CropParams())
+    out.mkdir(parents=True)
+    (out / "skipped_iterations").mkdir()
+    (out / "obj_cat_list").mkdir()
+    for d in ("masked_object", "masked_object_focus", "object_mask"):
+        (out / d).mkdir()
+    records = [_trace_record(4, 400), _trace_record(6, 196), _trace_record(7, 16)]
+    for record in records:
+        ns["write_skipped_iteration"](str(out), record)
+    return rescue_objects(str(out), pool, plan, records, 8, source, start, 1.0, (48, 48), 0.1, **keywords)
+
+
+def test_rescued_cutout_takes_its_pixels_from_the_start_picture_only_when_asked(tmp_path):
+    source, _, rect = _synthetic_scene()
+    start = source.copy()
+    start[::2] = 255 - start[::2]    # every other row differs from the frame, so the two cut-outs differ inside the mask
+    default, frame, picked, bad = (tmp_path / name for name in ("default", "frame", "start", "bad"))
+    summary = _rescue_once(default, source, start, rect)
+    assert _rescue_once(frame, source, start, rect, matched_pixel_source="frame") == summary
+    unchanged = ("masked_object/iter_8.png", "masked_object_focus/iter_8.png", "object_mask/iter_8.png",
+                 "obj_cat_list/iter_8.json", "skipped_iterations/iter_4.json", "skipped_iterations/iter_6.json",
+                 "skipped_iterations/iter_7.json", "original_instances.json")
+    for rel in unchanged:
+        assert (default / rel).read_bytes() == (frame / rel).read_bytes(), f"{rel} changed with an explicit frame"
+    assert _rescue_once(picked, source, start, rect, matched_pixel_source="start_picture") == summary
+    mask = rect(10, 30, 10, 30)      # the original that the trace rescues (object 0)
+    cut = np.array(Image.open(picked / "masked_object" / "iter_8.png"))
+    assert np.array_equal(cut, cs.crop_like_5a(start, mask, 1.0, (48, 48), margin_fraction=cs.MARGIN_FRACTION)), (
+        "the cut-out must be cut from the start picture")
+    focus = np.array(Image.open(picked / "masked_object_focus" / "iter_8.png"))
+    assert np.array_equal(focus, cs.crop_like_5a(start, mask, 1.0, (48, 48), margin_fraction=cs.MARGIN_FRACTION_FOCUS))
+    assert not np.array_equal(cut, np.array(Image.open(default / "masked_object" / "iter_8.png"))), (
+        "the two cut-outs must differ, or this test proves nothing")
+    recorded = json.loads((picked / "obj_cat_list" / "iter_8.json").read_text())
+    assert recorded["matched_pixel_source"] == "start_picture"
+    default_record = json.loads((default / "obj_cat_list" / "iter_8.json").read_text())
+    assert default_record["matched_pixel_source"] == "frame"
+    assert recorded["valid_pixel_proportion"] == default_record["valid_pixel_proportion"], (
+        "the validity share uses the same two pictures in both modes")
+    with pytest.raises(ValueError):
+        _rescue_once(bad, source, start, rect, matched_pixel_source="Frame")
+    assert not (bad / "masked_object" / "iter_8.png").exists() and not (bad / "obj_cat_list" / "iter_8.json").exists()
+    assert json.loads((bad / "skipped_iterations" / "iter_4.json").read_text())["rescued_as"] is None, (
+        "a refused value must stop the rescue before any record is rewritten")
+
+
+# ---------------------------------------------------------------- the two pixel blocks of main(), run with real values
+
+
+class _Section:
+    """What the early check reads from cfg.s5_scene: get(key, default), as the config does."""
+
+    def __init__(self, values):
+        self._values = dict(values)
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+
+def _top_block(call_name):
+    """The top-level ``if crop_source == 'original':`` of main() that holds a call to ``call_name``."""
+    main = _main(_tree())
+    blocks = [stmt for stmt in main.body if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "crop_source == 'original'"
+              and call_name in {_call_name(call) for call in ast.walk(stmt) if isinstance(call, ast.Call)}]
+    assert len(blocks) == 1, f"expected one top-level if crop_source == 'original' holding {call_name}(), found {len(blocks)}"
+    return blocks[0]
+
+
+def _run_statement(statement, names):
+    """Run one statement of the stage with ``names`` as its globals, the way the stage would run it."""
+    exec(compile(ast.Module(body=[statement], type_ignores=[]), str(STAGE), "exec"), names)
+    return names
+
+
+def test_early_pixel_check_refuses_only_the_start_picture_without_the_upsample():
+    block = _top_block("check_pixel_source")
+
+    def run(crop_source, **values):
+        names = {"crop_source": crop_source, "cfg": types.SimpleNamespace(s5_scene=_Section(values)),
+                 "check_pixel_source": cs.check_pixel_source}
+        return _run_statement(block, names)
+
+    with pytest.raises(ValueError, match="start_picture_needs_upsampled_source"):
+        run("original", matched_pixel_source="start_picture", use_upsampled_source_image=False)
+    with pytest.raises(ValueError, match="must be true or false"):
+        run("original", matched_pixel_source="start_picture", use_upsampled_source_image="false")
+    run("original", matched_pixel_source="start_picture")                            # no key: the default True passes
+    run("original", matched_pixel_source="frame", use_upsampled_source_image=False)  # frame does not read the flag
+    run("original")                                                                  # no keys: frame, and True
+    with pytest.raises(ValueError, match="must be one of"):
+        run("original", matched_pixel_source="Frame")                                # a wrong value is refused
+    run("edited", matched_pixel_source="Frame", use_upsampled_source_image="maybe")   # not run in the edited mode
+
+
+def test_cutout_picture_follows_the_choice_and_the_start_check_refuses_an_equal_picture():
+    block = _top_block("cutout_pixels")
+
+    def run(crop_source, frame, start, mode):
+        names = {"crop_source": crop_source, "crop_params": cs.CropParams(matched_pixel_source=mode), "source_rgb": frame,
+                 "upsampled_obj_img_raw": start, "check_start_picture": cs.check_start_picture,
+                 "cutout_pixels": cs.cutout_pixels}
+        return _run_statement(block, names)
+
+    frame = np.random.default_rng(3).integers(0, 256, size=(6, 8, 3), dtype=np.uint8)
+    start = frame.copy()
+    start[::2] = 255 - start[::2]    # every other row differs from the frame
+    assert run("original", frame, start, "start_picture")["cutout_rgb"] is start
+    assert run("original", frame, start, "frame")["cutout_rgb"] is frame
+    with pytest.raises(ValueError, match="start_picture_equals_frame"):
+        run("original", frame, frame.copy(), "start_picture")
+    assert run("original", frame, frame.copy(), "frame")["cutout_rgb"] is frame
+    assert "cutout_rgb" not in run("edited", frame, start, "start_picture")
+
+
+def test_matched_record_says_the_configured_pixel_source():
+    main = _main(_tree())
+    parents = _parents(main)
+    matched = [call for call in _calls_named(main, "object_record")
+               if "crop_decision.kind == 'matched'" in {ast.unparse(stmt.test) for stmt in _enclosing_ifs(call, parents)}]
+    assert len(matched) == 1, "expected one object_record() call under if crop_decision.kind == 'matched'"
+    values = {kw.arg: ast.unparse(kw.value) for kw in matched[0].keywords}
+    assert values.get("matched_pixel_source") == "crop_params.matched_pixel_source", (
+        "the matched record must say the configured source, not a constant")
+
+
+def test_summary_says_the_configured_pixel_source():
+    main = _main(_tree())
+    summaries = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Subscript)
+                 and isinstance(node.targets[0].slice, ast.Constant) and node.targets[0].slice.value == "crop_source_summary"]
+    assert len(summaries) == 1 and isinstance(summaries[0].value, ast.Dict)
+    summary = summaries[0].value
+    values = {key.value: ast.unparse(value) for key, value in zip(summary.keys, summary.values) if isinstance(key, ast.Constant)}
+    assert values.get("matched_pixel_source") == "crop_params.matched_pixel_source", (
+        "the summary must say the configured source, not a constant")
