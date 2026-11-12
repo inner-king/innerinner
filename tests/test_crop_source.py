@@ -766,7 +766,7 @@ def test_cutout_pixels_frame_returns_the_frame_and_never_looks_at_the_start_pict
     assert cs.cutout_pixels("frame", frame, start) is frame
 
 
-def test_the_frame_source_gives_the_909b823_pixels_on_a_hand_worked_grid():
+def test_the_frame_source_gives_the_crop_source_original_pixels_on_a_hand_worked_grid():
     # Worked by hand on a 2x3 grid. The original is the two left pixels of row 0; the iteration mask is the two right pixels
     # of row 0 (the middle one shared). The union is all of row 0, and its column-2 pixel lies outside the original, so the
     # edited share is 1/3. Inside the original the frame's 200 shows; everywhere else the current picture's 10.
@@ -845,7 +845,7 @@ def test_a_wrong_pixel_source_is_refused_by_both_records():
         cs.rescued_object_record({"index": 4}, matched_pixel_source=None)
 
 
-def test_apart_from_the_new_key_the_records_are_the_909b823_records():
+def test_apart_from_the_new_key_the_records_are_the_crop_source_original_records():
     inst = {"index": 2, "category_prompt": "board", "aliases": [], "sam3_score": 0.9}
     matched = cs.object_record(cs.Decision(kind="matched", index=2, iou=0.8, containment=0.9, coverage=0.85),
                                matched_mask="union", edited_pixel_share=0.12, original_instance=inst,
