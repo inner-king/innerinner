@@ -928,6 +928,7 @@ def rescued_source_objects(out_dir: str, pool, plan, dropped_records: list, firs
     ``plan.per_dropped[p]``; each is rewritten with the object it was rescued as, or with lost_object. A rescued object is
     numbered from ``first_index``, the first iteration number nothing has used. Its cut-out is the original frame alone, or,
     with ``matched_pixel_source="start_picture"``, the start picture inside its mask (``cutout_pixels``).
+    The partly transparent edge band of the cut-out mixes in colour from outside the mask in either case (``crop_like_5a``).
     Its validity is the share of its mask where the original frame and the start image agree: the 2172-2177 formula with
     the original frame in place of the iteration image.
     """
@@ -2046,6 +2047,8 @@ def main(cfg):
             if crop_decision.kind == "matched":
                 original_entry = source_pool.entries()[crop_decision.index]
                 # The pixels inside the original mask come from cutout_rgb: the frame, or the start picture (matched_pixel_source).
+                # The partly transparent edge band of the crop does not follow this: crop_like_5a's bilinear resize mixes the
+                # colour outside the mask into it, the same way for both pictures.
                 cut_rgb, cut_mask, edited_share = composite_cutout(
                     current_rgb, cutout_rgb, original_entry.mask, removal_mask,
                     source_pool.claimed_union(removal_mask.shape), crop_params.matched_mask,

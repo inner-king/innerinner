@@ -30,6 +30,8 @@ MATCHED_MASK_MODES = ("union", "original_plus_hidden", "original")
 # The picture a matched cutout takes its pixels from inside the original mask. "frame" is the original frame and the default;
 # "start_picture" is the picture the image model drew again before the removal. The second is an experiment, so
 # check_pixel_source refuses it unless the upsampled image is on.
+# The partly transparent edge band of a cutout does not follow this: crop_like_5a's bilinear resize mixes the colour outside
+# the mask into it, the same way for both pictures.
 MATCHED_PIXEL_SOURCES = ("frame", "start_picture")
 DECISION_KINDS = ("matched", "no_original", "revealed_later", "trace")
 
@@ -392,6 +394,9 @@ def cutout_pixels(matched_pixel_source, frame_rgb, start_rgb) -> np.ndarray:
     on the start picture, as it does not depend on ``use_upsampled_source_image``. ``"start_picture"`` returns ``start_rgb``
     itself, after checking that it has the frame's shape, so the choice cannot move the grid. Neither returns a copy. A wrong
     value is a ValueError. That the start picture is not the frame is ``check_start_picture``'s job.
+
+    The partly transparent edge band of a cutout does not follow this: ``crop_like_5a``'s bilinear resize mixes the colour
+    outside the mask into it, the same way for both pictures.
     """
     _check_source_value(matched_pixel_source)
     if matched_pixel_source == "frame":
@@ -428,6 +433,8 @@ def composite_cutout(
     With ``"start_picture"`` the caller passes the start picture instead: the upsampled image the image model drew again
     before the removal, so the pixels inside ``original_mask`` are that drawing's. The code below is the same for both, and
     the mask and the edited share do not depend on the choice.
+    The crop that follows (``crop_like_5a``) resizes bilinearly, so the partly transparent edge band mixes in colour from
+    outside the mask, the same way for both pictures.
     """
     if mode not in MATCHED_MASK_MODES:
         raise ValueError(f"mode must be one of {MATCHED_MASK_MODES}, got {mode!r}")
@@ -667,6 +674,8 @@ def object_record(decision: Decision, *, matched_mask: str, edited_pixel_share: 
 
     ``matched_pixel_source`` is the picture the cutout's pixels inside the original mask came from (``cutout_pixels``). It
     is recorded for a matched object; the other kinds record None, as ``matched_mask_mode`` does.
+    The partly transparent edge band of the crop mixes in colour from outside the mask whichever picture is chosen
+    (``crop_like_5a``).
     """
     if decision.kind == "trace":
         raise ValueError("a trace has no object record; use trace_record")

@@ -3363,13 +3363,13 @@ Cup in Bowl은 장면 이름과 과제(`put_cup_in_bowl_bg_g4_place_cup_in_bowl.
 | `matched_mask` | `union` | 짝 물체 컷아웃의 마스크. `union`, `original_plus_hidden`, `original` |
 | `matched_pixel_source` | `frame` | 짝 물체와 살린 물체의 원본 마스크 안 화소를 가져올 그림. `frame`은 원본 프레임, `start_picture`는 시작 그림(아래 문단) |
 
-`matched_pixel_source: start_picture`는 짝 물체와 살린 물체의 원본 마스크 안 화소를 원본 프레임 대신 시작 그림에서 가져옵니다. 시작 그림은 지우기 전에 이미지 모델이 다시 그린 `source_padded_resized_upsampled.png`입니다. 프레임 팔과 시작 그림 팔을 같은 장면에서 나란히 돌리려고 둔 선택이고, 기본값은 `frame`입니다. `use_upsampled_source_image: false`와 함께 쓰면 거부합니다. 그때 시작 그림이 프레임 자체여서, 시작 그림 팔이 조용히 프레임 팔이 되기 때문입니다. 거부 문구는 두 가지입니다.
+`matched_pixel_source: start_picture`는 짝 물체와 살린 물체의 원본 마스크 안 화소를 원본 프레임 대신 시작 그림에서 가져옵니다. 시작 그림은 지우기 전에 이미지 모델이 다시 그린 `source_padded_resized_upsampled.png`입니다. 프레임 팔과 시작 그림 팔을 같은 장면에서 나란히 돌리려고 둔 선택이고, 기본값은 `frame`입니다. 가장자리 띠는 두 그림 모두에서 같은 방식으로 바깥 색이 섞입니다(아래 `masked_object/` 항목). `use_upsampled_source_image: false`와 함께 쓰면 거부합니다. 그때 시작 그림이 프레임 자체여서, 시작 그림 팔이 조용히 프레임 팔이 되기 때문입니다. 거부 문구는 두 가지입니다.
 
 - `start_picture_needs_upsampled_source`: **설정 거부**입니다. `matched_pixel_source: start_picture`와 `use_upsampled_source_image: false`가 함께 있으면 아무 파일도 쓰기 전에 `ValueError`로 멈춥니다.
 - `start_picture_equals_frame`: **업샘플 되돌림**입니다. 업샘플 호출이 그림을 돌려주지 않아 스테이지가 프레임으로 되돌아간 경우, 업샘플 단계 바로 뒤에서 `ValueError`로 멈춥니다. 시작 그림이 프레임과 바이트까지 같다는 뜻입니다. 이 거부는 스테이지에서 잡지 않고 그대로 전파합니다.
 
 원본 모드의 출력입니다(편집 모드는 이 파일들을 더 쓰지 않습니다):
-- `masked_object/`, `masked_object_focus/`: 짝 물체는 원본 개체 마스크 안을 원본 그림에서, 밖을 회차 그림에서 가져온 합성입니다. 살린 물체는 원본 개체만 씁니다.
+- `masked_object/`, `masked_object_focus/`: 짝 물체는 원본 개체 마스크 안을 원본 그림에서, 밖을 회차 그림에서 가져온 합성입니다. 살린 물체는 원본 개체만 씁니다. 가장자리 띠(부분 투명, 컷아웃의 알파 1~254)는 이 규칙과 다릅니다. `crop_like_5a`의 이중선형 리사이즈가 마스크 바깥 색을 가장자리 화소에 섞고, 이 섞임은 `frame`과 `start_picture`에서 같은 방식입니다. 살린 물체의 바깥 색은 고른 그림의 색이고(`start_picture`이면 시작 그림의 색), 짝 물체의 바깥 색은 회차 그림의 색입니다. 코디네이터 검토의 측정 예(`review_tools/startpic_review/stage5/control_checks.json`, 오이 살린 물체 iter_4): 시작 그림 컷아웃 중 2,085 화소(채널당 최대 88/255, 알파 1~254)가 '마스크 안쪽만 시작 그림, 바깥은 프레임'으로 다시 만든 컷아웃과 다릅니다. 초점 그림은 5,822 화소(최대 74/255)이고, 그중 알파 255인 한 화소의 차이는 1단계입니다.
 - `object_mask/iter_k.png`: 짝 물체와 살린 물체의 원본 개체 마스크입니다.
 - `obj_cat_list/iter_k.json`: 기존 키는 그대로 두고 `crop_source`, `crop_reason`, `original_instance`, `matched_mask_mode`, `matched_pixel_source`, `edited_pixel_share`, `occluded_by`를 더합니다. `matched_pixel_source`는 짝 물체와 살린 물체에 `frame` 또는 `start_picture`를 적고, `no_original`과 `revealed_later`에는 `matched_mask_mode`와 같은 규칙으로 `null`을 적습니다. 흔적 기록은 그대로입니다. `crop_source_summary`에도 같은 값이 들어가고, `stage_info.json`은 설정을 되풀이하므로 기본 `edited`에서도 키가 하나 더 보입니다. 살린 물체는 `base_iter: null`을 명시합니다.
 - `skipped_iterations/iter_k.json`: 흔적 회차(`reason: trace_no_original_match`)입니다. 살린 번호(`rescued_as`)나 `lost_object`를 적습니다.
@@ -3383,7 +3383,7 @@ Cup in Bowl은 장면 이름과 과제(`put_cup_in_bowl_bg_g4_place_cup_in_bowl.
 3. `rescue_scope: all`은 손, 기름병처럼 시뮬 물체가 되면 안 되는 것도 살립니다. 연구용 선택지로만 둡니다.
 4. 6단계 infill은 켜지 않았습니다. 가려졌던 가장자리는 회차 그림에서 옵니다.
 5. 자기 원본이 이미 다른 회차에 가져가졌으면 살리지 않고 `lost_object: true`로 남깁니다. 57개 기준으로 당근 iter_24가 여기에 해당합니다.
-6. `start_picture`의 화소는 이미지 모델이 다시 그린 것입니다. 원본 프레임의 실제 화소가 아니므로 짝 물체의 외형은 모델이 그린 만큼 달라질 수 있습니다. 마스크, 짝짓기, 마스크 밖 화소(회차 그림)와 `edited_pixel_share`의 계산은 이 선택으로 바뀌지 않습니다.
+6. `start_picture`의 화소는 이미지 모델이 다시 그린 것입니다. 원본 프레임의 실제 화소가 아니므로 짝 물체의 외형은 모델이 그린 만큼 달라질 수 있습니다. 마스크, 짝짓기, 마스크 밖 화소(회차 그림)와 `edited_pixel_share`의 계산은 이 선택으로 바뀌지 않습니다. 가장자리 띠의 바깥 색 섞임은 두 그림에서 같습니다(위 `masked_object/` 항목).
 
 시험: `tests/test_crop_source.py`, `tests/test_crop_source_replay.py`(규칙), `tests/test_stage5_crop_source_wiring.py`, `tests/test_stage8_object_mask.py`(연결과 기본값 가드). GPU 시험(기본값 불변, 사슬 불변)의 준비물은 저장소 밖 `codelead_2026-10-26/coder2_i58/gpu_test34/`에 있습니다.
 
