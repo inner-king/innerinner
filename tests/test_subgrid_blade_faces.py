@@ -621,6 +621,14 @@ def _one_node_full(*, kv, kw, v, d=None, face_on, separated=True, lin=(0.0, 0.0,
             0.0, -1, 0.0, n, n, n,
             knife_impulse, knife_moment, wp.zeros(1, dtype=float, device="cpu"), kind_work, kind_impulse, kind_side,
             wp.array(face, dtype=float, device="cpu"), face_on,
+            # research4/food-cutting: the options this branch added to _grid_update, all off (the defaults of MPMCuttingSim)
+            wp.zeros((1, n, n), dtype=float, device="cpu"), 0.0, 1.0e30,  # board contact: per-column lowest particle, board z, tolerance
+            0,  # blade split
+            wp.zeros((1, n, n, n), dtype=float, device="cpu"), wp.zeros((1, n, n, n), dtype=float, device="cpu"), 0,  # knife side
+            wp.zeros(1, dtype=int, device="cpu"),  # field membership
+            0, wp.zeros((1, 1, 1, 1), dtype=wp.vec3, device="cpu"), 1.0,  # gap contact
+            0, 0.0025, 0.8,  # face tangent
+            0, 0.0, 0.0,  # kerf slip
         ],
         device="cpu",
     )

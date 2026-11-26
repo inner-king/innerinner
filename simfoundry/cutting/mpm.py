@@ -121,6 +121,7 @@ class KnifeState:
     tip_rise: float
     belly_length: float
     spine_taper: float
+    pinch: float  # [pinch overlay] 바닥 가르기 문턱(날 끝 높이) [m]
 
 
 @wp.func
@@ -246,14 +247,16 @@ def _p2g(
     grid_v: wp.array4d(dtype=wp.vec3),
     grid_g: wp.array4d(dtype=wp.vec3),
     psi_out: wp.array(dtype=float),
-):
+    mscale: wp.array(dtype=float),
+):  # [mod_scale overlay]
     p = wp.tid()
     inv_dx = 1.0 / dx
     xp = x[p]
     f = piece[p]
-    tau, psi = _stress(F[p], C[p], mu, lam, eta)
+    ms = mscale[p]
+    tau, psi = _stress(F[p], C[p], mu * ms, lam * ms, eta)
     if mu_n > 0.0:
-        tau_n, psi_n = _maxwell_stress(Fn[p], mu_n)
+        tau_n, psi_n = _maxwell_stress(Fn[p], mu_n * ms)
         tau = tau + tau_n
         psi = psi + psi_n
     psi_out[p] = psi
@@ -584,7 +587,13 @@ def _crack_need(
     initiation_length: float,
     initiated: wp.array(dtype=int),
     need: wp.array(dtype=float),
-):
+    shell_t: float,
+    shell_mul: float,
+    shell_mode: int,
+    sh_top_lo: wp.array(dtype=float),
+    sh_bot_hi: wp.array(dtype=float),
+    sh_bot_lo: wp.array(dtype=float),
+):  # [shell toughness overlay] # [shell toughness 2 overlay]
     """Sums the fracture energy of the crack that would run from the front to its reach.
 
     Before the stroke's first crack, that of an initiation length of crack instead.
@@ -594,7 +603,7 @@ def _crack_need(
     s, arm = _edge_at_bin(knife, o, cut_u[c], umin + (float(b) + 0.5) * dx)
     if wp.abs(s) > knife.half_length or width[b] <= 0.0 or factor[b] <= 0.0:
         return
-    if knife.origin[2] + arm[2] - board_z <= knife.dilation:
+    if knife.origin[2] + arm[2] - board_z <= knife.pinch:  # [pinch overlay]
         return  # pinched against the board: parts for nothing (see _advance_crack)
     target = wp.dot(o + arm, cut_w[c]) - _crack_reach(knife, s, cut_u[c], cut_w[c], dx, lead)
     front_eff = wp.min(front[c, b], top[b])
@@ -602,7 +611,15 @@ def _crack_need(
         depth = front_eff - target
         if initiated[c] == 0:
             depth = initiation_length
-        wp.atomic_add(need, 0, fracture_energy * width[b] * depth * factor[b])
+        ov = float(0.0)  # [shell toughness overlay]
+        if shell_t > 0.0:
+            if shell_mode == 1:  # [shell toughness 2 overlay] 칸마다 껍질 입자가 차지한 높이 구간(윗 껍질 + 아래 껍질)
+                lo = front_eff - depth
+                ov = wp.max(0.0, wp.min(front_eff, top[b]) - wp.max(lo, sh_top_lo[b]))
+                ov = ov + wp.max(0.0, wp.min(front_eff, sh_bot_hi[b]) - wp.max(lo, sh_bot_lo[b]))
+            else:
+                ov = wp.max(0.0, wp.min(front_eff, top[b]) - wp.max(front_eff - depth, top[b] - shell_t))
+        wp.atomic_add(need, 0, fracture_energy * width[b] * (depth + (shell_mul - 1.0) * ov) * factor[b])
 
 
 @wp.kernel
@@ -626,6 +643,10 @@ def _advance_crack(
     initiated: wp.array(dtype=int),
     first_crack: wp.array(dtype=float),
     area_path: wp.array2d(dtype=float),
+    saw_h: float,  # [saw-sever overlay]
+    saw_need: wp.array2d(dtype=float),
+    saw_travel: wp.array2d(dtype=float),
+    dt: float,
 ):
     """Runs the crack as far as this step's work on the intact material pays for.
 
@@ -640,11 +661,24 @@ def _advance_crack(
     w_edge = wp.dot(o + arm, cut_w[c])
     # The last layer pinched between the edge and the board parts as well.
     gap = knife.origin[2] + arm[2] - board_z
-    if gap <= knife.dilation:
+    if gap <= knife.pinch:  # [pinch overlay]
         if w_edge < front[c, b]:
             # Well below the board: the nodes just under it still carry mass from the bottom
             # layer, and a front level with them would leave the pieces bonded there.
             area_before = _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2])
+            if saw_h > 0.0 and saw_need[c, b] > 0.0:  # [saw-sever overlay] 도마 위 saw_h 층은 날이 그 안에서 날 방향으로 saw_need 미끄러진 뒤에야 갈림
+                bw = board_z - cut_o[c][2]
+                front[c, b] = wp.min(front[c, b], bw + saw_h)
+                wp.atomic_add(area_path, c, 1, _bin_area(width[b], top[b], front[c, b], bw) - area_before)
+                if gap < saw_h:
+                    tangent = wp.normalize(knife.e_u + _edge_slope(knife, s) * knife.e_w)
+                    vel = knife.lin_vel + wp.cross(knife.ang_vel, arm)
+                    saw_travel[c, b] = saw_travel[c, b] + wp.abs(wp.dot(vel, tangent)) * dt
+                if saw_travel[c, b] >= saw_need[c, b] and w_edge < front[c, b]:
+                    area_before = _bin_area(width[b], top[b], front[c, b], bw)
+                    front[c, b] = wp.min(front[c, b], w_edge - gap - 3.0 * dx)
+                    wp.atomic_add(area_path, c, 3, _bin_area(width[b], top[b], front[c, b], bw) - area_before)
+                return
             front[c, b] = wp.min(front[c, b], w_edge - gap - 3.0 * dx)
             wp.atomic_add(area_path, c, 1, _bin_area(width[b], top[b], front[c, b], board_z - cut_o[c][2]) - area_before)
         return
@@ -969,6 +1003,146 @@ def _tear(
 
 
 @wp.kernel
+def _board_touch(x: wp.array(dtype=wp.vec3), piece: wp.array(dtype=int), inv_dx: float, zmax: float,
+                 minz: wp.array3d(dtype=float), nx: int, ny: int):
+    # [board-contact overlay] 조각(field)·격자 열(i, j)마다 그 열에 이어진(이차 B-스플라인 3칸) 입자 중 가장 낮은 높이
+    p = wp.tid()
+    xp = x[p]
+    if xp[2] < zmax:
+        bx = int(wp.floor(xp[0] * inv_dx - 0.5))
+        by = int(wp.floor(xp[1] * inv_dx - 0.5))
+        f = piece[p]
+        for di in range(3):
+            for dj in range(3):
+                ii = bx + di
+                jj = by + dj
+                if ii >= 0 and ii < nx and jj >= 0 and jj < ny:
+                    wp.atomic_min(minz, f, ii, jj, xp[2])
+
+
+@wp.func
+def _blade_side(g: wp.vec3, e_v: wp.vec3):
+    # [blade-split overlay] 조각 면이 칼 면 법선 쪽을 확실히 향하면 +1/−1, 아니면 0
+    gl = wp.length(g)
+    c = float(0.0)
+    if gl > 1.0e-12:
+        c = wp.dot(g, e_v) / gl
+    side = int(0)
+    if c > 0.5:
+        side = 1
+    if c < -0.5:
+        side = -1
+    return side
+
+
+@wp.kernel
+def _knife_side_p2g(x: wp.array(dtype=wp.vec3), piece: wp.array(dtype=int), field_side: wp.array(dtype=int), knife: KnifeState,
+                    reach: float, inv_dx: float, side_acc: wp.array4d(dtype=float), side_w: wp.array4d(dtype=float)):
+    # [knife-side overlay] 조각·격자점마다 그 점에 질량을 준 입자(칼 면에서 reach 안)가 칼 면 어느 쪽인지(가중치 합).
+    # 칼날 두께 밖 입자는 실제 쪽, 칼날 속 입자는 그 조각의 쪽(field_side)으로 센다 — 칼날 속 입자가 중심면을 조금 넘었다고 쪽이 뒤집혀
+    # 칼이 그 질량을 반대쪽으로 더 밀어 얇은 조각이 칼날을 통과한 것 막기(11-13 reports/36 normal_3_4_6_10 첫 판).
+    p = wp.tid()
+    xp = x[p]
+    r = xp - knife.origin
+    d = wp.dot(r, knife.e_v)
+    if wp.abs(d) <= reach:
+        f = piece[p]
+        sgn = float(1.0)
+        if d < 0.0:
+            sgn = -1.0
+        kw_p = wp.dot(r, knife.e_w) - _edge_w(knife, wp.dot(r, knife.e_u))
+        if kw_p >= 0.0 and wp.abs(d) < _half_thickness(knife, kw_p) and field_side[f] != 0:
+            sgn = float(field_side[f])
+        gx = xp * inv_dx
+        bx = int(wp.floor(gx[0] - 0.5))
+        by = int(wp.floor(gx[1] - 0.5))
+        bz = int(wp.floor(gx[2] - 0.5))
+        fx = gx[0] - float(bx)
+        fy = gx[1] - float(by)
+        fz = gx[2] - float(bz)
+        for i in range(3):
+            wx = _bspline(fx, i)
+            for j in range(3):
+                wy = _bspline(fy, j)
+                for kk in range(3):
+                    w = wx * wy * _bspline(fz, kk)
+                    wp.atomic_add(side_acc, f, bx + i, by + j, bz + kk, w * sgn)
+                    wp.atomic_add(side_w, f, bx + i, by + j, bz + kk, w)
+
+
+@wp.kernel
+def _clear_side(side_acc: wp.array4d(dtype=float), side_w: wp.array4d(dtype=float)):
+    f, i, j, k = wp.tid()
+    side_acc[f, i, j, k] = 0.0
+    side_w[f, i, j, k] = 0.0
+
+
+@wp.func
+def _node_side(acc: float, w: float, fallback: int):
+    # [knife-side overlay] 모은 쪽 평균이 ±0.5 를 넘으면 그 쪽, 아니면 fallback
+    side = fallback
+    if w > 1.0e-6:
+        m = acc / w
+        if m > 0.5:
+            side = 1
+        if m < -0.5:
+            side = -1
+    return side
+
+
+@wp.kernel
+def _clear_xm(grid_xm: wp.array4d(dtype=wp.vec3)):  # [gap-contact overlay]
+    f, i, j, k = wp.tid()
+    grid_xm[f, i, j, k] = wp.vec3(0.0)
+
+
+@wp.kernel
+def _xm_p2g(x: wp.array(dtype=wp.vec3), piece: wp.array(dtype=int), pmass: float, dx: float,
+            grid_xm: wp.array4d(dtype=wp.vec3)):  # [gap-contact overlay] 합 w m (x_p − x_i): 질량으로 나누면 격자점에서 그 조각 질량 중심까지
+    p = wp.tid()
+    inv_dx = 1.0 / dx
+    xp = x[p]
+    f = piece[p]
+    gx = xp * inv_dx
+    bx = int(wp.floor(gx[0] - 0.5))
+    by = int(wp.floor(gx[1] - 0.5))
+    bz = int(wp.floor(gx[2] - 0.5))
+    fx = gx[0] - float(bx)
+    fy = gx[1] - float(by)
+    fz = gx[2] - float(bz)
+    for i in range(3):
+        wx = _bspline(fx, i)
+        for j in range(3):
+            wy = _bspline(fy, j)
+            for kk in range(3):
+                wz = _bspline(fz, kk)
+                rel = wp.vec3(fx - float(i), fy - float(j), fz - float(kk)) * dx
+                wp.atomic_add(grid_xm, f, bx + i, by + j, bz + kk, (wx * wy * wz * pmass) * rel)
+
+
+@wp.kernel
+def _reside(x: wp.array(dtype=wp.vec3), piece: wp.array(dtype=int), pminus: wp.array(dtype=int), pplus: wp.array(dtype=int),
+            c: int, cut_o: wp.array(dtype=wp.vec3), cut_u: wp.array(dtype=wp.vec3), cut_v: wp.array(dtype=wp.vec3),
+            cut_w: wp.array(dtype=wp.vec3), front: wp.array2d(dtype=float), umin: float, nbins: int, dx: float):  # [reside overlay]
+    p = wp.tid()
+    f = piece[p]
+    mi = pminus[f]
+    pl = pplus[f]
+    if mi < 0:
+        return
+    rc = x[p] - cut_o[c]
+    bb = int(wp.floor((wp.dot(rc, cut_u[c]) - umin) / dx))
+    if bb < 0 or bb >= nbins:
+        return
+    if wp.dot(rc, cut_w[c]) >= front[c, bb]:
+        return
+    if wp.dot(rc, cut_v[c]) >= 0.0:
+        piece[p] = pl
+    else:
+        piece[p] = mi
+
+
+@wp.kernel
 def _grid_update(
     grid_m: wp.array4d(dtype=float),
     grid_v: wp.array4d(dtype=wp.vec3),
@@ -1004,6 +1178,23 @@ def _grid_update(
     kind_side: wp.array(dtype=float),
     face_min: wp.array4d(dtype=float),
     face_on: int,
+    board_minz: wp.array3d(dtype=float),  # [board-contact overlay]
+    board_z: float,
+    board_tol: float,
+    blade_split: int,  # [blade-split overlay]
+    side_acc: wp.array4d(dtype=float),  # [knife-side overlay]
+    side_w: wp.array4d(dtype=float),
+    knife_side: int,
+    field_member: wp.array(dtype=int),
+    gap_on: int,  # [gap-contact overlay]
+    grid_xm: wp.array4d(dtype=wp.vec3),
+    gap_c: float,
+    face_tan: int,  # [face-tangent overlay]
+    face_zone: float,
+    face_cos: float,
+    kerf_slip: int,  # [kerf-slip overlay]
+    kerf_depth: float,
+    kerf_w: float,
 ):
     """Instrumentation: ``kind_*`` take, per node kind, the knife's work sum(dp . v_knife), impulse sum(dp) and
     side impulse sum(|dp . e_v|). Kind 0: the edge's nose (separated == 0, kw < 0), 1: its belly
@@ -1046,6 +1237,77 @@ def _grid_update(
                     bonded = bonded | (1 << a) | (1 << b)
         # Everything else touching here is in frictional, separable contact.
         vcm_all = p_total / m_total
+        # [blade-split overlay] 칼날 판 안이고 칼 양쪽에 조각이 다 있으면 쪽마다 따로 맞닿음(칼 너머 조각끼리는 안 밀음)
+        slab = int(0)
+        m_pos = float(0.0)
+        p_pos = wp.vec3(0.0)
+        m_neg = float(0.0)
+        p_neg = wp.vec3(0.0)
+        n_pos = int(0)
+        n_neg = int(0)
+        g_all = wp.vec3(0.0)  # [gap-contact overlay]
+        xm_all = wp.vec3(0.0)
+        g_pos = wp.vec3(0.0)
+        xm_pos = wp.vec3(0.0)
+        g_neg = wp.vec3(0.0)
+        xm_neg = wp.vec3(0.0)
+        if gap_on == 1:
+            for f in range(n_fields):
+                if grid_m[f, i, j, k] > MASS_EPS:
+                    g_all = g_all + grid_g[f, i, j, k]
+                    xm_all = xm_all + grid_xm[f, i, j, k]
+        face_t = int(0)  # [face-tangent overlay] 이 격자점이 칼 날 면 face_zone 안인가
+        if gap_on == 1 and face_tan == 1 and knife.enabled == 1:
+            rf = xi - knife.origin
+            kuf = wp.dot(rf, knife.e_u)
+            ef = _edge_w(knife, kuf)
+            kwf = wp.dot(rf, knife.e_w) - ef
+            kvf = wp.dot(rf, knife.e_v)
+            if wp.abs(kuf) <= knife.half_length and kwf >= 0.0 and kwf <= _spine_w(knife, kuf) - ef:
+                if wp.abs(kvf) - _half_thickness(knife, kwf) <= face_zone:
+                    face_t = 1
+        mu_c = contact_mu  # [kerf-slip overlay] 날 끝 바로 아래 틈이면 조각끼리 미끄럼 마찰 0, 법선은 칼 평면 법선
+        kerf_n = int(0)
+        if kerf_slip == 1 and knife.enabled == 1:
+            rk = xi - knife.origin
+            kuk = wp.dot(rk, knife.e_u)
+            kwk = wp.dot(rk, knife.e_w) - _edge_w(knife, kuk)
+            if wp.abs(kuk) <= knife.half_length and kwk < 0.0 and kwk >= -kerf_depth:
+                if wp.abs(wp.dot(rk, knife.e_v)) <= 0.5 * knife.edge_thickness + kerf_w:
+                    mu_c = 0.0
+                    kerf_n = 1
+        if blade_split == 1 and knife.enabled == 1:
+            rb = xi - knife.origin
+            kub = wp.dot(rb, knife.e_u)
+            eb = _edge_w(knife, kub)
+            kwb = wp.dot(rb, knife.e_w) - eb
+            kvb = wp.dot(rb, knife.e_v)
+            if wp.abs(kub) <= knife.half_length and kwb >= 0.0 and kwb <= _spine_w(knife, kub) - eb:
+                if wp.abs(kvb) <= _half_thickness(knife, kwb) + 2.0 * dx:
+                    for f in range(n_fields):
+                        m = grid_m[f, i, j, k]
+                        if m > MASS_EPS:
+                            gs = _blade_side(grid_g[f, i, j, k], knife.e_v)
+                            if knife_side == 1:  # [knife-side overlay]
+                                gs = _node_side(side_acc[f, i, j, k], side_w[f, i, j, k], 0)
+                            if gs >= 0:
+                                m_pos = m_pos + m
+                                p_pos = p_pos + m * grid_v[f, i, j, k]
+                                if gap_on == 1:  # [gap-contact overlay]
+                                    g_pos = g_pos + grid_g[f, i, j, k]
+                                    xm_pos = xm_pos + grid_xm[f, i, j, k]
+                            if gs <= 0:
+                                m_neg = m_neg + m
+                                p_neg = p_neg + m * grid_v[f, i, j, k]
+                                if gap_on == 1:  # [gap-contact overlay]
+                                    g_neg = g_neg + grid_g[f, i, j, k]
+                                    xm_neg = xm_neg + grid_xm[f, i, j, k]
+                            if gs == 1:
+                                n_pos = n_pos + 1
+                            if gs == -1:
+                                n_neg = n_neg + 1
+                    if n_pos > 0 and n_neg > 0:
+                        slab = 1
         for f in range(n_fields):
             m = grid_m[f, i, j, k]
             if m > MASS_EPS and (bonded & (1 << f)) == 0:
@@ -1055,13 +1317,58 @@ def _grid_update(
                     nrm = g / gl
                     vel = grid_v[f, i, j, k]
                     dv = vel - vcm_all
+                    gs_f = int(0)  # [gap-contact overlay]
+                    if slab == 1:  # [blade-split overlay]
+                        gs = _blade_side(g, knife.e_v)
+                        if knife_side == 1:  # [knife-side overlay]
+                            gs = _node_side(side_acc[f, i, j, k], side_w[f, i, j, k], 0)
+                        if gs == 1:
+                            dv = vel - p_pos / m_pos
+                        if gs == -1:
+                            dv = vel - p_neg / m_neg
+                        gs_f = gs
+                    if gap_on == 1:  # [gap-contact overlay] 나머지 조각들(칼날 판 안이면 칼 같은 쪽만)과의 법선·틈
+                        xf = grid_xm[f, i, j, k]
+                        go = g_all - g
+                        xo = xm_all - xf
+                        mo = m_total - m
+                        if gs_f == 1:
+                            go = g_pos - g
+                            xo = xm_pos - xf
+                            mo = m_pos - m
+                        if gs_f == -1:
+                            go = g_neg - g
+                            xo = xm_neg - xf
+                            mo = m_neg - m
+                        if mo > MASS_EPS:
+                            gd = g - go
+                            gdl = wp.length(gd)
+                            if gdl > 1.0e-12:
+                                nrm = gd / gdl
+                            if wp.dot(xo / mo - xf / m, nrm) > gap_c * dx:
+                                nrm = wp.vec3(0.0)
+                            if face_t == 1:  # [face-tangent overlay] 칼 면 가까이: 칼 면을 따라서만 민다
+                                nve = wp.dot(nrm, knife.e_v)
+                                if wp.abs(nve) < face_cos:
+                                    nt = nrm - nve * knife.e_v
+                                    ntl = wp.length(nt)
+                                    if ntl > 1.0e-6:
+                                        nrm = nt / ntl
+                        else:
+                            nrm = wp.vec3(0.0)
+                    if kerf_n == 1:  # [kerf-slip overlay] 날 끝 아래 틈: 칼 평면을 가로지르는 맞닿음은 법선을 ±e_v 로
+                        nve_k = wp.dot(nrm, knife.e_v)
+                        if nve_k > 0.3:
+                            nrm = knife.e_v
+                        if nve_k < -0.3:
+                            nrm = -knife.e_v
                     vn = wp.dot(dv, nrm)
                     if vn > 0.0:
                         vt = dv - vn * nrm
                         vtl = wp.length(vt)
                         vel = vel - vn * nrm
                         if vtl > 1.0e-12:
-                            vel = vel - wp.min(1.0, contact_mu * vn / vtl) * vt
+                            vel = vel - wp.min(1.0, mu_c * vn / vtl) * vt  # [kerf-slip overlay]
                         grid_v[f, i, j, k] = vel
 
     if knife.enabled == 1:
@@ -1087,10 +1394,18 @@ def _grid_update(
                     s = int(0)
                     if active_cut >= 0:
                         s = field_side[f]
+                        if knife_side == 1:  # [knife-side overlay] 이 격자점에서 이 조각 입자가 있는 쪽(애매하면 격자점의 쪽)
+                            node_s = int(1)
+                            if kv < 0.0:
+                                node_s = -1
+                            s = _node_side(side_acc[f, i, j, k], side_w[f, i, j, k], node_s)
                     hit = int(0)
                     nrm = wp.vec3(0.0)
                     req = float(0.0)
-                    if separated == 1 and s != 0:
+                    sep_f = separated
+                    if knife_side == 1 and field_member[f] == 0 and kw >= 0.0:  # [knife-side overlay] 이번 칼질이 안 가르는 조각
+                        sep_f = 1
+                    if sep_f == 1 and s != 0:
                         # Cracked here: each side meets the blade's face on its own side.
                         if face_on == 1:
                             # Subgrid: the face is the material's own (face_min, from _face_p2g), so the blade's real
@@ -1173,7 +1488,7 @@ def _grid_update(
         m = grid_m[f, i, j, k]
         if m > MASS_EPS:
             vel = grid_v[f, i, j, k]
-            if k <= board_k and vel[2] < 0.0:
+            if k <= board_k and vel[2] < 0.0 and board_minz[f, i, j] < board_z + board_tol:  # [board-contact overlay]
                 vn = -vel[2]
                 vt = wp.vec3(vel[0], vel[1], 0.0)
                 vtl = wp.length(vt)
@@ -1512,6 +1827,11 @@ class MPMCuttingSim:
         self.Fn = wp.array(np.tile(np.eye(3, dtype=np.float32), (n, 1, 1)), dtype=wp.mat33, device=dev)
         self.piece = wp.zeros(n, dtype=int, device=dev)
         self.psi = wp.zeros(n, dtype=float, device=dev)
+        self.shell_t, self.shell_mul = 0.0, 1.0  # [shell toughness overlay]
+        self.saw_h, self.saw_len = 0.0, 0.0  # [saw-sever overlay]
+        self.saw_tag = None  # 입자마다 '질긴 조직'(None = 모든 칸)
+        self.shell_mode, self._ms_sub = 0, None  # [shell toughness 2 overlay]
+        self.mscale = wp.full(n, 1.0, dtype=float, device=dev)  # [mod_scale overlay]
         self._hold_flag = wp.array(hold_top.astype(np.int32), dtype=int, device=dev)
         # One substep's pressed count and total force [N], and the running totals over all steps: [sum of the forces,
         # number of steps, last count, last force]. Both are float64 on the device and are read back only when a
@@ -1523,10 +1843,31 @@ class MPMCuttingSim:
         face_shape = (2,) + self.grid_shape if self._face_on == 1 else (2, 1, 1, 1)
         self.face_min = wp.zeros(face_shape, dtype=float, device=dev)
 
+        # [board-contact overlay] 조각·격자 열마다 가장 낮은 입자 높이와 '닿음' 문턱(기본 입자 간격 1개; 아주 크게 주면 원래 솔버와 같음)
+        self.board_minz = wp.zeros((config.max_pieces, self.grid_shape[0], self.grid_shape[1]), dtype=float, device=dev)
+        self.board_tol = 1.0e30  # 기본 꺼짐(원래 솔버와 같음). 켜려면 입자 간격 1개 정도(dx / particles_per_axis) — scripts/cutting/food/warp_fixes.py 가 정함
+        self.blade_split = 0  # [blade-split overlay] 1 = 칼날 너머 조각끼리 안 맞닿음
         gshape = (config.max_pieces,) + self.grid_shape
         self.grid_m = wp.zeros(gshape, dtype=float, device=dev)
         self.grid_v = wp.zeros(gshape, dtype=wp.vec3, device=dev)
         self.grid_g = wp.zeros(gshape, dtype=wp.vec3, device=dev)
+        # [knife-side overlay] 격자점·조각별 칼 면 쪽(가중치 합·가중치), 기본 꺼짐
+        self.side_acc = wp.zeros(gshape, dtype=float, device=dev)
+        self.side_w = wp.zeros(gshape, dtype=float, device=dev)
+        self.knife_side = 0
+        self.field_member = wp.zeros(config.max_pieces, dtype=int, device=dev)
+        self.reside = 0  # [reside overlay] 1 = 균열 앞 입자는 칼 평면의 실제 쪽으로 짝 사이를 다시 고름
+        self.reside_minus = wp.array(np.full(config.max_pieces, -1, dtype=np.int32), dtype=int, device=dev)
+        self.reside_plus = wp.array(np.full(config.max_pieces, -1, dtype=np.int32), dtype=int, device=dev)
+        self.gap_contact = 0  # [gap-contact overlay] 1 = 조각끼리 실제로 닿은 곳만 맞닿음(enable_gap_contact)
+        self.face_tan = 0  # [face-tangent overlay] 1 = 칼 면 가까이 조각끼리는 칼 면을 따라서만 민다
+        self.kerf_slip = 0  # [kerf-slip overlay] 1 = 날 끝 바로 아래 틈에서 조각끼리 미끄럼 마찰 0
+        self.kerf_depth_cells = 3.0
+        self.kerf_w_cells = 2.0
+        self.face_zone = 0.0025
+        self.face_cos = 0.8
+        self.gap_c = 1.0
+        self.grid_xm = wp.zeros((1, 1, 1, 1), dtype=wp.vec3, device=dev)
 
         # Crack fronts live on bins along each cut's edge direction, one cell wide.
         diag = float(np.linalg.norm(self.domain_size))
@@ -1544,6 +1885,9 @@ class MPMCuttingSim:
         # much of the bin's width it fills; each bin's energy per area as a fraction of G_c; and
         # the work done and the fracture energy needed this step.
         self.bin_top = wp.zeros(self.n_bins, dtype=float, device=dev)
+        self.sh_top_lo = wp.full(self.n_bins, 1.0e3, dtype=float, device=dev)  # [shell toughness 2 overlay]
+        self.sh_bot_hi = wp.full(self.n_bins, -1.0e3, dtype=float, device=dev)
+        self.sh_bot_lo = wp.full(self.n_bins, -1.0e3, dtype=float, device=dev)
         self.bin_width = wp.zeros(self.n_bins, dtype=float, device=dev)
         self.bin_factor = wp.zeros(self.n_bins, dtype=float, device=dev)
         self.crack_work = wp.zeros(1, dtype=float, device=dev)
@@ -1570,7 +1914,9 @@ class MPMCuttingSim:
         self.kind_work = wp.zeros(3, dtype=float, device=dev)
         self.kind_impulse = wp.zeros(3, dtype=wp.vec3, device=dev)
         self.kind_side = wp.zeros(3, dtype=float, device=dev)
-        self.area_path = wp.zeros((mc, 3), dtype=float, device=dev)
+        self.area_path = wp.zeros((mc, 4), dtype=float, device=dev)  # [saw-sever overlay] 넷째 칸 = 톱질로 가른 아래층
+        self.saw_travel = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
+        self.saw_need = wp.zeros((mc, self.n_bins), dtype=float, device=dev)  # 칸마다 필요한 미끄러짐 거리(0 = 질긴 층 없음)
         self.crack_ledger = wp.zeros((mc, len(LEDGER_NAMES)), dtype=float, device=dev)
         self.cut_bin_top = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
         self.cut_bin_width = wp.zeros((mc, self.n_bins), dtype=float, device=dev)
@@ -1656,6 +2002,12 @@ class MPMCuttingSim:
 
     # -- knife -------------------------------------------------------------------------
 
+    def enable_gap_contact(self, c: float = 1.0):  # [gap-contact overlay]
+        """조각끼리 맞닿음을 '질량 중심 차가 c 칸 이하인 격자점'에서만, 법선은 두 쪽 질량 기울기 차로."""
+        self.grid_xm = wp.zeros((self.config.max_pieces,) + self.grid_shape, dtype=wp.vec3, device=self.device)
+        self.gap_contact = 1
+        self.gap_c = float(c)
+
     def set_knife(self, pose: KnifePose, lin_vel=(0.0, 0.0, 0.0), ang_vel=(0.0, 0.0, 0.0)):
         """Places the knife. Velocities are world-frame, about the edge midpoint."""
         e_u, e_v, e_w = pose.axes()
@@ -1674,6 +2026,7 @@ class MPMCuttingSim:
         k.bevel_height = g.bevel_height
         k.friction = self.material.knife_friction
         k.dilation = self.config.dilation * self.dx
+        k.pinch = k.dilation + float(getattr(self, "pinch_extra", 0.0))  # [pinch overlay]
         k.enabled = 1
         k.tip_rise = g.tip_rise
         k.belly_length = g.belly_length
@@ -1727,6 +2080,11 @@ class MPMCuttingSim:
             if not mask.any():
                 continue
             sp = side[mask]
+            if self.knife_side == 1:  # [knife-side overlay] 칼 면에 붙어 몇 입자만 칼 너머에 든 조각은 가르지 않고 많은 쪽으로
+                n_pos, n_neg = int((sp > 0).sum()), int((sp < 0).sum())
+                if 0 < min(n_pos, n_neg) <= 30:
+                    side[mask] = 1 if n_pos >= n_neg else -1
+                    sp = side[mask]
             if (sp > 0).any() and (sp < 0).any():
                 if self.n_pieces + len(split) >= self.config.max_pieces:
                     raise RuntimeError("too many pieces")
@@ -1771,7 +2129,19 @@ class MPMCuttingSim:
         front[c] = 1.0e3
         self.front.assign(front)
         self.slide.zero_()  # its bins belong to the previous cut's frame
-        self._set_bin_material(x, o, e_u, e_v, e_w)
+        member = np.zeros(self.config.max_pieces, dtype=np.int32)  # [knife-side overlay] 이번 칼질이 가르는 조각
+        for p_, q_ in split.items():
+            member[p_] = member[q_] = 1
+        self.field_member = wp.array(member, dtype=int, device=self.device)
+        xm = x
+        self._ms_sub = self.mscale.numpy() if self.shell_mode == 1 else None  # [shell toughness 2 overlay]
+        if self.knife_side == 1 and split:  # [knife-side overlay] 재료 높이는 이번 칼질이 가르는 조각 입자로만(칼에 붙어 온 조각 빼기)
+            _sel = np.isin(piece, list(split.keys()) + list(split.values()))
+            xm = x[_sel]
+            if self._ms_sub is not None:
+                self._ms_sub = self._ms_sub[_sel]
+        self._set_bin_material(xm, o, e_u, e_v, e_w)
+        self._set_saw_need(c, x, o, e_u, e_v)  # [saw-sever overlay]
         self.crack_work.zero_()
         self.crack_need.zero_()
         # Instrumentation: this cut's bins, kept for the tear (the bin arrays hold only the active cut).
@@ -1788,7 +2158,36 @@ class MPMCuttingSim:
         self.cut_board.assign(board)
         self.n_cuts += 1
         self.active_cut = c
+        if self.reside == 1:  # [reside overlay] 이번 칼질의 짝: 조각 → (안쪽 a, 바깥쪽 b)
+            mi = np.full(self.config.max_pieces, -1, dtype=np.int32)
+            pl = np.full(self.config.max_pieces, -1, dtype=np.int32)
+            for a_, b_, cc_ in self._pairs:
+                if cc_ == c:
+                    mi[a_] = mi[b_] = a_
+                    pl[a_] = pl[b_] = b_
+            self.reside_minus = wp.array(mi, dtype=int, device=self.device)
+            self.reside_plus = wp.array(pl, dtype=int, device=self.device)
         return c
+
+    def _set_saw_need(self, c, x, o, e_u, e_v):  # [saw-sever overlay]
+        """이번 칼질(c)의 칸마다 질긴 아래층에 필요한 미끄러짐 거리. saw_tag 가 없으면 모든 칸, 있으면 자르는 면 근처
+        입자 가운데 질긴 조직이 절반 이상인 칸만."""
+        row = np.zeros(self.n_bins)
+        if self.saw_h > 0.0:
+            if self.saw_tag is None:
+                row[:] = self.saw_len
+            else:
+                h = self.dx / self.config.particles_per_axis
+                rel = x - o
+                near = np.abs(rel @ e_v) < h
+                b = np.floor((rel[near] @ e_u - self.bin_umin) / self.dx).astype(int)
+                ok = (b >= 0) & (b < self.n_bins)
+                n_all = np.bincount(b[ok], minlength=self.n_bins)[:self.n_bins]
+                n_tag = np.bincount(b[ok], weights=np.asarray(self.saw_tag)[near][ok].astype(float), minlength=self.n_bins)[:self.n_bins]
+                row[(n_all > 0) & (n_tag >= 0.5 * n_all)] = self.saw_len
+        need = self.saw_need.numpy()
+        need[c] = row
+        self.saw_need.assign(need)
 
     def _set_bin_material(self, x, o, e_u, e_v, e_w):
         """Top and width of the material in each crack-front bin of a new cut's plane.
@@ -1814,6 +2213,27 @@ class MPMCuttingSim:
             np.maximum.at(hi, b, u)
             has = np.isfinite(lo)
             width[has] = np.clip(hi[has] - lo[has] + h, 0.0, self.dx)
+            if self._ms_sub is not None:  # [shell toughness 2 overlay]
+                shell = self._ms_sub[near][ok] > 1.0001
+                core = ~shell
+                lo_all = np.full(self.n_bins, 1.0e3)
+                np.minimum.at(lo_all, b, w - 0.5 * h)
+                ctop = np.full(self.n_bins, -1.0e3)
+                np.maximum.at(ctop, b[core], w[core] + 0.5 * h)
+                cbot = np.full(self.n_bins, 1.0e3)
+                np.minimum.at(cbot, b[core], w[core] - 0.5 * h)
+                has_core = ctop > -1.0e2
+                st_lo = np.where(has_core, ctop, lo_all)  # 속이 없는 칸 = 기둥 전체가 껍질
+                sb_hi = np.where(has_core, cbot, -1.0e3)
+                sb_lo = np.where(has_core, lo_all, -1.0e3)
+                has_sh = np.zeros(self.n_bins, bool)
+                has_sh[np.unique(b[shell])] = True
+                st_lo = np.where(has_sh, st_lo, 1.0e3)  # 껍질 입자가 없는 칸은 구간 없음
+                sb_hi = np.where(has_sh, sb_hi, -1.0e3)
+                self.sh_top_lo.assign(st_lo.astype(np.float32))
+                self.sh_bot_hi.assign(sb_hi.astype(np.float32))
+                self.sh_bot_lo.assign(sb_lo.astype(np.float32))
+                self.shell_bins = dict(top_len=(np.where(has_sh & has_core, top - ctop, 0.0)), bot_len=np.where(has_sh & has_core, cbot - lo_all, 0.0), width=width.copy())
         self.bin_top.assign(top.astype(np.float32))
         self.bin_width.assign(width.astype(np.float32))
 
@@ -1863,6 +2283,9 @@ class MPMCuttingSim:
         mat = self.material
         dev = self.device
         nx, ny, nz = self.grid_shape
+        if self.reside == 1 and self.active_cut >= 0:  # [reside overlay]
+            wp.launch(_reside, dim=self.n_particles, inputs=[self.x, self.piece, self.reside_minus, self.reside_plus, self.active_cut,
+                      self.cut_o, self.cut_u, self.cut_v, self.cut_w, self.front, self.bin_umin, self.n_bins, self.dx], device=dev)
         wp.launch(_clear_grid, dim=(self.n_pieces, nx, ny, nz), inputs=[self.grid_m, self.grid_v, self.grid_g], device=dev)
         wp.launch(
             _p2g,
@@ -1872,7 +2295,7 @@ class MPMCuttingSim:
                 self.particle_mass, self.particle_volume,
                 mat.equilibrium_shear_modulus, mat.lame_lambda, mat.viscosity, mat.maxwell_shear_modulus,
                 self.dx, dt,
-                self.grid_m, self.grid_v, self.grid_g, self.psi,
+                self.grid_m, self.grid_v, self.grid_g, self.psi, self.mscale,  # [mod_scale overlay]
             ],
             device=dev,
         )
@@ -1931,6 +2354,20 @@ class MPMCuttingSim:
                 ],
                 device=dev,
             )
+        if self.knife_side == 1 and self._knife.enabled == 1:  # [knife-side overlay]
+            k = self._knife
+            reach_side = 0.5 * max(k.edge_thickness, k.spine_thickness) + k.dilation + 4.0 * self.dx
+            wp.launch(_clear_side, dim=(self.n_pieces, nx, ny, nz), inputs=[self.side_acc, self.side_w], device=dev)
+            wp.launch(_knife_side_p2g, dim=self.n_particles, inputs=[self.x, self.piece, self.field_side, k, reach_side, 1.0 / self.dx,
+                      self.side_acc, self.side_w], device=dev)
+        if self.gap_contact == 1:  # [gap-contact overlay]
+            wp.launch(_clear_xm, dim=(self.n_pieces, nx, ny, nz), inputs=[self.grid_xm], device=dev)
+            wp.launch(_xm_p2g, dim=self.n_particles, inputs=[self.x, self.piece, self.particle_mass, self.dx, self.grid_xm],
+                      device=dev)
+        # [board-contact overlay] 도마에 닿은 조각·열 찾기(격자 단계의 도마 조건이 읽음)
+        self.board_minz.fill_(1.0e9)
+        wp.launch(_board_touch, dim=self.n_particles, inputs=[self.x, self.piece, 1.0 / self.dx,
+                  self.board_z + 2.0 * self.dx, self.board_minz, nx, ny], device=dev)
         if self._hold_on:  # the press goes in where gravity does, after the tearing load has been read (_apply_hold)
             self._apply_hold(dt)
         wp.launch(
@@ -1946,6 +2383,11 @@ class MPMCuttingSim:
                 mat.contact_friction, cfg.board_cells, mat.board_friction,
                 nx, ny, nz, self.knife_impulse, self.knife_moment, self.crack_work,
                 self.kind_work, self.kind_impulse, self.kind_side, self.face_min, self._face_on,
+                self.board_minz, self.board_z, self.board_tol, self.blade_split,  # [blade-split overlay]
+                self.side_acc, self.side_w, self.knife_side, self.field_member,  # [knife-side overlay]
+                self.gap_contact, self.grid_xm, self.gap_c,  # [gap-contact overlay]
+                self.face_tan, self.face_zone, self.face_cos,  # [face-tangent overlay]
+                self.kerf_slip, self.kerf_depth_cells * self.dx, self.kerf_w_cells * self.dx,  # [kerf-slip overlay]
             ],
             device=dev,
         )
@@ -1969,6 +2411,8 @@ class MPMCuttingSim:
                 _crack_need, dim=self.n_bins, device=dev,
                 inputs=common + [
                     mat.fracture_energy, mat.initiation_length, self.crack_initiated, self.crack_need,
+                    float(self.shell_t), float(self.shell_mul),  # [shell toughness overlay]
+                    int(self.shell_mode), self.sh_top_lo, self.sh_bot_hi, self.sh_bot_lo,  # [shell toughness 2 overlay]
                 ],
             )
             wp.launch(
@@ -1976,6 +2420,7 @@ class MPMCuttingSim:
                 inputs=common + [
                     mat.initiation_length, self.crack_work, self.crack_need, self.crack_initiated,
                     self.first_crack, self.area_path,
+                    float(self.saw_h), self.saw_need, self.saw_travel, float(dt),  # [saw-sever overlay]
                 ],
             )
             wp.launch(
