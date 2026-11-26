@@ -6,6 +6,8 @@ cutting solver in `simfoundry/cutting/mpm.py` in the same process. The episodes 
 `scripts/cutting/tofu_policy_episodes.py` and convert to LeRobot with `scripts/cutting/policy/npz_to_lerobot.py`.
 
 Code comments and help texts are in Korean (they come from the author's research repository); this README is the English entry point.
+What was done and why, with the results (more foods, knife adhesion, the knife force cap, unsticking slices from the knife), is in Korean in
+[docs/FOOD_CUTTING_PROGRESS_ko.md](../../../docs/FOOD_CUTTING_PROGRESS_ko.md).
 
 ## What is in the branch
 
